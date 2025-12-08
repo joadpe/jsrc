@@ -10,11 +10,11 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 
-public class CodeBaseLoad {
+public class CodeBaseLoader {
     
     private List<Path> filesPath;
     
-    public CodeBaseLoad(){
+    public CodeBaseLoader(){
         this.filesPath = new ArrayList<>();
     }
     

@@ -9,7 +9,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import com.javautil.app.codebase.CodeBase;
-import com.javautil.app.codebase.CodeBaseLoad;
+import com.javautil.app.codebase.CodeBaseLoader;
 import com.javautil.app.codebase.JavaCodeBase;
 import com.javautil.app.parser.JParser;
 import com.javautil.app.parser.TreeSitterParser;
@@ -20,7 +20,7 @@ public class App {
 
         String rootPath = "src";
 
-        CodeBase project = new JavaCodeBase(new CodeBaseLoad());
+        CodeBase project = new JavaCodeBase(new CodeBaseLoader());
         project.setPath(rootPath);
 
         List<Path> javaFiles = project.getFiles();

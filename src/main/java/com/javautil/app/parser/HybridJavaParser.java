@@ -33,7 +33,7 @@ public class HybridJavaParser implements JParser{
         logger.debug("Iniciando búsqueda híbrida para método: {} en archivo: {}", method, path.getFileName());
         
         // Paso 1: Usar TreeSitter para encontrar rápidamente ubicaciones por nombre
-        List<MethodLocation> locations = ts.getMethodLocations(path, method);
+        List<MethodLocation> locations = null;//ts.getMethodLocations(path, method);
         
         if (locations.isEmpty()) {
             logger.debug("No se encontraron métodos con nombre '{}' usando TreeSitter", method);
@@ -99,7 +99,7 @@ public class HybridJavaParser implements JParser{
      */
     private void logDetailedMethodInfo(MethodDeclaration method, MethodLocation location, Path path) {
         StringBuilder info = new StringBuilder();
-        info.append("✓ Método híbrido encontrado: ");
+        info.append("✓ Método encontrado: ");
         
         // Modificadores
         if (!method.getModifiers().isEmpty()) {
@@ -144,7 +144,7 @@ public class HybridJavaParser implements JParser{
                    methodName, String.join(", ", parameterTypes));
         
         // Paso 1: TreeSitter para ubicaciones rápidas
-        List<MethodLocation> locations = ts.getMethodLocations(path, methodName);
+        List<MethodLocation> locations = null;//ts.getMethodLocations(path, methodName);
         
         if (locations.isEmpty()) {
             logger.debug("No se encontraron métodos con nombre '{}'", methodName);

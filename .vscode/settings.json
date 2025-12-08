@@ -1,3 +1,17 @@
 {
-    "java.configuration.runtimes": []
+    "cSpell.words": [
+        "javautil"
+    ],
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.configuration.detectJdksAtStart": true,
+    /*"java.configuration.runtimes": [
+
+
+            {
+                "name": "JavaSE-22",
+                "path": "/usr/lib/jvm/temurin-22-jdk-amd64",
+                "default": true
+            }
+        ],
+        "java.jdt.ls.java.home": "/usr/lib/jvm/temurin-22-jdk-amd64"*/
 }

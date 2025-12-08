@@ -1,22 +1,23 @@
 package com.javautil.app.parser;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
+import java.lang.foreign.SymbolLookup;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.treesitter.TSLanguage;
-import org.treesitter.TSNode;
-import org.treesitter.TSParser;
-import org.treesitter.TSQuery;
-import org.treesitter.TSQueryCapture;
-import org.treesitter.TSQueryCursor;
-import org.treesitter.TSQueryMatch;
-import org.treesitter.TSTree;
-import org.treesitter.TreeSitterJava;
+
+import io.github.treesitter.jtreesitter.InputEncoding;
+import io.github.treesitter.jtreesitter.Language;
+import io.github.treesitter.jtreesitter.Node;
+import io.github.treesitter.jtreesitter.Parser;
+import io.github.treesitter.jtreesitter.Query;
+import io.github.treesitter.jtreesitter.QueryCursor;
+import io.github.treesitter.jtreesitter.Tree;
 
 public class TreeSitterParser implements JParser{
     
@@ -48,8 +49,22 @@ public class TreeSitterParser implements JParser{
     //private final static String CALL_EXPRESSION_QUERY = "(call_expression function: (identifier) @methodName (#eq? @methodName \"%s\"))";
     private final static String CALL_EXPRESSION_WITH_OBJECT_AND_PARAMS_QUERY = "(call_expression function: (field_access object: (identifier) @objectName field: (identifier) @methodName) arguments: (argument_list) @arguments (#eq? @objectName \"%s\") (#eq? @methodName \"%s\"))";
     
-    private TSParser parser;
-    private TSLanguage language;    
+    private Parser parser;
+    private Language language;
+    
+    /**
+     * Extrae un substring usando índices de bytes de Tree-sitter
+     * Tree-sitter devuelve índices en bytes (UTF-8), no en caracteres
+     */
+    private String substringFromBytes(byte[] bytes, int startByte, int endByte) {
+        if (startByte >= bytes.length) {
+            return "";
+        }
+        if (endByte > bytes.length) {
+            endByte = bytes.length;
+        }
+        return new String(bytes, startByte, endByte - startByte, StandardCharsets.UTF_8);
+    }
 
     public TreeSitterParser(String lang){
         if (lang == null) {
@@ -58,14 +73,20 @@ public class TreeSitterParser implements JParser{
         
         switch (lang.toLowerCase()) {
             case "java":
-                language = new TreeSitterJava();
+                System.loadLibrary("tree-sitter-java");
+                // Después de cargar la biblioteca, crear SymbolLookup desde la biblioteca cargada
+                String library = System.mapLibraryName("tree-sitter-java");
+                SymbolLookup symbols = SymbolLookup.libraryLookup(library, Arena.global());
+                language = Language.load(symbols, "tree_sitter_java");
                 break;
             default:
                 throw new IllegalArgumentException("El parámetro 'lang': "+lang+" no defininda.");
         }
 
-        parser = new TSParser();
-        parser.setLanguage(language);
+        parser = new Parser();
+        if (language != null) {
+            parser.setLanguage(language);
+        }
     }
 
     public void findMethod(Path path, String method){
@@ -81,43 +102,24 @@ public class TreeSitterParser implements JParser{
                 return;
             }
             
-            String content = Files.readString(path);
+            byte[] fileBytes = Files.readAllBytes(path);
+            String content = new String(fileBytes, StandardCharsets.UTF_8);
             List<String> sourceLines = Files.readAllLines(path);
-            TSTree tree = parser.parseString(null, content);
+            Tree tree = parser.parse(content, InputEncoding.UTF_8).orElseThrow();
 
-            TSQuery query = new TSQuery(language, queryString);
-            TSQueryCursor cursor = new TSQueryCursor();
-            cursor.exec(query, tree.getRootNode());
-
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    TSNode node = capture.getNode();
-                    String captureName = query.getCaptureNameForId(capture.getIndex());
-                    
-                    if ("methodName".equals(captureName)) {
-                        String methodName = content.substring(node.getStartByte(), node.getEndByte());
-                        
+            Query query = new Query(language, queryString);
+            try(QueryCursor cursor = new QueryCursor(query)){
+                cursor.findMatches(tree.getRootNode()).forEach(match -> {
+                    List<Node> nodes = match.findNodes("methodName");
+                    nodes.forEach(node -> {
+                        String methodName = node.getText();
                         if (methodName.equals(method)) {
-
-                            int lineNumber = node.getStartPoint().getRow() + 1; // Base 1
-                            
-                            // Obtener el nodo padre (method_declaration) para obtener más contexto
-                            TSNode methodNode = node.getParent();
-                            int methodStartLine = methodNode.getStartPoint().getRow() + 1;
-                            int methodEndLine = methodNode.getEndPoint().getRow() + 1;
-                            
-                            // Extraer el contenido completo del método
-                            StringBuilder methodContent = new StringBuilder();
-                            for (int i = methodStartLine - 1; i < Math.min(methodEndLine, sourceLines.size()); i++) {
-                                methodContent.append(sourceLines.get(i)).append("\n");
-                            }
-                            
-                            logger.debug("✓ Método encontrado: {}. Archivo: {}. Línea: {}", getMethodSignature(methodNode, content), path.getFileName().toString(), lineNumber);
+                            System.out.println("Método encontrado: " + methodName);
                         }
-                    }
-                }
+                    });
+                });
             }
+
             
         }catch(IOException ex){
             logger.error("Error al leer el archivo {}: {}", path, ex.getMessage(), ex);
@@ -133,7 +135,7 @@ public class TreeSitterParser implements JParser{
      * @param methodName Nombre del método (ej: "calcular")
      * @param paramTypes Array de tipos de parámetros esperados (ej: {"int", "String"}) - usar array vacío para métodos sin parámetros
      */
-    public void findExactMethodCall(Path path, String objectName, String methodName, String[] paramTypes){
+    /*public void findExactMethodCall(Path path, String objectName, String methodName, String[] paramTypes){
         String queryString = String.format(CALL_EXPRESSION_WITH_OBJECT_AND_PARAMS_QUERY, objectName, methodName);
         try{
             if (language == null) {
@@ -146,7 +148,8 @@ public class TreeSitterParser implements JParser{
                 return;
             }
             
-            String content = Files.readString(path);
+            byte[] fileBytes = Files.readAllBytes(path);
+            String content = new String(fileBytes, StandardCharsets.UTF_8);
             TSTree tree = parser.parseString(null, content);
 
             TSQuery query = new TSQuery(language, queryString);
@@ -166,10 +169,10 @@ public class TreeSitterParser implements JParser{
                     String captureName = query.getCaptureNameForId(capture.getIndex());
                     
                     if ("objectName".equals(captureName)) {
-                        foundObjectName = content.substring(node.getStartByte(), node.getEndByte());
+                        foundObjectName = substringFromBytes(fileBytes, node.getStartByte(), node.getEndByte());
                         callNode = node.getParent().getParent(); // field_access -> call_expression
                     } else if ("methodName".equals(captureName)) {
-                        foundMethodName = content.substring(node.getStartByte(), node.getEndByte());
+                        foundMethodName = substringFromBytes(fileBytes, node.getStartByte(), node.getEndByte());
                     } else if ("arguments".equals(captureName)) {
                         argumentsNode = node;
                     }
@@ -180,12 +183,12 @@ public class TreeSitterParser implements JParser{
                     callNode != null && argumentsNode != null) {
                     
                     // Analizar los argumentos
-                    String[] foundParamTypes = analyzeArgumentTypes(argumentsNode, content);
+                    String[] foundParamTypes = analyzeArgumentTypes(argumentsNode, fileBytes, content);
                     
                     // Verificar coincidencia exacta de parámetros
                     if (parametersMatch(paramTypes, foundParamTypes)) {
                         int lineNumber = callNode.getStartPoint().getRow() + 1;
-                        String fullCall = content.substring(callNode.getStartByte(), callNode.getEndByte());
+                        String fullCall = substringFromBytes(fileBytes, callNode.getStartByte(), callNode.getEndByte());
                         
                         logger.debug("✓ Llamada exacta encontrada: {}. Archivo: {}. Línea: {}. Parámetros: [{}]", 
                                    fullCall, path.getFileName().toString(), lineNumber, String.join(", ", foundParamTypes));
@@ -198,12 +201,12 @@ public class TreeSitterParser implements JParser{
         } catch (Exception ex) {
             logger.error("Error inesperado al analizar archivo {}: {}", path, ex.getMessage(), ex);
         }
-    }
+    }*/
     
     /**
      * Analiza los tipos de argumentos en una llamada a método
      */
-    private String[] analyzeArgumentTypes(TSNode argumentsNode, String content) {
+    /*private String[] analyzeArgumentTypes(TSNode argumentsNode, byte[] fileBytes, String content) {
         if (argumentsNode.getChildCount() <= 2) { // Solo paréntesis () 
             return new String[0];
         }
@@ -220,7 +223,7 @@ public class TreeSitterParser implements JParser{
                 continue;
             }
             
-            String inferredType = inferArgumentType(child, content);
+            String inferredType = inferArgumentType(child, fileBytes, content);
             if (inferredType != null) {
                 types.add(inferredType);
             }
@@ -232,9 +235,9 @@ public class TreeSitterParser implements JParser{
     /**
      * Infiere el tipo de un argumento basándose en su nodo AST
      */
-    private String inferArgumentType(TSNode argumentNode, String content) {
+    /*private String inferArgumentType(TSNode argumentNode, byte[] fileBytes, String content) {
         String nodeType = argumentNode.getType();
-        String argumentText = content.substring(argumentNode.getStartByte(), argumentNode.getEndByte());
+        String argumentText = substringFromBytes(fileBytes, argumentNode.getStartByte(), argumentNode.getEndByte());
         
         switch (nodeType) {
             case "decimal_integer_literal":
@@ -304,7 +307,7 @@ public class TreeSitterParser implements JParser{
         return true;
     }
 
-    private TSNode _getModifiersNode(TSNode methodNode){
+    /*private TSNode _getModifiersNode(TSNode methodNode){
         TSNode modifiersNode = null;
         for (int i = 0; i < methodNode.getChildCount(); i++) {
             TSNode child = methodNode.getChild(i);
@@ -315,9 +318,9 @@ public class TreeSitterParser implements JParser{
         }
 
         return modifiersNode;
-    }
+    }*/
     
-    private String getMethodSignature(TSNode methodNode, String content) {
+    /*private String getMethodSignature(TSNode methodNode, byte[] fileBytes, String content) {
         // Obtener el nodo de modificadores (public, private, etc.)
         TSNode modifiersNode = _getModifiersNode(methodNode);
         
@@ -331,27 +334,29 @@ public class TreeSitterParser implements JParser{
         
         // Añadir modificadores
         if (modifiersNode != null) {
-            signature.append(content.substring(modifiersNode.getStartByte(), modifiersNode.getEndByte())).append(" ");
+            signature.append(substringFromBytes(fileBytes, modifiersNode.getStartByte(), modifiersNode.getEndByte())).append(" ");
         }
         
         // Añadir tipo de retorno
         if (returnTypeNode != null) {
-            signature.append(content.substring(returnTypeNode.getStartByte(), returnTypeNode.getEndByte())).append(" ");
+            signature.append(substringFromBytes(fileBytes, returnTypeNode.getStartByte(), returnTypeNode.getEndByte())).append(" ");
         }
         
         // Añadir nombre del método
-        signature.append(content.substring(methodNode.getChildByFieldName("name").getStartByte(), 
-                                        methodNode.getChildByFieldName("name").getEndByte()));
+        TSNode nameNode = methodNode.getChildByFieldName("name");
+        if (nameNode != null) {
+            signature.append(substringFromBytes(fileBytes, nameNode.getStartByte(), nameNode.getEndByte()));
+        }
         
         // Añadir parámetros
         if (parametersNode != null) {
-            signature.append(content.substring(parametersNode.getStartByte(), parametersNode.getEndByte()));
+            signature.append(substringFromBytes(fileBytes, parametersNode.getStartByte(), parametersNode.getEndByte()));
         }
         
         return signature.toString();
-    }
+    }   */
 
-    private TSNode _getParametersNode(TSNode methodNode) {
+    /*private TSNode _getParametersNode(TSNode methodNode) {
         TSNode parametersNode = null;
         for (int i = 0; i < methodNode.getChildCount(); i++) {
             TSNode child = methodNode.getChild(i);
@@ -361,9 +366,9 @@ public class TreeSitterParser implements JParser{
             }
         }
         return parametersNode;
-    }
+    }*/
 
-    private TSNode _getReturnTypeNode(TSNode methodNode) {
+    /*private TSNode _getReturnTypeNode(TSNode methodNode) {
         TSNode returnTypeNode = null;
         for (int i = 0; i < methodNode.getChildCount(); i++) {
             TSNode child = methodNode.getChild(i);
@@ -373,7 +378,7 @@ public class TreeSitterParser implements JParser{
             }
         }
         return returnTypeNode;
-    }
+    }*/
   
 
     public String getLanguage(){
@@ -390,7 +395,7 @@ public class TreeSitterParser implements JParser{
      * Devuelve una lista de ubicaciones de métodos encontrados por nombre
      * Para uso en parsers híbridos
      */
-    public List<MethodLocation> getMethodLocations(Path path, String methodName) {
+    /*public List<MethodLocation> getMethodLocations(Path path, String methodName) {
         List<MethodLocation> locations = new ArrayList<>();
         String queryString = String.format(METHOD_DECLARATION_EXACT_QUERY, methodName);
         
@@ -405,7 +410,8 @@ public class TreeSitterParser implements JParser{
                 return locations;
             }
             
-            String content = Files.readString(path);
+            byte[] fileBytes = Files.readAllBytes(path);
+            String content = new String(fileBytes, StandardCharsets.UTF_8);
             List<String> sourceLines = Files.readAllLines(path);
             TSTree tree = parser.parseString(null, content);
 
@@ -420,7 +426,7 @@ public class TreeSitterParser implements JParser{
                     String captureName = query.getCaptureNameForId(capture.getIndex());
                     
                     if ("methodName".equals(captureName)) {
-                        String foundMethodName = content.substring(node.getStartByte(), node.getEndByte());
+                        String foundMethodName = substringFromBytes(fileBytes, node.getStartByte(), node.getEndByte());
                         
                         if (methodName.equals(foundMethodName)) {
                             // Obtener el nodo padre (method_declaration)
@@ -447,5 +453,5 @@ public class TreeSitterParser implements JParser{
         }
         
         return locations;
-    }
+    }*/
 }

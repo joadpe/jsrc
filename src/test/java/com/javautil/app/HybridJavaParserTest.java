@@ -1,9 +1,13 @@
-package com.javautil.app.parser;
+package com.javautil.app;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.io.TempDir;
+
+import com.javautil.app.parser.HybridJavaParser;
+import com.javautil.app.parser.JParser;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
@@ -357,4 +361,6 @@ public class HybridJavaParserTest {
         Files.write(testFile, content.getBytes());
         return testFile;
     }
-} 
+        
+    
+}  

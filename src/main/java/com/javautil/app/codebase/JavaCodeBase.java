@@ -12,10 +12,10 @@ public class JavaCodeBase implements CodeBase{
     private static final Logger logger = LoggerFactory.getLogger(JavaCodeBase.class);
     
     private String path;
-    private CodeBaseLoad loader;
+    private CodeBaseLoader loader;
     List<Path> javaFiles;
 
-    public JavaCodeBase(CodeBaseLoad loader){
+    public JavaCodeBase(CodeBaseLoader loader){
         this.loader = loader;
         logger.debug("JavaCodeBase inicializado con loader");
     }

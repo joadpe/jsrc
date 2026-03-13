@@ -4,6 +4,7 @@
     ],
     "java.configuration.updateBuildConfiguration": "automatic",
     "java.configuration.detectJdksAtStart": true,
+    "java.compile.nullAnalysis.mode": "automatic",
     /*"java.configuration.runtimes": [
 
 

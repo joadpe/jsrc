@@ -73,11 +73,60 @@ public class TreeSitterParser implements JParser{
         
         switch (lang.toLowerCase()) {
             case "java":
-                System.loadLibrary("tree-sitter-java");
-                // Después de cargar la biblioteca, crear SymbolLookup desde la biblioteca cargada
-                String library = System.mapLibraryName("tree-sitter-java");
-                SymbolLookup symbols = SymbolLookup.libraryLookup(library, Arena.global());
-                language = Language.load(symbols, "tree_sitter_java");
+                try {
+                    // Cargar la biblioteca nativa desde el classpath
+                    // jtreesitter empaqueta las bibliotecas nativas en el JAR
+                    String libraryName = System.mapLibraryName("tree-sitter-java");
+                    java.net.URL libraryUrl = null;
+                    java.lang.ClassLoader cl = TreeSitterParser.class.getClassLoader();
+                    
+                    // Intentar buscar en diferentes ubicaciones comunes donde jtreesitter puede empaquetar las bibliotecas
+                    String[] searchPaths = {
+                        "native/" + libraryName,
+                        "META-INF/native/" + libraryName,
+                        "META-INF/native/lib/" + libraryName,
+                        libraryName
+                    };
+                    
+                    for (String path : searchPaths) {
+                        libraryUrl = cl.getResource(path);
+                        if (libraryUrl != null) {
+                            logger.debug("Biblioteca nativa encontrada en: {}", path);
+                            break;
+                        }
+                    }
+                    
+                    if (libraryUrl != null) {
+                        // Extraer la biblioteca a un archivo temporal y cargarla
+                        java.nio.file.Path tempLib = java.nio.file.Files.createTempFile("tree-sitter-java", 
+                            libraryName.substring(libraryName.lastIndexOf('.')));
+                        tempLib.toFile().deleteOnExit();
+                        
+                        try (java.io.InputStream is = libraryUrl.openStream()) {
+                            java.nio.file.Files.copy(is, tempLib, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        }
+                        
+                        // Hacer el archivo ejecutable (necesario en Linux)
+                        tempLib.toFile().setExecutable(true);
+                        
+                        // Cargar la biblioteca y crear el SymbolLookup
+                        System.load(tempLib.toAbsolutePath().toString());
+                        SymbolLookup symbols = SymbolLookup.libraryLookup(tempLib.toAbsolutePath().toString(), Arena.global());
+                        language = Language.load(symbols, "tree_sitter_java");
+                        logger.debug("Lenguaje Java de Tree-sitter cargado correctamente");
+                    } else {
+                        logger.warn("No se encontró la biblioteca nativa tree-sitter-java en el classpath. " +
+                            "Buscado en: {}", String.join(", ", searchPaths));
+                        throw new RuntimeException("No se encontró la biblioteca nativa tree-sitter-java en el classpath. " +
+                            "La biblioteca nativa debería estar incluida en el JAR de jtreesitter o disponible en el sistema.");
+                    }
+                } catch (RuntimeException e) {
+                    throw e; // Re-lanzar RuntimeException tal cual
+                } catch (Exception e) {
+                    logger.error("No se pudo cargar el lenguaje Java de Tree-sitter: {}", e.getMessage(), e);
+                    throw new RuntimeException("No se pudo cargar el lenguaje Tree-sitter para Java. " +
+                        "Asegúrate de que jtreesitter esté correctamente configurado y que las bibliotecas nativas estén disponibles.", e);
+                }
                 break;
             default:
                 throw new IllegalArgumentException("El parámetro 'lang': "+lang+" no defininda.");

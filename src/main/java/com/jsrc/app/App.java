@@ -81,8 +81,8 @@ public class App {
             javaFiles = filterExcludes(javaFiles, config.excludes());
         }
 
-        // Try loading index for full-parse commands
-        var indexedCodebase = com.jsrc.app.index.IndexedCodebase.tryLoad(Paths.get(rootPath));
+        // Try loading index for full-parse commands (auto-refreshes stale entries)
+        var indexedCodebase = com.jsrc.app.index.IndexedCodebase.tryLoad(Paths.get(rootPath), javaFiles);
 
         var timer = com.jsrc.app.util.StopWatch.start();
         int[] resultCount = {0}; // mutable counter for lambdas

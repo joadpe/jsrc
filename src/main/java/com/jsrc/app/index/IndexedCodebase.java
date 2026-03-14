@@ -1,21 +1,28 @@
 package com.jsrc.app.index;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.jsrc.app.parser.CodeParser;
+import com.jsrc.app.parser.HybridJavaParser;
 import com.jsrc.app.parser.model.AnnotationInfo;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
 
 /**
  * Provides ClassInfo and MethodInfo from a persisted index,
- * avoiding full source re-parsing. Falls back to null if no index exists.
+ * avoiding full source re-parsing. Auto-refreshes stale entries
+ * when files have been modified since indexing.
  */
 public class IndexedCodebase {
 
@@ -23,7 +30,6 @@ public class IndexedCodebase {
 
     private final List<IndexEntry> entries;
     private List<ClassInfo> allClasses;
-    private Map<String, List<ClassInfo>> classesByFile;
 
     private IndexedCodebase(List<IndexEntry> entries) {
         this.entries = entries;
@@ -31,9 +37,88 @@ public class IndexedCodebase {
 
     /**
      * Tries to load an indexed codebase from disk.
+     * If files have changed since indexing, automatically re-parses
+     * only the modified/new files and updates the persisted index.
      *
      * @param sourceRoot project root where .jsrc/index.json lives
-     * @return IndexedCodebase if index exists and has entries, null otherwise
+     * @param currentFiles current list of Java files on disk
+     * @return IndexedCodebase if index exists, null otherwise
+     */
+    public static IndexedCodebase tryLoad(Path sourceRoot, List<Path> currentFiles) {
+        List<IndexEntry> existing = CodebaseIndex.load(sourceRoot);
+        if (existing.isEmpty()) {
+            return null;
+        }
+
+        // Build lookup by relative path
+        Map<String, IndexEntry> byPath = new HashMap<>();
+        for (IndexEntry e : existing) {
+            byPath.put(e.path(), e);
+        }
+
+        // Detect changes
+        List<IndexEntry> refreshed = new ArrayList<>();
+        Set<String> currentPaths = new HashSet<>();
+        int staleCount = 0;
+        CodeParser parser = null; // lazy init only if needed
+
+        for (Path file : currentFiles) {
+            String relativePath = sourceRoot.relativize(file).toString();
+            currentPaths.add(relativePath);
+
+            IndexEntry prev = byPath.get(relativePath);
+            if (prev != null) {
+                // Check if file was modified since indexing
+                try {
+                    long currentModified = Files.getLastModifiedTime(file).toMillis();
+                    if (currentModified <= prev.lastModified()) {
+                        // Unchanged — reuse cached entry
+                        refreshed.add(prev);
+                        continue;
+                    }
+                } catch (IOException e) {
+                    // Can't read timestamp — re-parse to be safe
+                }
+            }
+
+            // New or modified file — re-parse
+            if (parser == null) parser = new HybridJavaParser();
+            staleCount++;
+            try {
+                byte[] content = Files.readAllBytes(file);
+                String hash = sha256(content);
+                long lastModified = Files.getLastModifiedTime(file).toMillis();
+                List<ClassInfo> classes = parser.parseClasses(file);
+                List<IndexedClass> indexed = classes.stream()
+                        .map(ci -> classInfoToIndexed(ci))
+                        .toList();
+                refreshed.add(new IndexEntry(relativePath, hash, lastModified, indexed));
+            } catch (IOException e) {
+                logger.error("Error refreshing {}: {}", file, e.getMessage());
+                if (prev != null) refreshed.add(prev); // keep stale rather than lose
+            }
+        }
+
+        // Detect deleted files (in index but not on disk) — just skip them
+
+        if (staleCount > 0) {
+            logger.info("Auto-refreshed {} stale/new file(s), {} cached", staleCount, refreshed.size() - staleCount);
+            // Persist updated index
+            var updatedIndex = new CodebaseIndex(refreshed);
+            try {
+                updatedIndex.save(sourceRoot);
+            } catch (IOException e) {
+                logger.warn("Could not save refreshed index: {}", e.getMessage());
+            }
+        } else {
+            logger.info("Index up-to-date: {} entries", refreshed.size());
+        }
+
+        return new IndexedCodebase(refreshed);
+    }
+
+    /**
+     * Tries to load without auto-refresh (original behavior).
      */
     public static IndexedCodebase tryLoad(Path sourceRoot) {
         List<IndexEntry> entries = CodebaseIndex.load(sourceRoot);
@@ -153,5 +238,37 @@ public class IndexedCodebase {
                 im.returnType(), List.of(), List.of(),
                 "", // no content from index
                 annotations, List.of(), List.of(), null);
+    }
+
+    private static IndexedClass classInfoToIndexed(ClassInfo ci) {
+        List<IndexedMethod> methods = ci.methods().stream()
+                .map(m -> new IndexedMethod(
+                        m.name(), m.signature(), m.startLine(), m.endLine(),
+                        m.returnType(),
+                        m.annotations().stream().map(a -> a.name()).toList()))
+                .toList();
+
+        List<String> annotations = ci.annotations().stream()
+                .map(a -> a.name()).toList();
+
+        return new IndexedClass(
+                ci.name(), ci.packageName(), ci.startLine(), ci.endLine(),
+                ci.isInterface(), ci.isAbstract(),
+                ci.superClass().isEmpty() ? List.of() : List.of(ci.superClass()),
+                ci.interfaces(), methods, annotations, List.of());
+    }
+
+    private static String sha256(byte[] data) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(data);
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
     }
 }

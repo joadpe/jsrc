@@ -8,28 +8,67 @@ import com.javautil.app.codebase.CodeBaseLoader;
 import com.javautil.app.codebase.JavaCodeBase;
 import com.javautil.app.parser.CodeParser;
 import com.javautil.app.parser.HybridJavaParser;
+import com.javautil.app.parser.model.CodeSmell;
 import com.javautil.app.parser.model.MethodInfo;
 
 public class App {
 
     public static void main(String[] args) {
         if (args.length < 2) {
-            System.err.println("Usage: javautil <source-root> <method-name>");
-            System.err.println("  source-root  Root directory to scan for .java files");
-            System.err.println("  method-name  Method name to search for");
+            System.err.println("Usage:");
+            System.err.println("  javautil <source-root> <method-name>   Search for methods");
+            System.err.println("  javautil <source-root> --smells        Detect code smells");
             System.exit(1);
         }
 
         String rootPath = args[0];
-        String methodName = args[1];
+        String command = args[1];
 
         CodeBase project = new JavaCodeBase(rootPath, new CodeBaseLoader());
         List<Path> javaFiles = project.getFiles();
+        CodeParser parser = new HybridJavaParser();
 
+        if ("--smells".equals(command)) {
+            runSmellDetection(parser, javaFiles, rootPath);
+        } else {
+            runMethodSearch(parser, javaFiles, rootPath, command);
+        }
+    }
+
+    private static void runSmellDetection(CodeParser parser, List<Path> javaFiles, String rootPath) {
+        System.out.printf("Analyzing %d Java files under '%s' for code smells...%n",
+                javaFiles.size(), rootPath);
+
+        int totalSmells = 0;
+        int warnings = 0;
+        int infos = 0;
+
+        for (Path file : javaFiles) {
+            List<CodeSmell> smells = parser.detectSmells(file);
+            if (smells.isEmpty()) continue;
+
+            System.out.printf("%n--- %s ---%n", file);
+            for (CodeSmell smell : smells) {
+                totalSmells++;
+                switch (smell.severity()) {
+                    case WARNING, ERROR -> warnings++;
+                    case INFO -> infos++;
+                }
+                System.out.printf("  [%s] %s at line %d in %s%n    %s%n",
+                        smell.severity(), smell.ruleId(), smell.line(),
+                        smell.methodName().isEmpty() ? smell.className() : smell.methodName() + "()",
+                        smell.message());
+            }
+        }
+
+        System.out.printf("%nDone. Found %d smell(s): %d warning(s), %d info(s).%n",
+                totalSmells, warnings, infos);
+    }
+
+    private static void runMethodSearch(CodeParser parser, List<Path> javaFiles,
+                                         String rootPath, String methodName) {
         System.out.printf("Scanning %d Java files under '%s' for method '%s'...%n",
                 javaFiles.size(), rootPath, methodName);
-
-        CodeParser parser = new HybridJavaParser();
 
         int totalFound = 0;
         for (Path file : javaFiles) {

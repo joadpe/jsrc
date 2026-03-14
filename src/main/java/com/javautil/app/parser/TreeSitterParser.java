@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.javautil.app.parser.model.ClassInfo;
+import com.javautil.app.parser.model.CodeSmell;
 import com.javautil.app.parser.model.MethodInfo;
 import com.javautil.app.parser.model.MethodInfo.ParameterInfo;
 
@@ -89,6 +90,12 @@ public class TreeSitterParser implements CodeParser {
         // Tree-sitter can't reliably parse annotations; return empty.
         // Callers needing annotation search should use HybridJavaParser.
         logger.debug("findMethodsByAnnotation not supported by TreeSitterParser, returning empty");
+        return Collections.emptyList();
+    }
+
+    @Override
+    public List<CodeSmell> detectSmells(Path path) {
+        logger.debug("detectSmells not supported by TreeSitterParser, returning empty");
         return Collections.emptyList();
     }
 

@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import com.javautil.app.parser.model.ClassInfo;
+import com.javautil.app.parser.model.CodeSmell;
 import com.javautil.app.parser.model.MethodInfo;
 
 /**
@@ -38,6 +39,12 @@ public interface CodeParser {
      * @param annotationName simple name without '@' (e.g. "Override", "Test")
      */
     List<MethodInfo> findMethodsByAnnotation(Path path, String annotationName);
+
+    /**
+     * Detects common code smells in the given file.
+     * Requires semantic AST analysis; syntax-only parsers return empty.
+     */
+    List<CodeSmell> detectSmells(Path path);
 
     /**
      * Returns the language this parser is configured for.

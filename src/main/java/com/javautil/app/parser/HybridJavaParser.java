@@ -26,6 +26,7 @@ import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.javautil.app.parser.model.AnnotationInfo;
 import com.javautil.app.parser.model.ClassInfo;
+import com.javautil.app.parser.model.CodeSmell;
 import com.javautil.app.parser.model.MethodInfo;
 import com.javautil.app.parser.model.MethodInfo.ParameterInfo;
 
@@ -48,10 +49,12 @@ public class HybridJavaParser implements CodeParser {
 
     private final TreeSitterParser treeSitter;
     private final JavaParser javaParser;
+    private final CodeSmellDetector smellDetector;
 
     public HybridJavaParser() {
         this.treeSitter = new TreeSitterParser("java");
         this.javaParser = new JavaParser();
+        this.smellDetector = new CodeSmellDetector();
     }
 
     @Override
@@ -144,6 +147,18 @@ public class HybridJavaParser implements CodeParser {
                         .anyMatch(a -> a.getNameAsString().equals(annotationName)))
                 .map(md -> toRichMethodInfo(md, null))
                 .toList();
+    }
+
+    // ---- code smell detection ----
+
+    @Override
+    public List<CodeSmell> detectSmells(Path path) {
+        if (!isValidPath(path)) return Collections.emptyList();
+
+        CompilationUnit cu = parseWithJavaParser(path);
+        if (cu == null) return Collections.emptyList();
+
+        return smellDetector.analyzeFile(cu);
     }
 
     // ---- JavaParser model extraction ----

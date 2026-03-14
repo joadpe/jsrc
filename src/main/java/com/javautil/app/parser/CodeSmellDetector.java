@@ -161,7 +161,7 @@ public class CodeSmellDetector {
     private List<CodeSmell> detectMethodTooLong(MethodDeclaration md,
                                                  String className, String methodName, int startLine) {
         int endLine = md.getEnd().map(p -> p.line).orElse(startLine);
-        int length = endLine - startLine;
+        int length = endLine - startLine + 1;
         if (length > maxMethodLines) {
             List<CodeSmell> result = new ArrayList<>();
             result.add(new CodeSmell(

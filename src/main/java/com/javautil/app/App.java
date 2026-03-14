@@ -1,13 +1,19 @@
 package com.javautil.app;
 
+import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 import com.javautil.app.codebase.CodeBase;
 import com.javautil.app.codebase.CodeBaseLoader;
 import com.javautil.app.codebase.JavaCodeBase;
+import com.javautil.app.parser.CallChainTracer;
+import com.javautil.app.parser.CallGraphBuilder;
 import com.javautil.app.parser.CodeParser;
 import com.javautil.app.parser.HybridJavaParser;
+import com.javautil.app.parser.MermaidDiagramGenerator;
+import com.javautil.app.parser.model.CallChain;
 import com.javautil.app.parser.model.CodeSmell;
 import com.javautil.app.parser.model.MethodInfo;
 
@@ -15,9 +21,7 @@ public class App {
 
     public static void main(String[] args) {
         if (args.length < 2) {
-            System.err.println("Usage:");
-            System.err.println("  javautil <source-root> <method-name>   Search for methods");
-            System.err.println("  javautil <source-root> --smells        Detect code smells");
+            printUsage();
             System.exit(1);
         }
 
@@ -26,13 +30,30 @@ public class App {
 
         CodeBase project = new JavaCodeBase(rootPath, new CodeBaseLoader());
         List<Path> javaFiles = project.getFiles();
-        CodeParser parser = new HybridJavaParser();
 
         if ("--smells".equals(command)) {
+            CodeParser parser = new HybridJavaParser();
             runSmellDetection(parser, javaFiles, rootPath);
+        } else if ("--call-chain".equals(command)) {
+            if (args.length < 3) {
+                System.err.println("Error: --call-chain requires a method name");
+                printUsage();
+                System.exit(1);
+            }
+            String methodName = args[2];
+            String outputDir = args.length >= 4 ? args[3] : "./call-chains";
+            runCallChainAnalysis(javaFiles, rootPath, methodName, outputDir);
         } else {
+            CodeParser parser = new HybridJavaParser();
             runMethodSearch(parser, javaFiles, rootPath, command);
         }
+    }
+
+    private static void printUsage() {
+        System.err.println("Usage:");
+        System.err.println("  javautil <source-root> <method-name>                    Search for methods");
+        System.err.println("  javautil <source-root> --smells                         Detect code smells");
+        System.err.println("  javautil <source-root> --call-chain <method> [outdir]   Generate call chain diagrams");
     }
 
     private static void runSmellDetection(CodeParser parser, List<Path> javaFiles, String rootPath) {
@@ -100,5 +121,38 @@ public class App {
         }
 
         System.out.printf("%nDone. Found %d match(es).%n", totalFound);
+    }
+
+    private static void runCallChainAnalysis(List<Path> javaFiles, String rootPath,
+                                              String methodName, String outputDir) {
+        System.out.printf("Building call graph for %d Java files under '%s'...%n",
+                javaFiles.size(), rootPath);
+
+        CallGraphBuilder graphBuilder = new CallGraphBuilder();
+        graphBuilder.build(javaFiles);
+
+        System.out.printf("Tracing call chains to '%s'...%n", methodName);
+
+        CallChainTracer tracer = new CallChainTracer(graphBuilder);
+        List<CallChain> chains = tracer.traceToRoots(methodName);
+
+        if (chains.isEmpty()) {
+            System.out.printf("No call chains found for method '%s'.%n", methodName);
+            return;
+        }
+
+        System.out.printf("Found %d call chain(s). Generating diagrams...%n", chains.size());
+
+        MermaidDiagramGenerator generator = new MermaidDiagramGenerator();
+        try {
+            List<Path> files = generator.writeAll(chains, Paths.get(outputDir), methodName);
+            for (Path file : files) {
+                System.out.printf("  Written: %s%n", file);
+            }
+            System.out.printf("%nDone. %d diagram(s) saved to '%s'.%n", files.size(), outputDir);
+        } catch (IOException ex) {
+            System.err.printf("Error writing diagrams: %s%n", ex.getMessage());
+            System.exit(1);
+        }
     }
 }

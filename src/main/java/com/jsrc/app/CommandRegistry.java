@@ -23,6 +23,8 @@ public final class CommandRegistry {
     ) {}
 
     private static final List<CommandDef> COMMANDS = List.of(
+            new CommandDef("--drift", "Combined architecture check + spec verification",
+                    List.of(), List.of("--json", "--metrics"), "object"),
             new CommandDef("--verify", "Verify implementation against Markdown spec",
                     List.of("<className>", "--spec", "<path.md>"), List.of("--json", "--metrics"), "object"),
             new CommandDef("--contract", "Extract formal contract of an interface/class",

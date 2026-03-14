@@ -89,7 +89,7 @@ public class InvokerResolver {
                             if (!(arg instanceof StringLiteralExpr strLit)) continue;
 
                             String targetMethod = strLit.getValue();
-                            String targetClass = resolveTargetClass(callerClass, inv.resolveClass());
+                            String targetClass = resolveTargetClass(callerClass, inv);
                             int line = call.getBegin().map(p -> p.line).orElse(0);
 
                             results.add(new ReflectiveCall(
@@ -124,12 +124,13 @@ public class InvokerResolver {
      * E.g. caller "LiquidacionDetalle" + convention "adaptadorBean"
      * → target "LiquidacionAdaptadorBean"
      */
-    private String resolveTargetClass(String callerClass, String resolveClass) {
+    private String resolveTargetClass(String callerClass, InvokerDef inv) {
+        String resolveClass = inv.resolveClass();
         if (resolveClass == null || resolveClass.isEmpty()) return "?";
 
-        // Extract prefix: remove known suffixes
+        // Extract prefix: remove configurable suffixes
         String prefix = callerClass;
-        for (String suffix : List.of("Detalle", "Vista", "View", "Form", "Panel", "Dialog")) {
+        for (String suffix : inv.callerSuffixes()) {
             if (prefix.endsWith(suffix)) {
                 prefix = prefix.substring(0, prefix.length() - suffix.length());
                 break;

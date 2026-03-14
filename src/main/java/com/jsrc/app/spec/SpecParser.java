@@ -66,9 +66,11 @@ public class SpecParser {
                 continue;
             }
 
-            // - **Throws:** IOException, IllegalStateException
-            if (trimmed.startsWith("- **Throws:**")) {
-                String throwsStr = trimmed.substring("- **Throws:**".length()).trim();
+            // - **Throws:** IOException, IllegalStateException (tolerant: Throws/throws, with/without colon)
+            if (trimmed.toLowerCase().startsWith("- **throws**") || trimmed.toLowerCase().startsWith("- **throws:**")) {
+                int idx = trimmed.indexOf("**", 4);
+                String throwsStr = (idx >= 0) ? trimmed.substring(idx + 2).trim() : "";
+                if (throwsStr.startsWith(":")) throwsStr = throwsStr.substring(1).trim();
                 for (String t : throwsStr.split(",")) {
                     String ex = t.trim();
                     if (!ex.isEmpty()) currentThrows.add(ex);
@@ -76,9 +78,11 @@ public class SpecParser {
                 continue;
             }
 
-            // - **Annotation:** @Override
-            if (trimmed.startsWith("- **Annotation:**")) {
-                String ann = trimmed.substring("- **Annotation:**".length()).trim();
+            // - **Annotation:** @Override (tolerant: Annotation/annotation, with/without colon)
+            if (trimmed.toLowerCase().startsWith("- **annotation**") || trimmed.toLowerCase().startsWith("- **annotation:**")) {
+                int idx = trimmed.indexOf("**", 4);
+                String ann = (idx >= 0) ? trimmed.substring(idx + 2).trim() : "";
+                if (ann.startsWith(":")) ann = ann.substring(1).trim();
                 if (ann.startsWith("@")) ann = ann.substring(1);
                 if (!ann.isEmpty()) currentAnnotations.add(ann);
                 continue;

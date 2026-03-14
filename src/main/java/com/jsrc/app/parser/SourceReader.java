@@ -39,9 +39,13 @@ public class SourceReader {
 
     /**
      * Reads the source code of a specific method.
+     * <p>
+     * Note: className should be a simple name (e.g. "Service"), not qualified.
+     * For qualified names like "com.app.Service", use --summary instead.
+     * The dot in "com.app.Service" is ambiguous with "Class.method" format.
      *
      * @param files     Java files to search
-     * @param className class name (simple or qualified)
+     * @param className class name (simple name recommended)
      * @param methodName method name
      * @return source with metadata, or null if not found
      */

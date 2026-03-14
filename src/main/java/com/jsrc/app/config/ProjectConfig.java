@@ -98,10 +98,19 @@ public record ProjectConfig(
         List<Map<String, Object>> invokersList = (List<Map<String, Object>>) archMap.get("invokers");
         if (invokersList != null) {
             for (Map<String, Object> im : invokersList) {
-                invokers.add(new ArchitectureConfig.InvokerDef(
-                        getString(im, "method", ""),
-                        getInt(im, "targetArg", 0),
-                        getString(im, "resolveClass", "")));
+                List<String> suffixes = getStringList(im, "callerSuffixes");
+                if (suffixes.isEmpty()) {
+                    invokers.add(new ArchitectureConfig.InvokerDef(
+                            getString(im, "method", ""),
+                            getInt(im, "targetArg", 0),
+                            getString(im, "resolveClass", "")));
+                } else {
+                    invokers.add(new ArchitectureConfig.InvokerDef(
+                            getString(im, "method", ""),
+                            getInt(im, "targetArg", 0),
+                            getString(im, "resolveClass", ""),
+                            suffixes));
+                }
             }
         }
 

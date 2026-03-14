@@ -139,7 +139,9 @@ public class App {
         // Try loading index for full-parse commands (auto-refreshes stale entries)
         var indexedCodebase = com.jsrc.app.index.IndexedCodebase.tryLoad(Paths.get(rootPath), javaFiles);
 
-        if ("--verify".equals(command)) {
+        if ("--drift".equals(command)) {
+            resultCount[0] = runDrift(indexedCodebase, javaFiles, rootPath, config, formatter);
+        } else if ("--verify".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --verify requires a class name and --spec path");
                 printUsage();
@@ -290,6 +292,82 @@ public class App {
         }
     }
 
+    private static int runDrift(com.jsrc.app.index.IndexedCodebase indexed,
+                                     List<Path> javaFiles, String rootPath,
+                                     com.jsrc.app.config.ProjectConfig config,
+                                     OutputFormatter formatter) {
+        Map<String, Object> report = new java.util.LinkedHashMap<>();
+
+        // Architecture check
+        if (config != null && !config.architecture().rules().isEmpty()) {
+            List<ClassInfo> allClasses;
+            if (indexed != null) {
+                allClasses = indexed.getAllClasses();
+            } else {
+                CodeParser parser = new HybridJavaParser();
+                allClasses = new ArrayList<>();
+                for (Path file : javaFiles) allClasses.addAll(parser.parseClasses(file));
+            }
+            var engine = new com.jsrc.app.architecture.RuleEngine(config.architecture());
+            var violations = engine.evaluate(allClasses, javaFiles);
+            report.put("architectureViolations", violations.size());
+            if (!violations.isEmpty()) {
+                report.put("violations", violations.stream().map(v -> {
+                    Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("ruleId", v.ruleId());
+                    m.put("className", v.className());
+                    m.put("message", v.message());
+                    return m;
+                }).toList());
+            }
+        } else {
+            report.put("architectureViolations", 0);
+        }
+
+        // Changed files
+        var diffResult = runDiffInternal(javaFiles, rootPath);
+        report.put("changedFiles", diffResult.size());
+        if (!diffResult.isEmpty()) report.put("changed", diffResult);
+
+        int total = ((Number) report.get("architectureViolations")).intValue() + diffResult.size();
+        report.put("totalIssues", total);
+
+        System.out.println(com.jsrc.app.output.JsonWriter.toJson(report));
+        return total;
+    }
+
+    private static List<String> runDiffInternal(List<Path> javaFiles, String rootPath) {
+        Path root = Paths.get(rootPath);
+        List<com.jsrc.app.index.IndexEntry> existing = com.jsrc.app.index.CodebaseIndex.load(root);
+        if (existing.isEmpty()) return List.of();
+
+        Map<String, com.jsrc.app.index.IndexEntry> byPath = new java.util.HashMap<>();
+        for (var entry : existing) byPath.put(entry.path(), entry);
+
+        List<String> modified = new ArrayList<>();
+        for (Path file : javaFiles) {
+            String relativePath = root.relativize(file).toString();
+            var prev = byPath.get(relativePath);
+            if (prev == null) {
+                modified.add(relativePath);
+            } else {
+                try {
+                    long currentModified = java.nio.file.Files.getLastModifiedTime(file).toMillis();
+                    if (currentModified > prev.lastModified()) {
+                        byte[] content = java.nio.file.Files.readAllBytes(file);
+                        String hash = sha256(content);
+                        if (!hash.equals(prev.contentHash())) {
+                            modified.add(relativePath);
+                        }
+                    }
+                } catch (java.io.IOException e) {
+                    modified.add(relativePath);
+                }
+            }
+        }
+        return modified;
+    }
+
     private static int runVerify(List<Path> javaFiles, String className, String specPath) {
         try {
             var spec = com.jsrc.app.spec.SpecParser.parse(Path.of(specPath));
@@ -320,23 +398,7 @@ public class App {
         for (Path file : javaFiles) {
             for (ClassInfo ci : parser.parseClasses(file)) {
                 if (ci.name().equals(className) || ci.qualifiedName().equals(className)) {
-                    Map<String, Object> contract = new java.util.LinkedHashMap<>();
-                    contract.put("name", ci.qualifiedName());
-                    contract.put("isInterface", ci.isInterface());
-                    contract.put("methods", ci.methods().stream().map(m -> {
-                        Map<String, Object> mm = new java.util.LinkedHashMap<>();
-                        mm.put("name", m.name());
-                        mm.put("signature", m.signature());
-                        mm.put("returnType", m.returnType());
-                        mm.put("parameters", m.parameters().stream()
-                                .map(p -> p.type() + " " + p.name()).toList());
-                        if (!m.thrownExceptions().isEmpty()) mm.put("throws", m.thrownExceptions());
-                        if (!m.annotations().isEmpty()) mm.put("annotations",
-                                m.annotations().stream().map(a -> a.toString()).toList());
-                        if (m.javadoc() != null) mm.put("javadoc", m.javadoc().trim());
-                        return mm;
-                    }).toList());
-                    System.out.println(com.jsrc.app.output.JsonWriter.toJson(contract));
+                    formatter.printClassSummary(ci, file);
                     return 1;
                 }
             }
@@ -502,9 +564,15 @@ public class App {
                 added.add(relativePath);
             } else {
                 try {
+                    // First check timestamp (fast), then hash if timestamp changed (accurate)
                     long currentModified = java.nio.file.Files.getLastModifiedTime(file).toMillis();
                     if (currentModified > prev.lastModified()) {
-                        modified.add(relativePath);
+                        // Timestamp changed — verify with content hash to avoid false positives from touch
+                        byte[] content = java.nio.file.Files.readAllBytes(file);
+                        String hash = sha256(content);
+                        if (!hash.equals(prev.contentHash())) {
+                            modified.add(relativePath);
+                        }
                     }
                 } catch (java.io.IOException e) {
                     modified.add(relativePath);
@@ -604,6 +672,18 @@ public class App {
         }
         System.err.printf("'%s' not found.%n", target);
         return 0;
+    }
+
+    private static String sha256(byte[] data) {
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(data);
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
     }
 
     private static String validateArg(String value, String label) {

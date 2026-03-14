@@ -50,6 +50,16 @@ public final class CommandRegistry {
     );
 
     /**
+     * Returns all known command names (for input validation).
+     */
+    public static String[] knownCommandNames() {
+        return COMMANDS.stream()
+                .map(CommandDef::name)
+                .filter(n -> n.startsWith("--"))
+                .toArray(String[]::new);
+    }
+
+    /**
      * Prints all commands as JSON or text.
      */
     public static void describeAll(boolean json) {

@@ -18,7 +18,6 @@ import com.jsrc.app.parser.HybridJavaParser;
 import com.jsrc.app.parser.MermaidDiagramGenerator;
 import com.jsrc.app.output.AnnotationMatch;
 import com.jsrc.app.output.DependencyResult;
-import com.jsrc.app.output.DependencyResult.FieldDep;
 import com.jsrc.app.output.HierarchyResult;
 import com.jsrc.app.output.OverviewResult;
 import com.jsrc.app.parser.model.AnnotationInfo;
@@ -81,6 +80,13 @@ public class App {
                 : com.jsrc.app.config.ProjectConfig.load(Path.of("."));
 
         // Resolve source root: explicit arg > config sourceRoots > pwd
+        // Convention: if first arg starts with "--", it's a command (not a path).
+        // This works because source root paths never start with "--".
+        // Examples:
+        //   jsrc --overview          → root=pwd, command=--overview
+        //   jsrc src --overview      → root=src, command=--overview
+        //   jsrc --summary App       → root=pwd, command=--summary
+        //   jsrc /tmp/proj --summary App → root=/tmp/proj, command=--summary
         String rootPath;
         String command;
         if (argList.size() >= 2 && argList.get(0).startsWith("--")) {
@@ -307,41 +313,11 @@ public class App {
 
     private static int runDependencyAnalysis(List<Path> javaFiles,
                                                  String className, OutputFormatter formatter) {
-        var javaParser = new com.github.javaparser.JavaParser();
-        for (Path file : javaFiles) {
-            try {
-                String source = java.nio.file.Files.readString(file);
-                var parseResult = javaParser.parse(source);
-                if (!parseResult.isSuccessful() || parseResult.getResult().isEmpty()) continue;
-                var cu = parseResult.getResult().get();
-
-                for (var cid : cu.findAll(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)) {
-                    if (!cid.getNameAsString().equals(className)) continue;
-
-                    List<String> imports = cu.getImports().stream()
-                            .map(imp -> imp.getNameAsString())
-                            .toList();
-
-                    List<FieldDep> fieldDeps = cid.getFields().stream()
-                            .flatMap(f -> f.getVariables().stream()
-                                    .map(v -> new FieldDep(f.getCommonType().asString(), v.getNameAsString())))
-                            .toList();
-
-                    List<FieldDep> ctorDeps = cid.getConstructors().stream()
-                            .flatMap(c -> c.getParameters().stream()
-                                    .map(p -> new FieldDep(p.getTypeAsString(), p.getNameAsString())))
-                            .toList();
-
-                    String qualifiedName = cu.getPackageDeclaration()
-                            .map(pd -> pd.getNameAsString() + "." + className)
-                            .orElse(className);
-
-                    formatter.printDependencies(new DependencyResult(qualifiedName, imports, fieldDeps, ctorDeps));
-                    return 1;
-                }
-            } catch (Exception e) {
-                // skip unparseable files
-            }
+        var analyzer = new com.jsrc.app.parser.DependencyAnalyzer();
+        DependencyResult result = analyzer.analyze(javaFiles, className);
+        if (result != null) {
+            formatter.printDependencies(result);
+            return 1;
         }
         System.err.printf("Class '%s' not found.%n", className);
         return 0;

@@ -65,11 +65,7 @@ public final class InputValidator {
             return "Command must not be empty";
         }
         if (command.startsWith("--")) {
-            String[] known = {
-                "--index", "--overview", "--classes", "--summary", "--hierarchy",
-                "--implements", "--deps", "--annotations", "--smells", "--call-chain",
-                "--describe"
-            };
+            String[] known = com.jsrc.app.CommandRegistry.knownCommandNames();
             for (String k : known) {
                 if (k.equals(command)) return null;
             }

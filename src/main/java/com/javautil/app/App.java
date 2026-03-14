@@ -40,6 +40,7 @@ public class App {
                 javaFiles.size(), rootPath);
 
         int totalSmells = 0;
+        int errors = 0;
         int warnings = 0;
         int infos = 0;
 
@@ -51,7 +52,8 @@ public class App {
             for (CodeSmell smell : smells) {
                 totalSmells++;
                 switch (smell.severity()) {
-                    case WARNING, ERROR -> warnings++;
+                    case ERROR -> errors++;
+                    case WARNING -> warnings++;
                     case INFO -> infos++;
                 }
                 System.out.printf("  [%s] %s at line %d in %s%n    %s%n",
@@ -61,8 +63,8 @@ public class App {
             }
         }
 
-        System.out.printf("%nDone. Found %d smell(s): %d warning(s), %d info(s).%n",
-                totalSmells, warnings, infos);
+        System.out.printf("%nDone. Found %d smell(s): %d error(s), %d warning(s), %d info(s).%n",
+                totalSmells, errors, warnings, infos);
     }
 
     private static void runMethodSearch(CodeParser parser, List<Path> javaFiles,

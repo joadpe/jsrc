@@ -20,6 +20,7 @@ import com.jsrc.app.output.AnnotationMatch;
 import com.jsrc.app.output.DependencyResult;
 import com.jsrc.app.output.DependencyResult.FieldDep;
 import com.jsrc.app.output.HierarchyResult;
+import com.jsrc.app.output.OverviewResult;
 import com.jsrc.app.parser.model.AnnotationInfo;
 import com.jsrc.app.parser.model.CallChain;
 import com.jsrc.app.parser.model.ClassInfo;
@@ -48,7 +49,10 @@ public class App {
         CodeBase project = new JavaCodeBase(rootPath, new CodeBaseLoader());
         List<Path> javaFiles = project.getFiles();
 
-        if ("--deps".equals(command)) {
+        if ("--overview".equals(command)) {
+            CodeParser parser = new HybridJavaParser();
+            runOverview(parser, javaFiles, rootPath, formatter);
+        } else if ("--deps".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --deps requires a class name");
                 printUsage();
@@ -116,6 +120,7 @@ public class App {
     private static void printUsage() {
         System.err.println("Usage:");
         System.err.println("  jsrc <source-root> <method-name> [--json]                    Search for methods");
+        System.err.println("  jsrc <source-root> --overview [--json]                       Codebase overview (files, classes, packages)");
         System.err.println("  jsrc <source-root> --deps <class> [--json]                   Class dependencies (imports, fields, ctor params)");
         System.err.println("  jsrc <source-root> --implements <iface> [--json]             Find implementors of an interface");
         System.err.println("  jsrc <source-root> --hierarchy <class> [--json]              Class hierarchy (extends/implements/subclasses)");
@@ -124,6 +129,28 @@ public class App {
         System.err.println("  jsrc <source-root> --classes [--json]                        List all classes");
         System.err.println("  jsrc <source-root> --smells [--json]                         Detect code smells");
         System.err.println("  jsrc <source-root> --call-chain <method> [outdir] [--json]   Generate call chain diagrams");
+    }
+
+    private static void runOverview(CodeParser parser, List<Path> javaFiles,
+                                       String rootPath, OutputFormatter formatter) {
+        int totalClasses = 0;
+        int totalInterfaces = 0;
+        int totalMethods = 0;
+        java.util.Set<String> packages = new java.util.TreeSet<>();
+
+        for (Path file : javaFiles) {
+            List<ClassInfo> classes = parser.parseClasses(file);
+            for (ClassInfo ci : classes) {
+                if (ci.isInterface()) totalInterfaces++;
+                else totalClasses++;
+                totalMethods += ci.methods().size();
+                if (!ci.packageName().isEmpty()) packages.add(ci.packageName());
+            }
+        }
+
+        formatter.printOverview(new OverviewResult(
+                javaFiles.size(), totalClasses, totalInterfaces,
+                totalMethods, List.copyOf(packages)));
     }
 
     private static void runDependencyAnalysis(List<Path> javaFiles,

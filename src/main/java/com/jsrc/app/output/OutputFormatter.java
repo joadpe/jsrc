@@ -41,6 +41,13 @@ public interface OutputFormatter {
     void printClasses(List<ClassInfo> classes, Path sourceRoot);
 
     /**
+     * Prints codebase overview.
+     *
+     * @param result overview data
+     */
+    void printOverview(OverviewResult result);
+
+    /**
      * Prints class dependency results.
      *
      * @param result dependency data for the queried class

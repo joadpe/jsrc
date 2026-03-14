@@ -63,6 +63,18 @@ public class JsonFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printOverview(OverviewResult result) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("totalFiles", result.totalFiles());
+        map.put("totalClasses", result.totalClasses());
+        map.put("totalInterfaces", result.totalInterfaces());
+        map.put("totalMethods", result.totalMethods());
+        map.put("totalPackages", result.packages().size());
+        map.put("packages", result.packages());
+        System.out.println(JsonWriter.toJson(map));
+    }
+
+    @Override
     public void printDependencies(DependencyResult result) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("className", result.className());

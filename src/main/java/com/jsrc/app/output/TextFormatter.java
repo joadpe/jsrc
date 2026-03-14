@@ -69,6 +69,22 @@ public class TextFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printOverview(OverviewResult result) {
+        System.out.printf("Codebase Overview%n");
+        System.out.printf("  Files:      %d%n", result.totalFiles());
+        System.out.printf("  Classes:    %d%n", result.totalClasses());
+        System.out.printf("  Interfaces: %d%n", result.totalInterfaces());
+        System.out.printf("  Methods:    %d%n", result.totalMethods());
+        System.out.printf("  Packages:   %d%n", result.packages().size());
+        if (!result.packages().isEmpty()) {
+            System.out.printf("  Package tree:%n");
+            for (String pkg : result.packages()) {
+                System.out.printf("    %s%n", pkg);
+            }
+        }
+    }
+
+    @Override
     public void printDependencies(DependencyResult result) {
         System.out.printf("Dependencies for: %s%n", result.className());
         if (!result.imports().isEmpty()) {

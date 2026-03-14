@@ -53,14 +53,18 @@ public class App {
                 ? com.jsrc.app.config.ProjectConfig.loadFrom(Path.of(configPath))
                 : com.jsrc.app.config.ProjectConfig.load(Path.of("."));
 
-        // With config: command can be first arg (no source-root needed)
+        // Resolve source root: explicit arg > config sourceRoots > pwd
         String rootPath;
         String command;
-        if (argList.size() >= 2) {
+        if (argList.size() >= 2 && argList.get(0).startsWith("--")) {
+            // No root path provided, first arg is a command
+            rootPath = resolveRoot(config);
+            command = argList.get(0);
+        } else if (argList.size() >= 2) {
             rootPath = argList.get(0);
             command = argList.get(1);
-        } else if (argList.size() == 1 && config != null && !config.sourceRoots().isEmpty()) {
-            rootPath = config.sourceRoots().getFirst();
+        } else if (argList.size() == 1) {
+            rootPath = resolveRoot(config);
             command = argList.get(0);
         } else {
             printUsage();
@@ -145,6 +149,13 @@ public class App {
             CodeParser parser = new HybridJavaParser();
             runMethodSearch(parser, javaFiles, rootPath, command, formatter);
         }
+    }
+
+    private static String resolveRoot(com.jsrc.app.config.ProjectConfig config) {
+        if (config != null && !config.sourceRoots().isEmpty()) {
+            return config.sourceRoots().getFirst();
+        }
+        return ".";
     }
 
     private static List<Path> filterExcludes(List<Path> files, List<String> excludes) {

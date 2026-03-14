@@ -27,6 +27,26 @@
 - **Per-file cost:** ~15-30ms per file for full parse (Tree-sitter + JavaParser)
 - **At scale (10K files):** estimated 150-300s without index; index will be critical
 
+## Spring Boot core: 2026-03-14
+
+**Codebase:** spring-boot/core (1,621 Java files, 3,239 classes, 12,680 methods, 124 packages)
+
+| Command | Time | Files | Results |
+|---------|------|-------|---------|
+| `run` (method search) | 6.7s | 1,621 | 31 methods |
+| `--deps SpringApplication` | 5.2s | 1,621 | 1 class |
+| `--summary SpringApplication` | 7.3s | 1,621 | 1 class |
+| `--annotations ConditionalOnClass` | 113s | 1,621 | 7 matches |
+| `--overview` | 145s | 1,621 | 3,402 types |
+| `--index` (first run, full) | ~145s | 1,621 | all indexed |
+| `--index` (second run, incremental) | **<1s** | 1,621 | 0 re-indexed |
+
+### Key insight
+
+- **Targeted commands** (search, deps, summary): ~5-7s — usable in real-time
+- **Full-parse commands** (overview, classes, annotations): 2+ minutes — need index
+- **Incremental index**: 147x speedup on unchanged codebase
+
 ### Improving performance
 
 1. **Persistent index** (implemented, needs JSON reader for load)

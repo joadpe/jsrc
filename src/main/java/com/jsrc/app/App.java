@@ -81,6 +81,9 @@ public class App {
             javaFiles = filterExcludes(javaFiles, config.excludes());
         }
 
+        // Try loading index for full-parse commands
+        var indexedCodebase = com.jsrc.app.index.IndexedCodebase.tryLoad(Paths.get(rootPath));
+
         var timer = com.jsrc.app.util.StopWatch.start();
         int[] resultCount = {0}; // mutable counter for lambdas
 
@@ -88,8 +91,7 @@ public class App {
             CodeParser parser = new HybridJavaParser();
             runIndex(parser, javaFiles, rootPath);
         } else if ("--overview".equals(command)) {
-            CodeParser parser = new HybridJavaParser();
-            resultCount[0] = runOverview(parser, javaFiles, rootPath, formatter);
+            resultCount[0] = runOverview(indexedCodebase, javaFiles, rootPath, formatter);
         } else if ("--deps".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --deps requires a class name");
@@ -105,8 +107,7 @@ public class App {
                 System.exit(1);
             }
             String ifaceName = argList.get(2);
-            CodeParser parser = new HybridJavaParser();
-            resultCount[0] = runImplements(parser, javaFiles, ifaceName, formatter);
+            resultCount[0] = runImplements(indexedCodebase, javaFiles, ifaceName, formatter);
         } else if ("--hierarchy".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --hierarchy requires a class name");
@@ -114,8 +115,7 @@ public class App {
                 System.exit(1);
             }
             String className = argList.get(2);
-            CodeParser parser = new HybridJavaParser();
-            resultCount[0] = runHierarchy(parser, javaFiles, className, formatter);
+            resultCount[0] = runHierarchy(indexedCodebase, javaFiles, className, formatter);
         } else if ("--summary".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --summary requires a class name");
@@ -123,8 +123,7 @@ public class App {
                 System.exit(1);
             }
             String className = argList.get(2);
-            CodeParser parser = new HybridJavaParser();
-            resultCount[0] = runClassSummary(parser, javaFiles, rootPath, className, formatter);
+            resultCount[0] = runClassSummary(indexedCodebase, javaFiles, rootPath, className, formatter);
         } else if ("--annotations".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --annotations requires an annotation name");
@@ -132,11 +131,9 @@ public class App {
                 System.exit(1);
             }
             String annotationName = argList.get(2);
-            CodeParser parser = new HybridJavaParser();
-            resultCount[0] = runAnnotationSearch(parser, javaFiles, rootPath, annotationName, formatter);
+            resultCount[0] = runAnnotationSearch(indexedCodebase, javaFiles, rootPath, annotationName, formatter);
         } else if ("--classes".equals(command)) {
-            CodeParser parser = new HybridJavaParser();
-            resultCount[0] = runClassListing(parser, javaFiles, rootPath, formatter);
+            resultCount[0] = runClassListing(indexedCodebase, javaFiles, rootPath, formatter);
         } else if ("--smells".equals(command)) {
             CodeParser parser = new HybridJavaParser();
             resultCount[0] = runSmellDetection(parser, javaFiles, rootPath, formatter);
@@ -223,25 +220,35 @@ public class App {
         }
     }
 
-    private static int runOverview(CodeParser parser, List<Path> javaFiles,
-                                       String rootPath, OutputFormatter formatter) {
-        int totalClasses = 0;
-        int totalInterfaces = 0;
-        int totalMethods = 0;
-        java.util.Set<String> packages = new java.util.TreeSet<>();
+    private static int runOverview(com.jsrc.app.index.IndexedCodebase indexed,
+                                       List<Path> javaFiles, String rootPath,
+                                       OutputFormatter formatter) {
+        List<ClassInfo> allClasses;
+        int fileCount;
 
-        for (Path file : javaFiles) {
-            List<ClassInfo> classes = parser.parseClasses(file);
-            for (ClassInfo ci : classes) {
-                if (ci.isInterface()) totalInterfaces++;
-                else totalClasses++;
-                totalMethods += ci.methods().size();
-                if (!ci.packageName().isEmpty()) packages.add(ci.packageName());
+        if (indexed != null) {
+            allClasses = indexed.getAllClasses();
+            fileCount = indexed.fileCount();
+        } else {
+            CodeParser parser = new HybridJavaParser();
+            allClasses = new ArrayList<>();
+            for (Path file : javaFiles) {
+                allClasses.addAll(parser.parseClasses(file));
             }
+            fileCount = javaFiles.size();
+        }
+
+        int totalClasses = 0, totalInterfaces = 0, totalMethods = 0;
+        java.util.Set<String> packages = new java.util.TreeSet<>();
+        for (ClassInfo ci : allClasses) {
+            if (ci.isInterface()) totalInterfaces++;
+            else totalClasses++;
+            totalMethods += ci.methods().size();
+            if (!ci.packageName().isEmpty()) packages.add(ci.packageName());
         }
 
         formatter.printOverview(new OverviewResult(
-                javaFiles.size(), totalClasses, totalInterfaces,
+                fileCount, totalClasses, totalInterfaces,
                 totalMethods, List.copyOf(packages)));
         return totalClasses + totalInterfaces;
     }
@@ -288,11 +295,18 @@ public class App {
         return 0;
     }
 
-    private static int runImplements(CodeParser parser, List<Path> javaFiles,
-                                        String ifaceName, OutputFormatter formatter) {
-        List<ClassInfo> allClasses = new ArrayList<>();
-        for (Path file : javaFiles) {
-            allClasses.addAll(parser.parseClasses(file));
+    private static int runImplements(com.jsrc.app.index.IndexedCodebase indexed,
+                                        List<Path> javaFiles, String ifaceName,
+                                        OutputFormatter formatter) {
+        List<ClassInfo> allClasses;
+        if (indexed != null) {
+            allClasses = indexed.getAllClasses();
+        } else {
+            CodeParser parser = new HybridJavaParser();
+            allClasses = new ArrayList<>();
+            for (Path file : javaFiles) {
+                allClasses.addAll(parser.parseClasses(file));
+            }
         }
 
         List<Map<String, Object>> implementors = new ArrayList<>();
@@ -313,12 +327,18 @@ public class App {
         return result.implementors().size();
     }
 
-    private static int runHierarchy(CodeParser parser, List<Path> javaFiles,
-                                       String className, OutputFormatter formatter) {
-        // First pass: collect all class metadata
-        List<ClassInfo> allClasses = new ArrayList<>();
-        for (Path file : javaFiles) {
-            allClasses.addAll(parser.parseClasses(file));
+    private static int runHierarchy(com.jsrc.app.index.IndexedCodebase indexed,
+                                       List<Path> javaFiles, String className,
+                                       OutputFormatter formatter) {
+        List<ClassInfo> allClasses;
+        if (indexed != null) {
+            allClasses = indexed.getAllClasses();
+        } else {
+            CodeParser parser = new HybridJavaParser();
+            allClasses = new ArrayList<>();
+            for (Path file : javaFiles) {
+                allClasses.addAll(parser.parseClasses(file));
+            }
         }
 
         // Find target class
@@ -355,48 +375,75 @@ public class App {
         return 1;
     }
 
-    private static int runAnnotationSearch(CodeParser parser, List<Path> javaFiles,
-                                              String rootPath, String annotationName,
-                                              OutputFormatter formatter) {
-        System.err.printf("Searching for @%s in %d files under '%s'...%n",
-                annotationName, javaFiles.size(), rootPath);
-
+    private static int runAnnotationSearch(com.jsrc.app.index.IndexedCodebase indexed,
+                                              List<Path> javaFiles, String rootPath,
+                                              String annotationName, OutputFormatter formatter) {
         List<AnnotationMatch> matches = new ArrayList<>();
-        for (Path file : javaFiles) {
-            // Search methods
-            List<MethodInfo> methods = parser.findMethodsByAnnotation(file, annotationName);
-            for (MethodInfo m : methods) {
+
+        if (indexed != null) {
+            // From index: methods
+            for (MethodInfo m : indexed.findMethodsByAnnotation(annotationName)) {
                 AnnotationInfo ann = m.annotations().stream()
                         .filter(a -> a.name().equals(annotationName))
                         .findFirst().orElse(AnnotationInfo.marker(annotationName));
-                matches.add(new AnnotationMatch("method", m.name(), m.className(), file, m.startLine(), ann));
+                String filePath = indexed.findFileForClass(m.className());
+                matches.add(new AnnotationMatch("method", m.name(), m.className(),
+                        Path.of(filePath != null ? filePath : ""), m.startLine(), ann));
             }
-
-            // Search classes
-            List<ClassInfo> classes = parser.parseClasses(file);
-            for (ClassInfo ci : classes) {
-                ci.annotations().stream()
+            // From index: classes
+            for (ClassInfo ci : indexed.findClassesByAnnotation(annotationName)) {
+                AnnotationInfo ann = ci.annotations().stream()
                         .filter(a -> a.name().equals(annotationName))
-                        .findFirst()
-                        .ifPresent(ann -> matches.add(
-                                new AnnotationMatch("class", ci.name(), ci.name(), file, ci.startLine(), ann)));
+                        .findFirst().orElse(AnnotationInfo.marker(annotationName));
+                String filePath = indexed.findFileForClass(ci.name());
+                matches.add(new AnnotationMatch("class", ci.name(), ci.name(),
+                        Path.of(filePath != null ? filePath : ""), ci.startLine(), ann));
+            }
+        } else {
+            CodeParser parser = new HybridJavaParser();
+            for (Path file : javaFiles) {
+                List<MethodInfo> methods = parser.findMethodsByAnnotation(file, annotationName);
+                for (MethodInfo m : methods) {
+                    AnnotationInfo ann = m.annotations().stream()
+                            .filter(a -> a.name().equals(annotationName))
+                            .findFirst().orElse(AnnotationInfo.marker(annotationName));
+                    matches.add(new AnnotationMatch("method", m.name(), m.className(), file, m.startLine(), ann));
+                }
+                List<ClassInfo> classes = parser.parseClasses(file);
+                for (ClassInfo ci : classes) {
+                    ci.annotations().stream()
+                            .filter(a -> a.name().equals(annotationName))
+                            .findFirst()
+                            .ifPresent(ann -> matches.add(
+                                    new AnnotationMatch("class", ci.name(), ci.name(), file, ci.startLine(), ann)));
+                }
             }
         }
 
         formatter.printAnnotationMatches(matches);
-        System.err.printf("Found %d match(es).%n", matches.size());
         return matches.size();
     }
 
-    private static int runClassSummary(CodeParser parser, List<Path> javaFiles,
-                                          String rootPath, String className,
-                                          OutputFormatter formatter) {
-        for (Path file : javaFiles) {
-            List<ClassInfo> classes = parser.parseClasses(file);
-            for (ClassInfo ci : classes) {
+    private static int runClassSummary(com.jsrc.app.index.IndexedCodebase indexed,
+                                          List<Path> javaFiles, String rootPath,
+                                          String className, OutputFormatter formatter) {
+        if (indexed != null) {
+            for (ClassInfo ci : indexed.getAllClasses()) {
                 if (ci.name().equals(className) || ci.qualifiedName().equals(className)) {
-                    formatter.printClassSummary(ci, file);
+                    String filePath = indexed.findFileForClass(className);
+                    formatter.printClassSummary(ci, Path.of(filePath != null ? filePath : ""));
                     return 1;
+                }
+            }
+        } else {
+            CodeParser parser = new HybridJavaParser();
+            for (Path file : javaFiles) {
+                List<ClassInfo> classes = parser.parseClasses(file);
+                for (ClassInfo ci : classes) {
+                    if (ci.name().equals(className) || ci.qualifiedName().equals(className)) {
+                        formatter.printClassSummary(ci, file);
+                        return 1;
+                    }
                 }
             }
         }
@@ -404,18 +451,21 @@ public class App {
         return 0;
     }
 
-    private static int runClassListing(CodeParser parser, List<Path> javaFiles,
-                                          String rootPath, OutputFormatter formatter) {
-        System.err.printf("Scanning %d Java files under '%s' for classes...%n",
-                javaFiles.size(), rootPath);
-
-        List<ClassInfo> allClasses = new ArrayList<>();
-        for (Path file : javaFiles) {
-            allClasses.addAll(parser.parseClasses(file));
+    private static int runClassListing(com.jsrc.app.index.IndexedCodebase indexed,
+                                          List<Path> javaFiles, String rootPath,
+                                          OutputFormatter formatter) {
+        List<ClassInfo> allClasses;
+        if (indexed != null) {
+            allClasses = indexed.getAllClasses();
+        } else {
+            CodeParser parser = new HybridJavaParser();
+            allClasses = new ArrayList<>();
+            for (Path file : javaFiles) {
+                allClasses.addAll(parser.parseClasses(file));
+            }
         }
 
         formatter.printClasses(allClasses, Path.of(rootPath));
-        System.err.printf("Found %d type(s).%n", allClasses.size());
         return allClasses.size();
     }
 

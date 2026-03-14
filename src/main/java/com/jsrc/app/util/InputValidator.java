@@ -74,8 +74,9 @@ public final class InputValidator {
             return "Unknown command: " + command
                     + (closest != null ? ". Did you mean " + closest + "?" : "");
         }
-        // Non-flag commands are method names — validate as identifier
-        return validateIdentifier(command, "Method name");
+        // Non-flag commands are method names — may include params like process(int)
+        String methodPart = command.contains("(") ? command.substring(0, command.indexOf('(')) : command;
+        return validateIdentifier(methodPart, "Method name");
     }
 
     private static boolean hasControlChars(String value) {

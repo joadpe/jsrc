@@ -191,7 +191,7 @@ public class App {
                 printUsage();
                 System.exit(ExitCode.BAD_USAGE);
             }
-            String methodName = validateArg(argList.get(2), "Method name");
+            String methodName = argList.get(2);
             resultCount[0] = runCallers(javaFiles, methodName, formatter);
         } else if ("--callees".equals(command)) {
             if (argList.size() < 3) {
@@ -199,7 +199,7 @@ public class App {
                 printUsage();
                 System.exit(ExitCode.BAD_USAGE);
             }
-            String methodName = validateArg(argList.get(2), "Method name");
+            String methodName = argList.get(2);
             resultCount[0] = runCallees(javaFiles, methodName, formatter);
         } else if ("--read".equals(command)) {
             if (argList.size() < 3) {
@@ -266,7 +266,7 @@ public class App {
                 printUsage();
                 System.exit(ExitCode.BAD_USAGE);
             }
-            String methodName = validateArg(argList.get(2), "Method name");
+            String methodName = argList.get(2);
             String outputDir = argList.size() >= 4 ? argList.get(3) : "./call-chains";
             resultCount[0] = runCallChainAnalysis(javaFiles, rootPath, methodName, outputDir, formatter);
         } else {
@@ -581,21 +581,29 @@ public class App {
         return modified.size() + added.size() + deleted.size();
     }
 
-    private static int runCallers(List<Path> javaFiles, String methodName,
+    private static int runCallers(List<Path> javaFiles, String methodInput,
                                       OutputFormatter formatter) {
+        var ref = com.jsrc.app.util.MethodResolver.parse(methodInput);
+        String methodName = ref.methodName();
+
         CallGraphBuilder graphBuilder = new CallGraphBuilder();
         graphBuilder.build(javaFiles);
 
-        var targets = graphBuilder.findMethodsByName(methodName);
+        var allTargets = graphBuilder.findMethodsByName(methodName);
+        // Filter by param count if specified
+        var targets = ref.hasParamTypes()
+                ? allTargets.stream().filter(t -> t.parameterCount() == ref.paramTypes().size())
+                        .collect(java.util.stream.Collectors.toSet())
+                : allTargets;
         List<Map<String, Object>> callers = new ArrayList<>();
         for (var target : targets) {
             for (var call : graphBuilder.getCallersOf(target)) {
-                Map<String, Object> ref = new java.util.LinkedHashMap<>();
-                ref.put("className", call.caller().className());
-                ref.put("methodName", call.caller().methodName());
-                ref.put("line", call.line());
-                ref.put("type", "direct");
-                callers.add(ref);
+                Map<String, Object> entry = new java.util.LinkedHashMap<>();
+                entry.put("className", call.caller().className());
+                entry.put("methodName", call.caller().methodName());
+                entry.put("line", call.line());
+                entry.put("type", "direct");
+                callers.add(entry);
             }
         }
 
@@ -605,13 +613,13 @@ public class App {
             var resolver = new com.jsrc.app.architecture.InvokerResolver(config.architecture().invokers());
             for (var rc : resolver.resolve(javaFiles)) {
                 if (rc.targetMethod().equals(methodName)) {
-                    Map<String, Object> ref = new java.util.LinkedHashMap<>();
-                    ref.put("className", rc.callerClass());
-                    ref.put("methodName", rc.callerMethod());
-                    ref.put("line", rc.line());
-                    ref.put("type", "reflective");
-                    ref.put("targetClass", rc.targetClass());
-                    callers.add(ref);
+                    Map<String, Object> entry = new java.util.LinkedHashMap<>();
+                    entry.put("className", rc.callerClass());
+                    entry.put("methodName", rc.callerMethod());
+                    entry.put("line", rc.line());
+                    entry.put("type", "reflective");
+                    entry.put("targetClass", rc.targetClass());
+                    callers.add(entry);
                 }
             }
         }
@@ -620,21 +628,28 @@ public class App {
         return callers.size();
     }
 
-    private static int runCallees(List<Path> javaFiles, String methodName,
+    private static int runCallees(List<Path> javaFiles, String methodInput,
                                       OutputFormatter formatter) {
+        var ref = com.jsrc.app.util.MethodResolver.parse(methodInput);
+        String methodName = ref.methodName();
+
         CallGraphBuilder graphBuilder = new CallGraphBuilder();
         graphBuilder.build(javaFiles);
 
-        var sources = graphBuilder.findMethodsByName(methodName);
+        var allSources = graphBuilder.findMethodsByName(methodName);
+        var sources = ref.hasParamTypes()
+                ? allSources.stream().filter(t -> t.parameterCount() == ref.paramTypes().size())
+                        .collect(java.util.stream.Collectors.toSet())
+                : allSources;
         List<Map<String, Object>> callees = new ArrayList<>();
         for (var source : sources) {
             for (var call : graphBuilder.getCalleesOf(source)) {
-                Map<String, Object> ref = new java.util.LinkedHashMap<>();
-                ref.put("className", call.callee().className());
-                ref.put("methodName", call.callee().methodName());
-                ref.put("line", call.line());
-                ref.put("type", "direct");
-                callees.add(ref);
+                Map<String, Object> entry = new java.util.LinkedHashMap<>();
+                entry.put("className", call.callee().className());
+                entry.put("methodName", call.callee().methodName());
+                entry.put("line", call.line());
+                entry.put("type", "direct");
+                callees.add(entry);
             }
         }
 
@@ -647,12 +662,28 @@ public class App {
         var reader = new com.jsrc.app.parser.SourceReader(parser);
         com.jsrc.app.parser.SourceReader.ReadResult result;
 
-        if (target.contains(".")) {
-            // Class.method format
-            int dot = target.lastIndexOf('.');
-            String className = target.substring(0, dot);
-            String methodName = target.substring(dot + 1);
-            result = reader.readMethod(javaFiles, className, methodName);
+        var ref = com.jsrc.app.util.MethodResolver.parse(target);
+        if (ref.hasClassName()) {
+            // Class.method or Class.method(params)
+            if (ref.hasParamTypes()) {
+                // Find with param filtering
+                List<MethodInfo> methods = parser.findMethods(
+                        findFileForClass(javaFiles, ref.className()), ref.methodName(),
+                        ref.paramTypes());
+                if (!methods.isEmpty()) {
+                    MethodInfo m = methods.getFirst();
+                    result = new com.jsrc.app.parser.SourceReader.ReadResult(
+                            m.className(), m.name(), findFileForClass(javaFiles, ref.className()),
+                            m.startLine(), m.endLine(), m.content());
+                } else {
+                    result = null;
+                }
+            } else {
+                result = reader.readMethod(javaFiles, ref.className(), ref.methodName());
+            }
+        } else if (target.contains("(")) {
+            // method(params) without class — not supported for read
+            result = reader.readClass(javaFiles, ref.methodName());
         } else {
             // Class only
             result = reader.readClass(javaFiles, target);
@@ -664,6 +695,13 @@ public class App {
         }
         System.err.printf("'%s' not found.%n", target);
         return 0;
+    }
+
+    private static Path findFileForClass(List<Path> files, String className) {
+        for (Path f : files) {
+            if (f.getFileName().toString().equals(className + ".java")) return f;
+        }
+        return files.isEmpty() ? null : files.getFirst();
     }
 
     private static List<ClassInfo> getAllClasses(com.jsrc.app.index.IndexedCodebase indexed,
@@ -975,14 +1013,24 @@ public class App {
     }
 
     private static int runMethodSearch(CodeParser parser, List<Path> javaFiles,
-                                         String rootPath, String methodName,
+                                         String rootPath, String methodInput,
                                          OutputFormatter formatter) {
-        System.err.printf("Scanning %d Java files under '%s' for method '%s'...%n",
-                javaFiles.size(), rootPath, methodName);
+        var ref = com.jsrc.app.util.MethodResolver.parse(methodInput);
+        String methodName = ref.methodName();
 
         int totalFound = 0;
         for (Path file : javaFiles) {
-            List<MethodInfo> methods = parser.findMethods(file, methodName);
+            List<MethodInfo> methods;
+            if (ref.hasParamTypes()) {
+                methods = parser.findMethods(file, methodName, ref.paramTypes());
+            } else {
+                methods = parser.findMethods(file, methodName);
+            }
+            if (ref.hasClassName()) {
+                methods = methods.stream()
+                        .filter(m -> m.className().equals(ref.className()))
+                        .toList();
+            }
             if (!methods.isEmpty()) {
                 totalFound += methods.size();
                 formatter.printMethods(methods, file, methodName);

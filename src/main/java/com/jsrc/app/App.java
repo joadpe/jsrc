@@ -36,6 +36,7 @@ public class App {
         List<String> argList = new ArrayList<>(List.of(args));
         boolean jsonOutput = argList.remove("--json");
         boolean signatureOnly = argList.remove("--signature-only");
+        boolean showMetrics = argList.remove("--metrics");
 
         // Extract --config <path> if present
         String configPath = null;
@@ -80,12 +81,15 @@ public class App {
             javaFiles = filterExcludes(javaFiles, config.excludes());
         }
 
+        var timer = com.jsrc.app.util.StopWatch.start();
+        int[] resultCount = {0}; // mutable counter for lambdas
+
         if ("--index".equals(command)) {
             CodeParser parser = new HybridJavaParser();
             runIndex(parser, javaFiles, rootPath);
         } else if ("--overview".equals(command)) {
             CodeParser parser = new HybridJavaParser();
-            runOverview(parser, javaFiles, rootPath, formatter);
+            resultCount[0] = runOverview(parser, javaFiles, rootPath, formatter);
         } else if ("--deps".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --deps requires a class name");
@@ -93,7 +97,7 @@ public class App {
                 System.exit(1);
             }
             String className = argList.get(2);
-            runDependencyAnalysis(javaFiles, className, formatter);
+            resultCount[0] = runDependencyAnalysis(javaFiles, className, formatter);
         } else if ("--implements".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --implements requires an interface name");
@@ -102,7 +106,7 @@ public class App {
             }
             String ifaceName = argList.get(2);
             CodeParser parser = new HybridJavaParser();
-            runImplements(parser, javaFiles, ifaceName, formatter);
+            resultCount[0] = runImplements(parser, javaFiles, ifaceName, formatter);
         } else if ("--hierarchy".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --hierarchy requires a class name");
@@ -111,7 +115,7 @@ public class App {
             }
             String className = argList.get(2);
             CodeParser parser = new HybridJavaParser();
-            runHierarchy(parser, javaFiles, className, formatter);
+            resultCount[0] = runHierarchy(parser, javaFiles, className, formatter);
         } else if ("--summary".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --summary requires a class name");
@@ -120,7 +124,7 @@ public class App {
             }
             String className = argList.get(2);
             CodeParser parser = new HybridJavaParser();
-            runClassSummary(parser, javaFiles, rootPath, className, formatter);
+            resultCount[0] = runClassSummary(parser, javaFiles, rootPath, className, formatter);
         } else if ("--annotations".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --annotations requires an annotation name");
@@ -129,13 +133,13 @@ public class App {
             }
             String annotationName = argList.get(2);
             CodeParser parser = new HybridJavaParser();
-            runAnnotationSearch(parser, javaFiles, rootPath, annotationName, formatter);
+            resultCount[0] = runAnnotationSearch(parser, javaFiles, rootPath, annotationName, formatter);
         } else if ("--classes".equals(command)) {
             CodeParser parser = new HybridJavaParser();
-            runClassListing(parser, javaFiles, rootPath, formatter);
+            resultCount[0] = runClassListing(parser, javaFiles, rootPath, formatter);
         } else if ("--smells".equals(command)) {
             CodeParser parser = new HybridJavaParser();
-            runSmellDetection(parser, javaFiles, rootPath, formatter);
+            resultCount[0] = runSmellDetection(parser, javaFiles, rootPath, formatter);
         } else if ("--call-chain".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --call-chain requires a method name");
@@ -144,10 +148,20 @@ public class App {
             }
             String methodName = argList.get(2);
             String outputDir = argList.size() >= 4 ? argList.get(3) : "./call-chains";
-            runCallChainAnalysis(javaFiles, rootPath, methodName, outputDir, formatter);
+            resultCount[0] = runCallChainAnalysis(javaFiles, rootPath, methodName, outputDir, formatter);
         } else {
             CodeParser parser = new HybridJavaParser();
-            runMethodSearch(parser, javaFiles, rootPath, command, formatter);
+            resultCount[0] = runMethodSearch(parser, javaFiles, rootPath, command, formatter);
+        }
+
+        if (showMetrics) {
+            var metrics = new com.jsrc.app.output.ExecutionMetrics(
+                    command, timer.elapsedMs(), javaFiles.size(), resultCount[0]);
+            if (jsonOutput) {
+                System.err.println(com.jsrc.app.output.JsonWriter.toJson(metrics.toMap()));
+            } else {
+                System.err.println(metrics);
+            }
         }
     }
 
@@ -209,7 +223,7 @@ public class App {
         }
     }
 
-    private static void runOverview(CodeParser parser, List<Path> javaFiles,
+    private static int runOverview(CodeParser parser, List<Path> javaFiles,
                                        String rootPath, OutputFormatter formatter) {
         int totalClasses = 0;
         int totalInterfaces = 0;
@@ -229,9 +243,10 @@ public class App {
         formatter.printOverview(new OverviewResult(
                 javaFiles.size(), totalClasses, totalInterfaces,
                 totalMethods, List.copyOf(packages)));
+        return totalClasses + totalInterfaces;
     }
 
-    private static void runDependencyAnalysis(List<Path> javaFiles,
+    private static int runDependencyAnalysis(List<Path> javaFiles,
                                                  String className, OutputFormatter formatter) {
         var javaParser = new com.github.javaparser.JavaParser();
         for (Path file : javaFiles) {
@@ -263,16 +278,17 @@ public class App {
                             .orElse(className);
 
                     formatter.printDependencies(new DependencyResult(qualifiedName, imports, fieldDeps, ctorDeps));
-                    return;
+                    return 1;
                 }
             } catch (Exception e) {
                 // skip unparseable files
             }
         }
         System.err.printf("Class '%s' not found.%n", className);
+        return 0;
     }
 
-    private static void runImplements(CodeParser parser, List<Path> javaFiles,
+    private static int runImplements(CodeParser parser, List<Path> javaFiles,
                                         String ifaceName, OutputFormatter formatter) {
         List<ClassInfo> allClasses = new ArrayList<>();
         for (Path file : javaFiles) {
@@ -294,9 +310,10 @@ public class App {
                 ifaceName, "", List.of(), List.of(),
                 implementors.stream().map(m -> (String) m.get("name")).toList());
         formatter.printHierarchy(result);
+        return result.implementors().size();
     }
 
-    private static void runHierarchy(CodeParser parser, List<Path> javaFiles,
+    private static int runHierarchy(CodeParser parser, List<Path> javaFiles,
                                        String className, OutputFormatter formatter) {
         // First pass: collect all class metadata
         List<ClassInfo> allClasses = new ArrayList<>();
@@ -311,7 +328,7 @@ public class App {
 
         if (target == null) {
             System.err.printf("Class '%s' not found.%n", className);
-            return;
+            return 0;
         }
 
         // Find subclasses (classes that extend target)
@@ -335,9 +352,10 @@ public class App {
                 target.qualifiedName(), target.superClass(),
                 target.interfaces(), subClasses, implementors);
         formatter.printHierarchy(result);
+        return 1;
     }
 
-    private static void runAnnotationSearch(CodeParser parser, List<Path> javaFiles,
+    private static int runAnnotationSearch(CodeParser parser, List<Path> javaFiles,
                                               String rootPath, String annotationName,
                                               OutputFormatter formatter) {
         System.err.printf("Searching for @%s in %d files under '%s'...%n",
@@ -367,9 +385,10 @@ public class App {
 
         formatter.printAnnotationMatches(matches);
         System.err.printf("Found %d match(es).%n", matches.size());
+        return matches.size();
     }
 
-    private static void runClassSummary(CodeParser parser, List<Path> javaFiles,
+    private static int runClassSummary(CodeParser parser, List<Path> javaFiles,
                                           String rootPath, String className,
                                           OutputFormatter formatter) {
         for (Path file : javaFiles) {
@@ -377,14 +396,15 @@ public class App {
             for (ClassInfo ci : classes) {
                 if (ci.name().equals(className) || ci.qualifiedName().equals(className)) {
                     formatter.printClassSummary(ci, file);
-                    return;
+                    return 1;
                 }
             }
         }
         System.err.printf("Class '%s' not found.%n", className);
+        return 0;
     }
 
-    private static void runClassListing(CodeParser parser, List<Path> javaFiles,
+    private static int runClassListing(CodeParser parser, List<Path> javaFiles,
                                           String rootPath, OutputFormatter formatter) {
         System.err.printf("Scanning %d Java files under '%s' for classes...%n",
                 javaFiles.size(), rootPath);
@@ -396,34 +416,41 @@ public class App {
 
         formatter.printClasses(allClasses, Path.of(rootPath));
         System.err.printf("Found %d type(s).%n", allClasses.size());
+        return allClasses.size();
     }
 
-    private static void runSmellDetection(CodeParser parser, List<Path> javaFiles,
+    private static int runSmellDetection(CodeParser parser, List<Path> javaFiles,
                                            String rootPath, OutputFormatter formatter) {
         System.err.printf("Analyzing %d Java files under '%s' for code smells...%n",
                 javaFiles.size(), rootPath);
 
+        int totalSmells = 0;
         for (Path file : javaFiles) {
             List<CodeSmell> smells = parser.detectSmells(file);
+            totalSmells += smells.size();
             formatter.printSmells(smells, file);
         }
+        return totalSmells;
     }
 
-    private static void runMethodSearch(CodeParser parser, List<Path> javaFiles,
+    private static int runMethodSearch(CodeParser parser, List<Path> javaFiles,
                                          String rootPath, String methodName,
                                          OutputFormatter formatter) {
         System.err.printf("Scanning %d Java files under '%s' for method '%s'...%n",
                 javaFiles.size(), rootPath, methodName);
 
+        int totalFound = 0;
         for (Path file : javaFiles) {
             List<MethodInfo> methods = parser.findMethods(file, methodName);
             if (!methods.isEmpty()) {
+                totalFound += methods.size();
                 formatter.printMethods(methods, file, methodName);
             }
         }
+        return totalFound;
     }
 
-    private static void runCallChainAnalysis(List<Path> javaFiles, String rootPath,
+    private static int runCallChainAnalysis(List<Path> javaFiles, String rootPath,
                                               String methodName, String outputDir,
                                               OutputFormatter formatter) {
         System.err.printf("Building call graph for %d Java files under '%s'...%n",
@@ -449,5 +476,6 @@ public class App {
                 System.exit(1);
             }
         }
+        return chains.size();
     }
 }

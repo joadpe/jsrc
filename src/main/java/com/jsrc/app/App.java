@@ -34,6 +34,7 @@ public class App {
     public static void main(String[] args) {
         List<String> argList = new ArrayList<>(List.of(args));
         boolean jsonOutput = argList.remove("--json");
+        boolean mdOutput = argList.remove("--md");
         boolean signatureOnly = argList.remove("--signature-only");
         boolean showMetrics = argList.remove("--metrics");
 
@@ -143,7 +144,7 @@ public class App {
                 System.exit(ExitCode.BAD_USAGE);
             }
             String className = validateArg(argList.get(2), "Class name");
-            resultCount[0] = runContext(javaFiles, rootPath, className, config, formatter);
+            resultCount[0] = runContext(javaFiles, rootPath, className, config, formatter, mdOutput);
         } else if ("--endpoints".equals(command)) {
             resultCount[0] = runEndpoints(indexedCodebase, javaFiles, rootPath, config, formatter);
         } else if ("--check".equals(command)) {
@@ -267,7 +268,8 @@ public class App {
     private static int runContext(List<Path> javaFiles, String rootPath,
                                        String className,
                                        com.jsrc.app.config.ProjectConfig config,
-                                       OutputFormatter formatter) {
+                                       OutputFormatter formatter,
+                                       boolean mdOutput) {
         CodeParser parser = new HybridJavaParser();
 
         // Need all classes for hierarchy resolution
@@ -283,7 +285,11 @@ public class App {
             return 0;
         }
 
-        System.out.println(com.jsrc.app.output.JsonWriter.toJson(ctx));
+        if (mdOutput) {
+            System.out.println(com.jsrc.app.output.MarkdownFormatter.toMarkdown(ctx));
+        } else {
+            System.out.println(com.jsrc.app.output.JsonWriter.toJson(ctx));
+        }
         return 1;
     }
 

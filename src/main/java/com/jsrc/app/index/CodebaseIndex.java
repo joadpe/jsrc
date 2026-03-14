@@ -114,14 +114,113 @@ public class CodebaseIndex {
      *
      * @return list of entries, or empty if no index exists
      */
+    @SuppressWarnings("unchecked")
     public static List<IndexEntry> load(Path projectRoot) {
         Path indexFile = projectRoot.resolve(INDEX_DIR).resolve(INDEX_FILE);
         if (!Files.exists(indexFile)) {
             return List.of();
         }
-        // For now, return empty — full JSON parsing would require a parser
-        // The incremental build will detect all files as new
-        logger.debug("Index file exists at {}, but full load not yet implemented", indexFile);
+        try {
+            String json = Files.readString(indexFile, java.nio.charset.StandardCharsets.UTF_8);
+            Object parsed = com.jsrc.app.output.JsonReader.parse(json);
+            if (!(parsed instanceof List<?> rawList)) {
+                logger.warn("Index file is not a JSON array: {}", indexFile);
+                return List.of();
+            }
+
+            List<IndexEntry> result = new ArrayList<>();
+            for (Object item : rawList) {
+                if (item instanceof Map<?, ?> map) {
+                    result.add(mapToEntry((Map<String, Object>) map));
+                }
+            }
+            logger.info("Loaded index: {} entries from {}", result.size(), indexFile);
+            return result;
+        } catch (IOException e) {
+            logger.error("Error reading index {}: {}", indexFile, e.getMessage());
+            return List.of();
+        } catch (Exception e) {
+            logger.warn("Error parsing index {}: {}", indexFile, e.getMessage());
+            return List.of();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static IndexEntry mapToEntry(Map<String, Object> map) {
+        String path = (String) map.getOrDefault("path", "");
+        String hash = (String) map.getOrDefault("contentHash", "");
+        long lastModified = map.get("lastModified") instanceof Number n ? n.longValue() : 0;
+
+        List<IndexedClass> classes = new ArrayList<>();
+        Object classesRaw = map.get("classes");
+        if (classesRaw instanceof List<?> classList) {
+            for (Object c : classList) {
+                if (c instanceof Map<?, ?> cm) {
+                    classes.add(mapToIndexedClass((Map<String, Object>) cm));
+                }
+            }
+        }
+        return new IndexEntry(path, hash, lastModified, classes);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static IndexedClass mapToIndexedClass(Map<String, Object> map) {
+        String name = str(map, "name");
+        String pkg = str(map, "packageName");
+        int startLine = intVal(map, "startLine");
+        int endLine = intVal(map, "endLine");
+        boolean isInterface = bool(map, "isInterface");
+        boolean isAbstract = bool(map, "isAbstract");
+        List<String> superClass = strList(map.get("superClass"));
+        List<String> interfaces = strList(map.get("interfaces"));
+        List<String> annotations = strList(map.get("annotations"));
+        List<String> imports = strList(map.get("imports"));
+
+        List<IndexedMethod> methods = new ArrayList<>();
+        Object methodsRaw = map.get("methods");
+        if (methodsRaw instanceof List<?> ml) {
+            for (Object m : ml) {
+                if (m instanceof Map<?, ?> mm) {
+                    methods.add(mapToIndexedMethod((Map<String, Object>) mm));
+                }
+            }
+        }
+
+        return new IndexedClass(name, pkg, startLine, endLine,
+                isInterface, isAbstract, superClass, interfaces,
+                methods, annotations, imports);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static IndexedMethod mapToIndexedMethod(Map<String, Object> map) {
+        return new IndexedMethod(
+                str(map, "name"), str(map, "signature"),
+                intVal(map, "startLine"), intVal(map, "endLine"),
+                str(map, "returnType"), strList(map.get("annotations")));
+    }
+
+    private static String str(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        return v instanceof String s ? s : "";
+    }
+
+    private static int intVal(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        return v instanceof Number n ? n.intValue() : 0;
+    }
+
+    private static boolean bool(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        return v instanceof Boolean b && b;
+    }
+
+    private static List<String> strList(Object raw) {
+        if (raw instanceof List<?> list) {
+            return list.stream()
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .toList();
+        }
         return List.of();
     }
 

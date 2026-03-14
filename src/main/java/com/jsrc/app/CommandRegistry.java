@@ -23,6 +23,8 @@ public final class CommandRegistry {
     ) {}
 
     private static final List<CommandDef> COMMANDS = List.of(
+            new CommandDef("--endpoints", "List REST endpoints (path, method, controller)",
+                    List.of(), List.of("--json", "--metrics"), "array"),
             new CommandDef("--check", "Check architecture rules, report violations",
                     List.of("[ruleId]"), List.of("--json", "--metrics"), "object"),
             new CommandDef("--layer", "List classes in an architectural layer",

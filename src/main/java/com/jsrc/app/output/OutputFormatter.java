@@ -41,6 +41,13 @@ public interface OutputFormatter {
     void printClasses(List<ClassInfo> classes, Path sourceRoot);
 
     /**
+     * Prints annotation search results.
+     *
+     * @param matches found annotation matches
+     */
+    void printAnnotationMatches(List<AnnotationMatch> matches);
+
+    /**
      * Prints a compact summary of a single class: metadata + method signatures.
      *
      * @param classInfo the class to summarize

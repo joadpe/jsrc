@@ -15,6 +15,8 @@ import com.jsrc.app.parser.CallGraphBuilder;
 import com.jsrc.app.parser.CodeParser;
 import com.jsrc.app.parser.HybridJavaParser;
 import com.jsrc.app.parser.MermaidDiagramGenerator;
+import com.jsrc.app.output.AnnotationMatch;
+import com.jsrc.app.parser.model.AnnotationInfo;
 import com.jsrc.app.parser.model.CallChain;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.CodeSmell;
@@ -58,6 +60,15 @@ public class App {
             String className = argList.get(2);
             CodeParser parser = new HybridJavaParser();
             runClassSummary(parser, javaFiles, rootPath, className, formatter);
+        } else if ("--annotations".equals(command)) {
+            if (argList.size() < 3) {
+                System.err.println("Error: --annotations requires an annotation name");
+                printUsage();
+                System.exit(1);
+            }
+            String annotationName = argList.get(2);
+            CodeParser parser = new HybridJavaParser();
+            runAnnotationSearch(parser, javaFiles, rootPath, annotationName, formatter);
         } else if ("--classes".equals(command)) {
             CodeParser parser = new HybridJavaParser();
             runClassListing(parser, javaFiles, rootPath, formatter);
@@ -83,9 +94,42 @@ public class App {
         System.err.println("Usage:");
         System.err.println("  jsrc <source-root> <method-name> [--json]                    Search for methods");
         System.err.println("  jsrc <source-root> --summary <class> [--json]                Class summary (signatures only)");
+        System.err.println("  jsrc <source-root> --annotations <name> [--json]             Find annotated elements");
         System.err.println("  jsrc <source-root> --classes [--json]                        List all classes");
         System.err.println("  jsrc <source-root> --smells [--json]                         Detect code smells");
         System.err.println("  jsrc <source-root> --call-chain <method> [outdir] [--json]   Generate call chain diagrams");
+    }
+
+    private static void runAnnotationSearch(CodeParser parser, List<Path> javaFiles,
+                                              String rootPath, String annotationName,
+                                              OutputFormatter formatter) {
+        System.err.printf("Searching for @%s in %d files under '%s'...%n",
+                annotationName, javaFiles.size(), rootPath);
+
+        List<AnnotationMatch> matches = new ArrayList<>();
+        for (Path file : javaFiles) {
+            // Search methods
+            List<MethodInfo> methods = parser.findMethodsByAnnotation(file, annotationName);
+            for (MethodInfo m : methods) {
+                AnnotationInfo ann = m.annotations().stream()
+                        .filter(a -> a.name().equals(annotationName))
+                        .findFirst().orElse(AnnotationInfo.marker(annotationName));
+                matches.add(new AnnotationMatch("method", m.name(), m.className(), file, m.startLine(), ann));
+            }
+
+            // Search classes
+            List<ClassInfo> classes = parser.parseClasses(file);
+            for (ClassInfo ci : classes) {
+                ci.annotations().stream()
+                        .filter(a -> a.name().equals(annotationName))
+                        .findFirst()
+                        .ifPresent(ann -> matches.add(
+                                new AnnotationMatch("class", ci.name(), ci.name(), file, ci.startLine(), ann)));
+            }
+        }
+
+        formatter.printAnnotationMatches(matches);
+        System.err.printf("Found %d match(es).%n", matches.size());
     }
 
     private static void runClassSummary(CodeParser parser, List<Path> javaFiles,

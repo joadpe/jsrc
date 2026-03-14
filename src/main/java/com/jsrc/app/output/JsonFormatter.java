@@ -62,6 +62,22 @@ public class JsonFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printAnnotationMatches(List<AnnotationMatch> matches) {
+        List<Map<String, Object>> items = matches.stream()
+                .map(m -> {
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("type", m.type());
+                    map.put("name", m.name());
+                    map.put("className", m.className());
+                    map.put("file", m.file().toString());
+                    map.put("line", m.line());
+                    map.put("annotation", annotationToMap(m.annotation()));
+                    return map;
+                }).toList();
+        System.out.println(JsonWriter.toJson(items));
+    }
+
+    @Override
     public void printClassSummary(ClassInfo ci, Path file) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("name", ci.name());

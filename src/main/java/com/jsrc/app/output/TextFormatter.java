@@ -68,6 +68,20 @@ public class TextFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printAnnotationMatches(List<AnnotationMatch> matches) {
+        if (matches.isEmpty()) {
+            System.out.println("No matches found.");
+            return;
+        }
+        for (AnnotationMatch m : matches) {
+            System.out.printf("  [%s] %s in %s (%s:%d)  %s%n",
+                    m.type(), m.name(), m.className(),
+                    m.file().getFileName(), m.line(), m.annotation());
+        }
+        System.out.printf("%nTotal: %d match(es).%n", matches.size());
+    }
+
+    @Override
     public void printClassSummary(ClassInfo ci, Path file) {
         String kind = ci.isInterface() ? "interface" : ci.isAbstract() ? "abstract class" : "class";
         System.out.printf("%s %s%n", kind, ci.qualifiedName());

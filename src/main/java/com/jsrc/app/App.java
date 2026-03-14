@@ -36,18 +36,45 @@ public class App {
         List<String> argList = new ArrayList<>(List.of(args));
         boolean jsonOutput = argList.remove("--json");
         boolean signatureOnly = argList.remove("--signature-only");
-        OutputFormatter formatter = OutputFormatter.create(jsonOutput, signatureOnly);
 
-        if (argList.size() < 2) {
-            printUsage();
-            System.exit(1);
+        // Extract --config <path> if present
+        String configPath = null;
+        int configIdx = argList.indexOf("--config");
+        if (configIdx >= 0 && configIdx + 1 < argList.size()) {
+            configPath = argList.get(configIdx + 1);
+            argList.remove(configIdx + 1);
+            argList.remove(configIdx);
         }
 
-        String rootPath = argList.get(0);
-        String command = argList.get(1);
+        OutputFormatter formatter = OutputFormatter.create(jsonOutput, signatureOnly);
+
+        // Try loading project config
+        com.jsrc.app.config.ProjectConfig config = configPath != null
+                ? com.jsrc.app.config.ProjectConfig.loadFrom(Path.of(configPath))
+                : com.jsrc.app.config.ProjectConfig.load(Path.of("."));
+
+        // With config: command can be first arg (no source-root needed)
+        String rootPath;
+        String command;
+        if (argList.size() >= 2) {
+            rootPath = argList.get(0);
+            command = argList.get(1);
+        } else if (argList.size() == 1 && config != null && !config.sourceRoots().isEmpty()) {
+            rootPath = config.sourceRoots().getFirst();
+            command = argList.get(0);
+        } else {
+            printUsage();
+            System.exit(1);
+            return;
+        }
 
         CodeBase project = new JavaCodeBase(rootPath, new CodeBaseLoader());
         List<Path> javaFiles = project.getFiles();
+
+        // Apply excludes from config
+        if (config != null && !config.excludes().isEmpty()) {
+            javaFiles = filterExcludes(javaFiles, config.excludes());
+        }
 
         if ("--index".equals(command)) {
             CodeParser parser = new HybridJavaParser();
@@ -118,6 +145,24 @@ public class App {
             CodeParser parser = new HybridJavaParser();
             runMethodSearch(parser, javaFiles, rootPath, command, formatter);
         }
+    }
+
+    private static List<Path> filterExcludes(List<Path> files, List<String> excludes) {
+        return files.stream()
+                .filter(f -> {
+                    String pathStr = f.toString();
+                    for (String pattern : excludes) {
+                        // Simple glob: ** matches any path segment
+                        String regex = pattern
+                                .replace(".", "\\.")
+                                .replace("**/", "(.*/)?")
+                                .replace("**", ".*")
+                                .replace("*", "[^/]*");
+                        if (pathStr.matches(".*" + regex + ".*")) return false;
+                    }
+                    return true;
+                })
+                .toList();
     }
 
     private static void printUsage() {

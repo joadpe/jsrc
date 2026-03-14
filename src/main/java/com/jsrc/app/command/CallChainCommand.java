@@ -1,0 +1,43 @@
+package com.jsrc.app.command;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import com.jsrc.app.parser.CallChainTracer;
+import com.jsrc.app.parser.CallGraphBuilder;
+import com.jsrc.app.parser.MermaidDiagramGenerator;
+
+public class CallChainCommand implements Command {
+    private final String methodName;
+    private final String outputDir;
+
+    public CallChainCommand(String methodName, String outputDir) {
+        this.methodName = methodName;
+        this.outputDir = outputDir;
+    }
+
+    @Override
+    public int execute(CommandContext ctx) {
+        CallGraphBuilder graphBuilder = new CallGraphBuilder();
+        graphBuilder.build(ctx.javaFiles());
+
+        CallChainTracer tracer = new CallChainTracer(graphBuilder);
+        var chains = tracer.traceToRoots(methodName);
+
+        ctx.formatter().printCallChains(chains, methodName);
+
+        if (!chains.isEmpty()) {
+            MermaidDiagramGenerator generator = new MermaidDiagramGenerator();
+            try {
+                var files = generator.writeAll(chains, Paths.get(outputDir), methodName);
+                for (Path file : files) {
+                    System.err.printf("  Written: %s%n", file);
+                }
+            } catch (IOException ex) {
+                System.err.printf("Error writing diagrams: %s%n", ex.getMessage());
+            }
+        }
+        return chains.size();
+    }
+}

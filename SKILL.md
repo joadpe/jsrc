@@ -99,6 +99,16 @@ jsrc --smells --json
 jsrc --call-chain methodName --json
 ```
 
+### Introspect
+
+```bash
+# List all available commands
+jsrc --describe --json
+
+# Detail of a specific command
+jsrc --describe --summary --json
+```
+
 ### Index
 
 ```bash
@@ -108,6 +118,21 @@ jsrc --index
 # Performance metrics for any command
 jsrc --overview --json --metrics
 ```
+
+## Global flags
+
+- `--json` — machine-readable JSON output (always use this)
+- `--metrics` — append execution metrics to stderr
+- `--signature-only` — compact method output (1 line per method)
+- `--fields name,packageName` — limit JSON to specific fields (saves tokens)
+- `--config path` — use custom config file instead of `.jsrc.yaml`
+
+## Exit codes
+
+- `0` — OK, results found
+- `1` — OK, but no results matched
+- `2` — Bad arguments (invalid input, unknown command)
+- `3` — I/O error
 
 ## Invariants
 

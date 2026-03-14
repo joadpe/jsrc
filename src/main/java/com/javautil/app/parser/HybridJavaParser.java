@@ -3,7 +3,6 @@ package com.javautil.app.parser;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
@@ -168,9 +168,7 @@ public class HybridJavaParser implements CodeParser {
         int startLine = md.getBegin().map(p -> p.line).orElse(-1);
         int endLine = md.getEnd().map(p -> p.line).orElse(-1);
 
-        String className = md.findAncestor(ClassOrInterfaceDeclaration.class)
-                .map(ClassOrInterfaceDeclaration::getNameAsString)
-                .orElse("");
+        String className = findEnclosingClassName(md);
 
         String returnType = md.getTypeAsString();
 
@@ -289,6 +287,17 @@ public class HybridJavaParser implements CodeParser {
                 .map(MethodInfo::content)
                 .findFirst()
                 .orElse(null);
+    }
+
+    private String findEnclosingClassName(MethodDeclaration md) {
+        Node current = md.getParentNode().orElse(null);
+        while (current != null) {
+            if (current instanceof ClassOrInterfaceDeclaration cid) {
+                return cid.getNameAsString();
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        return "";
     }
 
     private boolean isValidPath(Path path) {

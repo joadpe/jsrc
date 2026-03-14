@@ -47,6 +47,7 @@ public class TreeSitterParser implements CodeParser {
     private final Language language;
     private final String languageKey;
 
+    @SuppressWarnings("null")
     public TreeSitterParser(String languageKey) {
         if (languageKey == null || languageKey.isBlank()) {
             throw new IllegalArgumentException("Language key must not be null or blank");
@@ -106,6 +107,7 @@ public class TreeSitterParser implements CodeParser {
 
     // -- internal: method queries --
 
+    @SuppressWarnings("null")
     private List<MethodInfo> executeMethodQuery(Path path, String queryString, String expectedName) {
         List<MethodInfo> results = new ArrayList<>();
         try {
@@ -131,6 +133,7 @@ public class TreeSitterParser implements CodeParser {
         return results;
     }
 
+    @SuppressWarnings("null")
     private List<ClassInfo> executeClassQuery(Path path) {
         List<ClassInfo> results = new ArrayList<>();
         try {
@@ -198,6 +201,7 @@ public class TreeSitterParser implements CodeParser {
 
     // -- node helpers --
 
+    @SuppressWarnings("null")
     private String extractChildText(Node parent, String fieldName) {
         return parent.getChildByFieldName(fieldName)
                 .map(Node::getText)

@@ -102,6 +102,7 @@ public final class TreeSitterLanguageFactory {
                 "Native library '%s' not found in system or classpath".formatted(libraryBaseName));
     }
 
+    @SuppressWarnings("null")
     private static Language tryLoadFromSystem(String libraryBaseName, String symbolName) {
         String fileName = System.mapLibraryName(libraryBaseName);
 
@@ -125,6 +126,7 @@ public final class TreeSitterLanguageFactory {
         return null;
     }
 
+    @SuppressWarnings("null")
     private static Language loadFromClasspath(URL libraryUrl, String baseName, String fileName, String symbolName) {
         try {
             Path tempLib = extractToTempFile(libraryUrl, baseName, fileName);

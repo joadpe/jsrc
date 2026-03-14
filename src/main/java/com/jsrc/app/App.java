@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import com.jsrc.app.codebase.CodeBase;
 import com.jsrc.app.codebase.CodeBaseLoader;
@@ -45,7 +46,16 @@ public class App {
         CodeBase project = new JavaCodeBase(rootPath, new CodeBaseLoader());
         List<Path> javaFiles = project.getFiles();
 
-        if ("--hierarchy".equals(command)) {
+        if ("--implements".equals(command)) {
+            if (argList.size() < 3) {
+                System.err.println("Error: --implements requires an interface name");
+                printUsage();
+                System.exit(1);
+            }
+            String ifaceName = argList.get(2);
+            CodeParser parser = new HybridJavaParser();
+            runImplements(parser, javaFiles, ifaceName, formatter);
+        } else if ("--hierarchy".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --hierarchy requires a class name");
                 printUsage();
@@ -96,12 +106,37 @@ public class App {
     private static void printUsage() {
         System.err.println("Usage:");
         System.err.println("  jsrc <source-root> <method-name> [--json]                    Search for methods");
+        System.err.println("  jsrc <source-root> --implements <iface> [--json]             Find implementors of an interface");
         System.err.println("  jsrc <source-root> --hierarchy <class> [--json]              Class hierarchy (extends/implements/subclasses)");
         System.err.println("  jsrc <source-root> --summary <class> [--json]                Class summary (signatures only)");
         System.err.println("  jsrc <source-root> --annotations <name> [--json]             Find annotated elements");
         System.err.println("  jsrc <source-root> --classes [--json]                        List all classes");
         System.err.println("  jsrc <source-root> --smells [--json]                         Detect code smells");
         System.err.println("  jsrc <source-root> --call-chain <method> [outdir] [--json]   Generate call chain diagrams");
+    }
+
+    private static void runImplements(CodeParser parser, List<Path> javaFiles,
+                                        String ifaceName, OutputFormatter formatter) {
+        List<ClassInfo> allClasses = new ArrayList<>();
+        for (Path file : javaFiles) {
+            allClasses.addAll(parser.parseClasses(file));
+        }
+
+        List<Map<String, Object>> implementors = new ArrayList<>();
+        for (ClassInfo ci : allClasses) {
+            if (ci.interfaces().contains(ifaceName)) {
+                Map<String, Object> entry = new java.util.LinkedHashMap<>();
+                entry.put("name", ci.qualifiedName());
+                entry.put("isAbstract", ci.isAbstract());
+                implementors.add(entry);
+            }
+        }
+
+        // Reuse printClasses for text, but for JSON emit focused list
+        HierarchyResult result = new HierarchyResult(
+                ifaceName, "", List.of(), List.of(),
+                implementors.stream().map(m -> (String) m.get("name")).toList());
+        formatter.printHierarchy(result);
     }
 
     private static void runHierarchy(CodeParser parser, List<Path> javaFiles,

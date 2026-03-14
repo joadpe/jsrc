@@ -130,14 +130,39 @@ public class App {
         int[] resultCount = {0}; // mutable counter for lambdas
 
         // --diff must read raw index BEFORE auto-refresh
-        if ("--diff".equals(command)) {
+        if ("--changed".equals(command)) {
+            resultCount[0] = runChanged(rootPath, formatter);
+        } else if ("--diff".equals(command)) {
             resultCount[0] = runDiff(javaFiles, rootPath, formatter);
         } else {
 
         // Try loading index for full-parse commands (auto-refreshes stale entries)
         var indexedCodebase = com.jsrc.app.index.IndexedCodebase.tryLoad(Paths.get(rootPath), javaFiles);
 
-        if ("--context".equals(command)) {
+        if ("--verify".equals(command)) {
+            if (argList.size() < 3) {
+                System.err.println("Error: --verify requires a class name and --spec path");
+                printUsage();
+                System.exit(ExitCode.BAD_USAGE);
+            }
+            String className = validateArg(argList.get(2), "Class name");
+            // Find --spec arg
+            int specIdx = argList.indexOf("--spec");
+            if (specIdx < 0 || specIdx + 1 >= argList.size()) {
+                System.err.println("Error: --verify requires --spec <path.md>");
+                System.exit(ExitCode.BAD_USAGE);
+            }
+            String specPath = argList.get(specIdx + 1);
+            resultCount[0] = runVerify(javaFiles, className, specPath);
+        } else if ("--contract".equals(command)) {
+            if (argList.size() < 3) {
+                System.err.println("Error: --contract requires an interface/class name");
+                printUsage();
+                System.exit(ExitCode.BAD_USAGE);
+            }
+            String className = validateArg(argList.get(2), "Interface name");
+            resultCount[0] = runContract(javaFiles, rootPath, className, formatter);
+        } else if ("--context".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --context requires a class name");
                 printUsage();
@@ -265,6 +290,61 @@ public class App {
         }
     }
 
+    private static int runVerify(List<Path> javaFiles, String className, String specPath) {
+        try {
+            var spec = com.jsrc.app.spec.SpecParser.parse(Path.of(specPath));
+            CodeParser parser = new HybridJavaParser();
+            for (Path file : javaFiles) {
+                for (ClassInfo ci : parser.parseClasses(file)) {
+                    if (ci.name().equals(className) || ci.qualifiedName().equals(className)) {
+                        var result = com.jsrc.app.spec.SpecVerifier.verify(ci, spec);
+                        System.out.println(com.jsrc.app.output.JsonWriter.toJson(result));
+                        @SuppressWarnings("unchecked")
+                        List<?> discs = (List<?>) result.get("discrepancies");
+                        return discs.size();
+                    }
+                }
+            }
+            System.err.printf("Class '%s' not found.%n", className);
+            return 0;
+        } catch (java.io.IOException e) {
+            System.err.printf("Error reading spec: %s%n", e.getMessage());
+            System.exit(ExitCode.IO_ERROR);
+            return 0;
+        }
+    }
+
+    private static int runContract(List<Path> javaFiles, String rootPath,
+                                        String className, OutputFormatter formatter) {
+        CodeParser parser = new HybridJavaParser();
+        for (Path file : javaFiles) {
+            for (ClassInfo ci : parser.parseClasses(file)) {
+                if (ci.name().equals(className) || ci.qualifiedName().equals(className)) {
+                    Map<String, Object> contract = new java.util.LinkedHashMap<>();
+                    contract.put("name", ci.qualifiedName());
+                    contract.put("isInterface", ci.isInterface());
+                    contract.put("methods", ci.methods().stream().map(m -> {
+                        Map<String, Object> mm = new java.util.LinkedHashMap<>();
+                        mm.put("name", m.name());
+                        mm.put("signature", m.signature());
+                        mm.put("returnType", m.returnType());
+                        mm.put("parameters", m.parameters().stream()
+                                .map(p -> p.type() + " " + p.name()).toList());
+                        if (!m.thrownExceptions().isEmpty()) mm.put("throws", m.thrownExceptions());
+                        if (!m.annotations().isEmpty()) mm.put("annotations",
+                                m.annotations().stream().map(a -> a.toString()).toList());
+                        if (m.javadoc() != null) mm.put("javadoc", m.javadoc().trim());
+                        return mm;
+                    }).toList());
+                    System.out.println(com.jsrc.app.output.JsonWriter.toJson(contract));
+                    return 1;
+                }
+            }
+        }
+        System.err.printf("'%s' not found.%n", className);
+        return 0;
+    }
+
     private static int runContext(List<Path> javaFiles, String rootPath,
                                        String className,
                                        com.jsrc.app.config.ProjectConfig config,
@@ -368,6 +448,31 @@ public class App {
         List<ClassInfo> layerClasses = resolver.filterByLayer(allClasses, layerName);
         formatter.printClasses(layerClasses, Path.of(rootPath));
         return layerClasses.size();
+    }
+
+    private static int runChanged(String rootPath, OutputFormatter formatter) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("git", "diff", "--name-only", "HEAD");
+            pb.directory(new java.io.File(rootPath));
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            String output = new String(proc.getInputStream().readAllBytes()).trim();
+            proc.waitFor();
+
+            List<String> changedFiles = output.isEmpty() ? List.of()
+                    : List.of(output.split("\n")).stream()
+                            .filter(f -> f.endsWith(".java"))
+                            .toList();
+
+            Map<String, Object> result = new java.util.LinkedHashMap<>();
+            result.put("changedFiles", changedFiles);
+            result.put("totalChanged", changedFiles.size());
+            System.out.println(com.jsrc.app.output.JsonWriter.toJson(result));
+            return changedFiles.size();
+        } catch (Exception e) {
+            System.err.printf("Error running git diff: %s%n", e.getMessage());
+            return 0;
+        }
     }
 
     private static int runDiff(List<Path> javaFiles, String rootPath,

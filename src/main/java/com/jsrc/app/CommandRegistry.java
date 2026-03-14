@@ -23,6 +23,12 @@ public final class CommandRegistry {
     ) {}
 
     private static final List<CommandDef> COMMANDS = List.of(
+            new CommandDef("--verify", "Verify implementation against Markdown spec",
+                    List.of("<className>", "--spec", "<path.md>"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--contract", "Extract formal contract of an interface/class",
+                    List.of("<className>"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--changed", "Java files changed in git (vs HEAD)",
+                    List.of(), List.of("--json", "--metrics"), "object"),
             new CommandDef("--context", "Full context package for a class (reverse engineering)",
                     List.of("<className>"), List.of("--json", "--md", "--metrics"), "object"),
             new CommandDef("--endpoints", "List REST endpoints (path, method, controller)",

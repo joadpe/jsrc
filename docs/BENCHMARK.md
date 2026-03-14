@@ -52,6 +52,22 @@
 | `--summary SpringApplication` | **39ms** | 188x |
 | `--index` (incremental, 0 changes) | **993ms** | 146x |
 
+## Spring Boot full: 2026-03-14
+
+**Codebase:** spring-boot (8,323 Java files, 13,335 types)
+
+### With index
+
+| Command | Time | Results |
+|---------|------|---------|
+| `--overview` | **77ms** | 13,335 types |
+| `--classes` | **227ms** | 13,335 types |
+| `--annotations ConditionalOnClass` | **857ms** | 420 matches |
+| `--hierarchy SpringApplication` | **78ms** | 1 class |
+| `--summary SpringApplication` | **85ms** | 1 class |
+| `--index` (incremental, 0 changes) | **1,924ms** | 0 re-indexed |
+| `--index` (first run, full build) | ~14min | 8,323 indexed |
+
 ### Key insight
 
 - **Targeted commands** (search, deps, summary): ~5-7s — usable in real-time

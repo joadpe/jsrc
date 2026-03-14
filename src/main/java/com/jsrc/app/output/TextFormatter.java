@@ -15,9 +15,23 @@ import com.jsrc.app.parser.model.MethodInfo;
  */
 public class TextFormatter implements OutputFormatter {
 
+    private boolean signatureOnly;
+
+    /**
+     * When true, method output shows only the signature line.
+     */
+    public void setSignatureOnly(boolean signatureOnly) {
+        this.signatureOnly = signatureOnly;
+    }
+
     @Override
     public void printMethods(List<MethodInfo> methods, Path file, String methodName) {
         for (MethodInfo m : methods) {
+            if (signatureOnly) {
+                System.out.printf("%s:%d  %s%n", file.getFileName(), m.startLine(), m.signature());
+                continue;
+            }
+
             System.out.printf("%n[%s] %s:%d-%d%n",
                     m.className().isEmpty() ? file.getFileName() : m.className(),
                     file, m.startLine(), m.endLine());

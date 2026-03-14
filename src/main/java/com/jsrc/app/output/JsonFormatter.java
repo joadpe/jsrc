@@ -20,6 +20,15 @@ import com.jsrc.app.parser.model.MethodReference;
  */
 public class JsonFormatter implements OutputFormatter {
 
+    private boolean signatureOnly;
+
+    /**
+     * When true, method output includes only signature, className, file, and line numbers.
+     */
+    public void setSignatureOnly(boolean signatureOnly) {
+        this.signatureOnly = signatureOnly;
+    }
+
     @Override
     public void printMethods(List<MethodInfo> methods, Path file, String methodName) {
         List<Map<String, Object>> items = methods.stream()
@@ -101,20 +110,23 @@ public class JsonFormatter implements OutputFormatter {
         map.put("file", file.toString());
         map.put("startLine", m.startLine());
         map.put("endLine", m.endLine());
-        map.put("returnType", m.returnType());
-        map.put("modifiers", m.modifiers());
-        map.put("parameters", m.parameters().stream().map(this::paramToMap).toList());
         map.put("signature", m.signature());
 
-        if (!m.annotations().isEmpty()) {
-            map.put("annotations", m.annotations().stream()
-                    .map(this::annotationToMap).toList());
-        }
-        if (!m.thrownExceptions().isEmpty()) {
-            map.put("thrownExceptions", m.thrownExceptions());
-        }
-        if (!m.typeParameters().isEmpty()) {
-            map.put("typeParameters", m.typeParameters());
+        if (!signatureOnly) {
+            map.put("returnType", m.returnType());
+            map.put("modifiers", m.modifiers());
+            map.put("parameters", m.parameters().stream().map(this::paramToMap).toList());
+
+            if (!m.annotations().isEmpty()) {
+                map.put("annotations", m.annotations().stream()
+                        .map(this::annotationToMap).toList());
+            }
+            if (!m.thrownExceptions().isEmpty()) {
+                map.put("thrownExceptions", m.thrownExceptions());
+            }
+            if (!m.typeParameters().isEmpty()) {
+                map.put("typeParameters", m.typeParameters());
+            }
         }
         // content intentionally omitted to save tokens
         return map;

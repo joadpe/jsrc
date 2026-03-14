@@ -28,7 +28,15 @@ public class App {
     public static void main(String[] args) {
         List<String> argList = new ArrayList<>(List.of(args));
         boolean jsonOutput = argList.remove("--json");
+        boolean signatureOnly = argList.remove("--signature-only");
         OutputFormatter formatter = OutputFormatter.create(jsonOutput);
+        if (signatureOnly) {
+            if (formatter instanceof com.jsrc.app.output.JsonFormatter jf) {
+                jf.setSignatureOnly(true);
+            } else if (formatter instanceof com.jsrc.app.output.TextFormatter tf) {
+                tf.setSignatureOnly(true);
+            }
+        }
 
         if (argList.size() < 2) {
             printUsage();

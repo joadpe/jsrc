@@ -23,6 +23,8 @@ public final class CommandRegistry {
     ) {}
 
     private static final List<CommandDef> COMMANDS = List.of(
+            new CommandDef("--context", "Full context package for a class (reverse engineering)",
+                    List.of("<className>"), List.of("--json", "--md", "--metrics"), "object"),
             new CommandDef("--endpoints", "List REST endpoints (path, method, controller)",
                     List.of(), List.of("--json", "--metrics"), "array"),
             new CommandDef("--check", "Check architecture rules, report violations",

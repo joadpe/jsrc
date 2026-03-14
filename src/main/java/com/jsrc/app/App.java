@@ -136,7 +136,15 @@ public class App {
         // Try loading index for full-parse commands (auto-refreshes stale entries)
         var indexedCodebase = com.jsrc.app.index.IndexedCodebase.tryLoad(Paths.get(rootPath), javaFiles);
 
-        if ("--endpoints".equals(command)) {
+        if ("--context".equals(command)) {
+            if (argList.size() < 3) {
+                System.err.println("Error: --context requires a class name");
+                printUsage();
+                System.exit(ExitCode.BAD_USAGE);
+            }
+            String className = validateArg(argList.get(2), "Class name");
+            resultCount[0] = runContext(javaFiles, rootPath, className, config, formatter);
+        } else if ("--endpoints".equals(command)) {
             resultCount[0] = runEndpoints(indexedCodebase, javaFiles, rootPath, config, formatter);
         } else if ("--check".equals(command)) {
             resultCount[0] = runCheck(indexedCodebase, javaFiles, rootPath,
@@ -254,6 +262,29 @@ public class App {
         if (resultCount[0] == 0 && !"--index".equals(command)) {
             System.exit(ExitCode.NOT_FOUND);
         }
+    }
+
+    private static int runContext(List<Path> javaFiles, String rootPath,
+                                       String className,
+                                       com.jsrc.app.config.ProjectConfig config,
+                                       OutputFormatter formatter) {
+        CodeParser parser = new HybridJavaParser();
+
+        // Need all classes for hierarchy resolution
+        List<ClassInfo> allClasses = new ArrayList<>();
+        for (Path file : javaFiles) allClasses.addAll(parser.parseClasses(file));
+
+        var arch = config != null ? config.architecture() : null;
+        var assembler = new com.jsrc.app.parser.ContextAssembler(parser);
+        Map<String, Object> ctx = assembler.assemble(javaFiles, className, allClasses, arch);
+
+        if (ctx == null) {
+            System.err.printf("Class '%s' not found.%n", className);
+            return 0;
+        }
+
+        System.out.println(com.jsrc.app.output.JsonWriter.toJson(ctx));
+        return 1;
     }
 
     private static int runEndpoints(com.jsrc.app.index.IndexedCodebase indexed,

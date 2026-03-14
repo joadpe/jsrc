@@ -62,6 +62,44 @@ public class JsonFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printClassSummary(ClassInfo ci, Path file) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("name", ci.name());
+        map.put("packageName", ci.packageName());
+        map.put("qualifiedName", ci.qualifiedName());
+        map.put("file", file.toString());
+        map.put("startLine", ci.startLine());
+        map.put("endLine", ci.endLine());
+        map.put("modifiers", ci.modifiers());
+        map.put("isInterface", ci.isInterface());
+        map.put("isAbstract", ci.isAbstract());
+        if (!ci.superClass().isEmpty()) {
+            map.put("superClass", ci.superClass());
+        }
+        if (!ci.interfaces().isEmpty()) {
+            map.put("interfaces", ci.interfaces());
+        }
+        if (!ci.annotations().isEmpty()) {
+            map.put("annotations", ci.annotations().stream()
+                    .map(this::annotationToMap).toList());
+        }
+        // Methods as compact signatures (no bodies)
+        List<Map<String, Object>> methods = ci.methods().stream()
+                .map(m -> {
+                    Map<String, Object> mmap = new LinkedHashMap<>();
+                    mmap.put("name", m.name());
+                    mmap.put("signature", m.signature());
+                    mmap.put("startLine", m.startLine());
+                    mmap.put("endLine", m.endLine());
+                    mmap.put("returnType", m.returnType());
+                    return mmap;
+                }).toList();
+        map.put("methods", methods);
+
+        System.out.println(JsonWriter.toJson(map));
+    }
+
+    @Override
     public void printClasses(List<ClassInfo> classes, Path sourceRoot) {
         List<Map<String, Object>> items = classes.stream()
                 .map(this::classToCompactMap)

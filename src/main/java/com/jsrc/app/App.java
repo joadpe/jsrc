@@ -49,7 +49,16 @@ public class App {
         CodeBase project = new JavaCodeBase(rootPath, new CodeBaseLoader());
         List<Path> javaFiles = project.getFiles();
 
-        if ("--classes".equals(command)) {
+        if ("--summary".equals(command)) {
+            if (argList.size() < 3) {
+                System.err.println("Error: --summary requires a class name");
+                printUsage();
+                System.exit(1);
+            }
+            String className = argList.get(2);
+            CodeParser parser = new HybridJavaParser();
+            runClassSummary(parser, javaFiles, rootPath, className, formatter);
+        } else if ("--classes".equals(command)) {
             CodeParser parser = new HybridJavaParser();
             runClassListing(parser, javaFiles, rootPath, formatter);
         } else if ("--smells".equals(command)) {
@@ -73,9 +82,25 @@ public class App {
     private static void printUsage() {
         System.err.println("Usage:");
         System.err.println("  jsrc <source-root> <method-name> [--json]                    Search for methods");
+        System.err.println("  jsrc <source-root> --summary <class> [--json]                Class summary (signatures only)");
         System.err.println("  jsrc <source-root> --classes [--json]                        List all classes");
         System.err.println("  jsrc <source-root> --smells [--json]                         Detect code smells");
         System.err.println("  jsrc <source-root> --call-chain <method> [outdir] [--json]   Generate call chain diagrams");
+    }
+
+    private static void runClassSummary(CodeParser parser, List<Path> javaFiles,
+                                          String rootPath, String className,
+                                          OutputFormatter formatter) {
+        for (Path file : javaFiles) {
+            List<ClassInfo> classes = parser.parseClasses(file);
+            for (ClassInfo ci : classes) {
+                if (ci.name().equals(className) || ci.qualifiedName().equals(className)) {
+                    formatter.printClassSummary(ci, file);
+                    return;
+                }
+            }
+        }
+        System.err.printf("Class '%s' not found.%n", className);
     }
 
     private static void runClassListing(CodeParser parser, List<Path> javaFiles,

@@ -41,6 +41,14 @@ public interface OutputFormatter {
     void printClasses(List<ClassInfo> classes, Path sourceRoot);
 
     /**
+     * Prints a compact summary of a single class: metadata + method signatures.
+     *
+     * @param classInfo the class to summarize
+     * @param file      source file path
+     */
+    void printClassSummary(ClassInfo classInfo, Path file);
+
+    /**
      * Prints call chain analysis results.
      *
      * @param chains     discovered call chains

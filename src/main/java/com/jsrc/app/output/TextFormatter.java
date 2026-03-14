@@ -68,6 +68,28 @@ public class TextFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printClassSummary(ClassInfo ci, Path file) {
+        String kind = ci.isInterface() ? "interface" : ci.isAbstract() ? "abstract class" : "class";
+        System.out.printf("%s %s%n", kind, ci.qualifiedName());
+        System.out.printf("  File: %s  lines %d-%d%n", file, ci.startLine(), ci.endLine());
+
+        if (!ci.superClass().isEmpty()) {
+            System.out.printf("  Extends: %s%n", ci.superClass());
+        }
+        if (!ci.interfaces().isEmpty()) {
+            System.out.printf("  Implements: %s%n", String.join(", ", ci.interfaces()));
+        }
+        if (!ci.annotations().isEmpty()) {
+            System.out.printf("  Annotations: %s%n", ci.annotations());
+        }
+
+        System.out.printf("  Methods (%d):%n", ci.methods().size());
+        for (MethodInfo m : ci.methods()) {
+            System.out.printf("    %s:%d  %s%n", file.getFileName(), m.startLine(), m.signature());
+        }
+    }
+
+    @Override
     public void printClasses(List<ClassInfo> classes, Path sourceRoot) {
         if (classes.isEmpty()) {
             System.out.println("No classes found.");

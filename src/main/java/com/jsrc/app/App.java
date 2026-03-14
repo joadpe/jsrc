@@ -131,7 +131,16 @@ public class App {
         var timer = com.jsrc.app.util.StopWatch.start();
         int[] resultCount = {0}; // mutable counter for lambdas
 
-        if ("--index".equals(command)) {
+        if ("--read".equals(command)) {
+            if (argList.size() < 3) {
+                System.err.println("Error: --read requires Class or Class.method");
+                printUsage();
+                System.exit(ExitCode.BAD_USAGE);
+            }
+            String target = argList.get(2);
+            CodeParser parser = new HybridJavaParser();
+            resultCount[0] = runRead(parser, javaFiles, target, formatter);
+        } else if ("--index".equals(command)) {
             CodeParser parser = new HybridJavaParser();
             runIndex(parser, javaFiles, rootPath);
         } else if ("--overview".equals(command)) {
@@ -209,6 +218,30 @@ public class App {
         if (resultCount[0] == 0 && !"--index".equals(command)) {
             System.exit(ExitCode.NOT_FOUND);
         }
+    }
+
+    private static int runRead(CodeParser parser, List<Path> javaFiles,
+                                   String target, OutputFormatter formatter) {
+        var reader = new com.jsrc.app.parser.SourceReader(parser);
+        com.jsrc.app.parser.SourceReader.ReadResult result;
+
+        if (target.contains(".")) {
+            // Class.method format
+            int dot = target.lastIndexOf('.');
+            String className = target.substring(0, dot);
+            String methodName = target.substring(dot + 1);
+            result = reader.readMethod(javaFiles, className, methodName);
+        } else {
+            // Class only
+            result = reader.readClass(javaFiles, target);
+        }
+
+        if (result != null) {
+            formatter.printReadResult(result);
+            return 1;
+        }
+        System.err.printf("'%s' not found.%n", target);
+        return 0;
     }
 
     private static String validateArg(String value, String label) {

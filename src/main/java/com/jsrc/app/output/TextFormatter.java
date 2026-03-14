@@ -69,6 +69,15 @@ public class TextFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printReadResult(com.jsrc.app.parser.SourceReader.ReadResult result) {
+        String label = result.methodName() != null
+                ? result.className() + "." + result.methodName() + "()"
+                : result.className();
+        System.out.printf("// %s  %s:%d-%d%n", label, result.file(), result.startLine(), result.endLine());
+        System.out.println(result.content());
+    }
+
+    @Override
     public void printOverview(OverviewResult result) {
         System.out.printf("Codebase Overview%n");
         System.out.printf("  Files:      %d%n", result.totalFiles());

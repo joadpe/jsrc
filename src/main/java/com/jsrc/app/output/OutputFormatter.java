@@ -41,6 +41,13 @@ public interface OutputFormatter {
     void printClasses(List<ClassInfo> classes, Path sourceRoot);
 
     /**
+     * Prints source read result.
+     *
+     * @param result read result with source content
+     */
+    void printReadResult(com.jsrc.app.parser.SourceReader.ReadResult result);
+
+    /**
      * Prints codebase overview.
      *
      * @param result overview data

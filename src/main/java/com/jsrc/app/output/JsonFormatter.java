@@ -69,6 +69,20 @@ public class JsonFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printReadResult(com.jsrc.app.parser.SourceReader.ReadResult result) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("className", result.className());
+        if (result.methodName() != null) {
+            map.put("methodName", result.methodName());
+        }
+        map.put("file", result.file().toString());
+        map.put("startLine", result.startLine());
+        map.put("endLine", result.endLine());
+        map.put("content", result.content());
+        System.out.println(JsonWriter.toJson(FieldsFilter.filter(map, fields)));
+    }
+
+    @Override
     public void printOverview(OverviewResult result) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("totalFiles", result.totalFiles());

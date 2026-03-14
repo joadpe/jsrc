@@ -41,6 +41,13 @@ public interface OutputFormatter {
     void printClasses(List<ClassInfo> classes, Path sourceRoot);
 
     /**
+     * Prints class hierarchy results.
+     *
+     * @param result hierarchy data for the queried class
+     */
+    void printHierarchy(HierarchyResult result);
+
+    /**
      * Prints annotation search results.
      *
      * @param matches found annotation matches

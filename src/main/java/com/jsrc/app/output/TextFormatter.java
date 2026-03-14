@@ -69,6 +69,23 @@ public class TextFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printHierarchy(HierarchyResult result) {
+        System.out.printf("Hierarchy for: %s%n", result.target());
+        if (!result.superClass().isEmpty()) {
+            System.out.printf("  Extends: %s%n", result.superClass());
+        }
+        if (!result.interfaces().isEmpty()) {
+            System.out.printf("  Implements: %s%n", String.join(", ", result.interfaces()));
+        }
+        if (!result.subClasses().isEmpty()) {
+            System.out.printf("  Subclasses: %s%n", String.join(", ", result.subClasses()));
+        }
+        if (!result.implementors().isEmpty()) {
+            System.out.printf("  Implementors: %s%n", String.join(", ", result.implementors()));
+        }
+    }
+
+    @Override
     public void printAnnotationMatches(List<AnnotationMatch> matches) {
         if (matches.isEmpty()) {
             System.out.println("No matches found.");

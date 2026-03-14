@@ -63,6 +63,17 @@ public class JsonFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printHierarchy(HierarchyResult result) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("target", result.target());
+        map.put("superClass", result.superClass());
+        map.put("interfaces", result.interfaces());
+        map.put("subClasses", result.subClasses());
+        map.put("implementors", result.implementors());
+        System.out.println(JsonWriter.toJson(map));
+    }
+
+    @Override
     public void printAnnotationMatches(List<AnnotationMatch> matches) {
         List<Map<String, Object>> items = matches.stream()
                 .map(m -> {

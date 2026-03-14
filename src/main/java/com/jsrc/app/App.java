@@ -16,6 +16,7 @@ import com.jsrc.app.parser.CodeParser;
 import com.jsrc.app.parser.HybridJavaParser;
 import com.jsrc.app.parser.MermaidDiagramGenerator;
 import com.jsrc.app.output.AnnotationMatch;
+import com.jsrc.app.output.HierarchyResult;
 import com.jsrc.app.parser.model.AnnotationInfo;
 import com.jsrc.app.parser.model.CallChain;
 import com.jsrc.app.parser.model.ClassInfo;
@@ -44,7 +45,16 @@ public class App {
         CodeBase project = new JavaCodeBase(rootPath, new CodeBaseLoader());
         List<Path> javaFiles = project.getFiles();
 
-        if ("--summary".equals(command)) {
+        if ("--hierarchy".equals(command)) {
+            if (argList.size() < 3) {
+                System.err.println("Error: --hierarchy requires a class name");
+                printUsage();
+                System.exit(1);
+            }
+            String className = argList.get(2);
+            CodeParser parser = new HybridJavaParser();
+            runHierarchy(parser, javaFiles, className, formatter);
+        } else if ("--summary".equals(command)) {
             if (argList.size() < 3) {
                 System.err.println("Error: --summary requires a class name");
                 printUsage();
@@ -86,11 +96,53 @@ public class App {
     private static void printUsage() {
         System.err.println("Usage:");
         System.err.println("  jsrc <source-root> <method-name> [--json]                    Search for methods");
+        System.err.println("  jsrc <source-root> --hierarchy <class> [--json]              Class hierarchy (extends/implements/subclasses)");
         System.err.println("  jsrc <source-root> --summary <class> [--json]                Class summary (signatures only)");
         System.err.println("  jsrc <source-root> --annotations <name> [--json]             Find annotated elements");
         System.err.println("  jsrc <source-root> --classes [--json]                        List all classes");
         System.err.println("  jsrc <source-root> --smells [--json]                         Detect code smells");
         System.err.println("  jsrc <source-root> --call-chain <method> [outdir] [--json]   Generate call chain diagrams");
+    }
+
+    private static void runHierarchy(CodeParser parser, List<Path> javaFiles,
+                                       String className, OutputFormatter formatter) {
+        // First pass: collect all class metadata
+        List<ClassInfo> allClasses = new ArrayList<>();
+        for (Path file : javaFiles) {
+            allClasses.addAll(parser.parseClasses(file));
+        }
+
+        // Find target class
+        ClassInfo target = allClasses.stream()
+                .filter(ci -> ci.name().equals(className) || ci.qualifiedName().equals(className))
+                .findFirst().orElse(null);
+
+        if (target == null) {
+            System.err.printf("Class '%s' not found.%n", className);
+            return;
+        }
+
+        // Find subclasses (classes that extend target)
+        List<String> subClasses = allClasses.stream()
+                .filter(ci -> ci.superClass().equals(target.name())
+                        || ci.superClass().equals(target.qualifiedName()))
+                .map(ClassInfo::qualifiedName)
+                .toList();
+
+        // Find implementors (if target is an interface)
+        List<String> implementors = List.of();
+        if (target.isInterface()) {
+            implementors = allClasses.stream()
+                    .filter(ci -> ci.interfaces().contains(target.name())
+                            || ci.interfaces().contains(target.qualifiedName()))
+                    .map(ClassInfo::qualifiedName)
+                    .toList();
+        }
+
+        HierarchyResult result = new HierarchyResult(
+                target.qualifiedName(), target.superClass(),
+                target.interfaces(), subClasses, implementors);
+        formatter.printHierarchy(result);
     }
 
     private static void runAnnotationSearch(CodeParser parser, List<Path> javaFiles,

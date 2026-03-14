@@ -1,237 +1,294 @@
 package com.javautil.app.parser;
 
-import java.nio.file.Path;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
-import com.github.javaparser.ParseResult;
-import com.javautil.app.parser.TreeSitterParser.MethodLocation;
+import com.github.javaparser.ast.comments.JavadocComment;
+import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.MemberValuePair;
+import com.github.javaparser.ast.expr.NormalAnnotationExpr;
+import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
+import com.javautil.app.parser.model.AnnotationInfo;
+import com.javautil.app.parser.model.ClassInfo;
+import com.javautil.app.parser.model.MethodInfo;
+import com.javautil.app.parser.model.MethodInfo.ParameterInfo;
 
-public class HybridJavaParser implements JParser{
+/**
+ * Hybrid parser combining Tree-sitter's speed with JavaParser's semantic depth.
+ * <p>
+ * Strategy:
+ * <ul>
+ *   <li>For targeted searches ({@code findMethods}): Tree-sitter quickly identifies
+ *       which lines contain matches, then JavaParser does deep analysis of the file
+ *       using those locations as a filter — reading the file only once.</li>
+ *   <li>For full-file operations ({@code parseClasses}, {@code findAllMethods}):
+ *       JavaParser handles it directly since there's nothing to filter.</li>
+ *   <li>Fallback: if JavaParser fails (syntax errors), Tree-sitter results are used.</li>
+ * </ul>
+ */
+public class HybridJavaParser implements CodeParser {
 
     private static final Logger logger = LoggerFactory.getLogger(HybridJavaParser.class);
 
-    private TreeSitterParser ts;
-    private JavaParser jp;
+    private final TreeSitterParser treeSitter;
+    private final JavaParser javaParser;
 
-    public HybridJavaParser(){
-        this.ts = new TreeSitterParser("java");
-        this.jp = new JavaParser();
+    public HybridJavaParser() {
+        this.treeSitter = new TreeSitterParser("java");
+        this.javaParser = new JavaParser();
     }
 
     @Override
-    public void findMethod(Path path, String method) {
-        logger.debug("Iniciando búsqueda híbrida para método: {} en archivo: {}", method, path.getFileName());
-        
-        // Paso 1: Usar TreeSitter para encontrar rápidamente ubicaciones por nombre
-        List<MethodLocation> locations = null;//ts.getMethodLocations(path, method);
-        
-        if (locations.isEmpty()) {
-            logger.debug("No se encontraron métodos con nombre '{}' usando TreeSitter", method);
-            return;
+    public String getLanguage() {
+        return "java";
+    }
+
+    // ---- targeted search: TreeSitter locates, JavaParser enriches ----
+
+    @Override
+    public List<MethodInfo> findMethods(Path path, String methodName) {
+        if (!isValidInput(path, methodName)) return Collections.emptyList();
+
+        List<MethodInfo> tsLocations = treeSitter.findMethods(path, methodName);
+        if (tsLocations.isEmpty()) return Collections.emptyList();
+
+        Set<Integer> targetLines = tsLocations.stream()
+                .map(MethodInfo::startLine)
+                .collect(Collectors.toSet());
+
+        logger.debug("TreeSitter located '{}' at lines {} in {}, enriching with JavaParser",
+                methodName, targetLines, path.getFileName());
+
+        CompilationUnit cu = parseWithJavaParser(path);
+        if (cu == null) return tsLocations;
+
+        List<MethodInfo> enriched = cu.findAll(MethodDeclaration.class).stream()
+                .filter(md -> md.getNameAsString().equals(methodName))
+                .filter(md -> md.getBegin().isPresent())
+                .filter(md -> isNearAnyTargetLine(md, targetLines))
+                .map(md -> toRichMethodInfo(md, findSourceContent(tsLocations, md)))
+                .toList();
+
+        return enriched.isEmpty() ? tsLocations : enriched;
+    }
+
+    @Override
+    public List<MethodInfo> findMethods(Path path, String methodName, List<String> parameterTypes) {
+        List<MethodInfo> allMatches = findMethods(path, methodName);
+        if (parameterTypes == null) return allMatches;
+        return allMatches.stream()
+                .filter(m -> parameterTypesMatch(m.parameters(), parameterTypes))
+                .toList();
+    }
+
+    // ---- full-file operations: JavaParser directly ----
+
+    @Override
+    public List<MethodInfo> findAllMethods(Path path) {
+        if (!isValidPath(path)) return Collections.emptyList();
+
+        CompilationUnit cu = parseWithJavaParser(path);
+        if (cu == null) return treeSitter.findAllMethods(path);
+
+        return cu.findAll(MethodDeclaration.class).stream()
+                .filter(md -> md.getBegin().isPresent())
+                .map(md -> toRichMethodInfo(md, null))
+                .toList();
+    }
+
+    @Override
+    public List<ClassInfo> parseClasses(Path path) {
+        if (!isValidPath(path)) return Collections.emptyList();
+
+        CompilationUnit cu = parseWithJavaParser(path);
+        if (cu == null) return treeSitter.parseClasses(path);
+
+        String packageName = cu.getPackageDeclaration()
+                .map(pd -> pd.getNameAsString())
+                .orElse("");
+
+        return cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+                .filter(cid -> cid.getBegin().isPresent())
+                .map(cid -> toClassInfo(cid, packageName))
+                .toList();
+    }
+
+    @Override
+    public List<MethodInfo> findMethodsByAnnotation(Path path, String annotationName) {
+        if (!isValidPath(path) || annotationName == null || annotationName.isBlank()) {
+            return Collections.emptyList();
         }
-        
-        logger.debug("TreeSitter encontró {} ubicaciones para el método '{}'", locations.size(), method);
-        
-        // Paso 2: Usar JavaParser para análisis detallado de cada ubicación
+
+        CompilationUnit cu = parseWithJavaParser(path);
+        if (cu == null) return Collections.emptyList();
+
+        return cu.findAll(MethodDeclaration.class).stream()
+                .filter(md -> md.getBegin().isPresent())
+                .filter(md -> md.getAnnotations().stream()
+                        .anyMatch(a -> a.getNameAsString().equals(annotationName)))
+                .map(md -> toRichMethodInfo(md, null))
+                .toList();
+    }
+
+    // ---- JavaParser model extraction ----
+
+    private MethodInfo toRichMethodInfo(MethodDeclaration md, String fallbackContent) {
+        String name = md.getNameAsString();
+        int startLine = md.getBegin().map(p -> p.line).orElse(-1);
+        int endLine = md.getEnd().map(p -> p.line).orElse(-1);
+
+        String className = md.findAncestor(ClassOrInterfaceDeclaration.class)
+                .map(ClassOrInterfaceDeclaration::getNameAsString)
+                .orElse("");
+
+        String returnType = md.getTypeAsString();
+
+        List<String> modifiers = md.getModifiers().stream()
+                .map(mod -> mod.getKeyword().asString())
+                .toList();
+
+        List<ParameterInfo> parameters = md.getParameters().stream()
+                .map(this::toParameterInfo)
+                .toList();
+
+        String content = fallbackContent != null ? fallbackContent : md.toString();
+
+        List<AnnotationInfo> annotations = md.getAnnotations().stream()
+                .map(this::toAnnotationInfo)
+                .toList();
+
+        List<String> thrownExceptions = md.getThrownExceptions().stream()
+                .map(t -> t.asString())
+                .toList();
+
+        List<String> typeParameters = md.getTypeParameters().stream()
+                .map(tp -> tp.asString())
+                .toList();
+
+        String javadoc = md.getJavadocComment()
+                .map(JavadocComment::getContent)
+                .map(String::trim)
+                .orElse(null);
+
+        return new MethodInfo(name, className, startLine, endLine,
+                returnType, modifiers, parameters, content,
+                annotations, thrownExceptions, typeParameters, javadoc);
+    }
+
+    private ClassInfo toClassInfo(ClassOrInterfaceDeclaration cid, String packageName) {
+        String name = cid.getNameAsString();
+        int startLine = cid.getBegin().map(p -> p.line).orElse(-1);
+        int endLine = cid.getEnd().map(p -> p.line).orElse(-1);
+
+        List<String> modifiers = cid.getModifiers().stream()
+                .map(mod -> mod.getKeyword().asString())
+                .toList();
+
+        List<MethodInfo> methods = cid.getMethods().stream()
+                .map(md -> toRichMethodInfo(md, null))
+                .toList();
+
+        String superClass = cid.getExtendedTypes().stream()
+                .findFirst()
+                .map(t -> t.asString())
+                .orElse("");
+
+        List<String> interfaces = cid.getImplementedTypes().stream()
+                .map(t -> t.asString())
+                .toList();
+
+        List<AnnotationInfo> annotations = cid.getAnnotations().stream()
+                .map(this::toAnnotationInfo)
+                .toList();
+
+        boolean isInterface = cid.isInterface();
+
+        return new ClassInfo(name, packageName, startLine, endLine,
+                modifiers, methods, superClass, interfaces, annotations, isInterface);
+    }
+
+    private AnnotationInfo toAnnotationInfo(AnnotationExpr ae) {
+        String name = ae.getNameAsString();
+
+        if (ae instanceof NormalAnnotationExpr nae) {
+            Map<String, String> attrs = new LinkedHashMap<>();
+            for (MemberValuePair pair : nae.getPairs()) {
+                attrs.put(pair.getNameAsString(), pair.getValue().toString());
+            }
+            return new AnnotationInfo(name, attrs);
+        }
+
+        if (ae instanceof SingleMemberAnnotationExpr sae) {
+            return new AnnotationInfo(name, Map.of("value", sae.getMemberValue().toString()));
+        }
+
+        return AnnotationInfo.marker(name);
+    }
+
+    private ParameterInfo toParameterInfo(Parameter param) {
+        return new ParameterInfo(param.getTypeAsString(), param.getNameAsString());
+    }
+
+    // ---- helpers ----
+
+    private CompilationUnit parseWithJavaParser(Path path) {
         try {
-            String fullContent = Files.readString(path);
-            ParseResult<CompilationUnit> parseResult = jp.parse(fullContent);
-            
-            if (!parseResult.isSuccessful()) {
-                logger.error("JavaParser no pudo parsear el archivo: {}", path);
-                return;
+            String source = Files.readString(path);
+            var result = javaParser.parse(source);
+            if (result.isSuccessful() && result.getResult().isPresent()) {
+                return result.getResult().get();
             }
-            
-            CompilationUnit cu = parseResult.getResult().get();
-            
-            // Analizar cada ubicación encontrada por TreeSitter
-            for (MethodLocation location : locations) {
-                analyzeMethodAtLocation(cu, location, path);
-            }
-            
+            logger.warn("JavaParser could not parse {}, falling back to TreeSitter", path.getFileName());
         } catch (IOException ex) {
-            logger.error("Error al leer archivo para JavaParser: {}", ex.getMessage(), ex);
+            logger.error("Error reading file {}: {}", path, ex.getMessage(), ex);
         }
+        return null;
     }
-    
-    /**
-     * Analiza un método específico en una ubicación usando JavaParser
-     */
-    private void analyzeMethodAtLocation(CompilationUnit cu, MethodLocation location, Path path) {
-        // Buscar el método en JavaParser que coincida con la ubicación de TreeSitter
-        Optional<MethodDeclaration> methodOpt = cu.findAll(MethodDeclaration.class).stream()
-            .filter(method -> {
-                // Verificar que el nombre coincida
-                if (!method.getNameAsString().equals(location.getMethodName())) {
-                    return false;
-                }
-                
-                // Verificar que la ubicación sea aproximadamente la misma
-                if (method.getBegin().isPresent()) {
-                    int jpStartLine = method.getBegin().get().line;
-                    // Permitir una pequeña diferencia en líneas debido a diferencias de parsing
-                    return Math.abs(jpStartLine - location.getStartLine()) <= 2;
-                }
-                return false;
-            })
-            .findFirst();
-            
-        if (methodOpt.isPresent()) {
-            MethodDeclaration method = methodOpt.get();
-            logDetailedMethodInfo(method, location, path);
-        } else {
-            logger.warn("JavaParser no pudo encontrar el método en la ubicación esperada. TreeSitter línea: {}", location.getStartLine());
-        }
+
+    private boolean isNearAnyTargetLine(MethodDeclaration md, Set<Integer> targetLines) {
+        int jpLine = md.getBegin().map(p -> p.line).orElse(-1);
+        if (jpLine < 0) return false;
+        return targetLines.stream().anyMatch(tsLine -> Math.abs(jpLine - tsLine) <= 2);
     }
-    
-    /**
-     * Registra información detallada del método usando JavaParser
-     */
-    private void logDetailedMethodInfo(MethodDeclaration method, MethodLocation location, Path path) {
-        StringBuilder info = new StringBuilder();
-        info.append("✓ Método encontrado: ");
-        
-        // Modificadores
-        if (!method.getModifiers().isEmpty()) {
-            method.getModifiers().forEach(mod -> info.append(mod.getKeyword().asString()).append(" "));
-        }
-        
-        // Tipo de retorno
-        info.append(method.getTypeAsString()).append(" ");
-        
-        // Nombre
-        info.append(method.getNameAsString());
-        
-        // Parámetros detallados
-        info.append("(");
-        List<Parameter> parameters = method.getParameters();
-        for (int i = 0; i < parameters.size(); i++) {
-            Parameter param = parameters.get(i);
-            info.append(param.getTypeAsString()).append(" ").append(param.getNameAsString());
-            if (i < parameters.size() - 1) {
-                info.append(", ");
-            }
-        }
-        info.append(")");
-        
-        // Información adicional
-        logger.debug("{}", info.toString());
-        logger.debug("   └── Archivo: {}. Línea: {} (TreeSitter: {})", 
-                   path.getFileName().toString(), 
-                   method.getBegin().map(pos -> pos.line).orElse(-1),
-                   location.getStartLine());
-        logger.debug("   └── Parámetros: {} | Modificadores: {} | Tipo retorno: {}", 
-                   parameters.size(),
-                   method.getModifiers().size(),
-                   method.getTypeAsString());
+
+    private String findSourceContent(List<MethodInfo> tsLocations, MethodDeclaration md) {
+        int jpLine = md.getBegin().map(p -> p.line).orElse(-1);
+        return tsLocations.stream()
+                .filter(ts -> Math.abs(ts.startLine() - jpLine) <= 2)
+                .map(MethodInfo::content)
+                .findFirst()
+                .orElse(null);
     }
-    
-    /**
-     * Busca métodos con parámetros específicos
-     */
-    public void findMethodWithParameters(Path path, String methodName, String... parameterTypes) {
-        logger.debug("Búsqueda híbrida con parámetros específicos: {} con tipos [{}]", 
-                   methodName, String.join(", ", parameterTypes));
-        
-        // Paso 1: TreeSitter para ubicaciones rápidas
-        List<MethodLocation> locations = null;//ts.getMethodLocations(path, methodName);
-        
-        if (locations.isEmpty()) {
-            logger.debug("No se encontraron métodos con nombre '{}'", methodName);
-            return;
-        }
-        
-        // Paso 2: JavaParser para coincidencia exacta de parámetros
-        try {
-            String fullContent = Files.readString(path);
-            ParseResult<CompilationUnit> parseResult = jp.parse(fullContent);
-            
-            if (!parseResult.isSuccessful()) {
-                logger.error("JavaParser no pudo parsear el archivo: {}", path);
-                return;
-            }
-            
-            CompilationUnit cu = parseResult.getResult().get();
-            
-            for (MethodLocation location : locations) {
-                findExactMethodMatch(cu, location, path, parameterTypes);
-            }
-            
-        } catch (IOException ex) {
-            logger.error("Error al leer archivo: {}", ex.getMessage(), ex);
-        }
+
+    private boolean isValidPath(Path path) {
+        return path != null && Files.exists(path);
     }
-    
-    /**
-     * Busca coincidencia exacta de método con parámetros específicos
-     */
-    private void findExactMethodMatch(CompilationUnit cu, MethodLocation location, Path path, String[] expectedParamTypes) {
-        Optional<MethodDeclaration> methodOpt = cu.findAll(MethodDeclaration.class).stream()
-            .filter(method -> {
-                // Verificar nombre
-                if (!method.getNameAsString().equals(location.getMethodName())) {
-                    return false;
-                }
-                
-                // Verificar parámetros exactos
-                List<Parameter> params = method.getParameters();
-                if (params.size() != expectedParamTypes.length) {
-                    return false;
-                }
-                
-                for (int i = 0; i < params.size(); i++) {
-                    if (!params.get(i).getTypeAsString().equals(expectedParamTypes[i])) {
-                        return false;
-                    }
-                }
-                
-                return true;
-            })
-            .findFirst();
-            
-        if (methodOpt.isPresent()) {
-            MethodDeclaration method = methodOpt.get();
-            logger.debug("✓ Coincidencia exacta encontrada: {} en línea {}", 
-                       buildMethodSignature(method), 
-                       method.getBegin().map(pos -> pos.line).orElse(-1));
-        }
+
+    private boolean isValidInput(Path path, String methodName) {
+        return isValidPath(path) && methodName != null && !methodName.isBlank();
     }
-    
-    /**
-     * Construye la signatura completa del método
-     */
-    private String buildMethodSignature(MethodDeclaration method) {
-        StringBuilder signature = new StringBuilder();
-        
-        // Modificadores
-        method.getModifiers().forEach(mod -> signature.append(mod.getKeyword().asString()).append(" "));
-        
-        // Tipo retorno
-        signature.append(method.getTypeAsString()).append(" ");
-        
-        // Nombre
-        signature.append(method.getNameAsString()).append("(");
-        
-        // Parámetros
-        List<Parameter> params = method.getParameters();
-        for (int i = 0; i < params.size(); i++) {
-            signature.append(params.get(i).getTypeAsString());
-            if (i < params.size() - 1) {
-                signature.append(", ");
-            }
+
+    private boolean parameterTypesMatch(List<ParameterInfo> actual, List<String> expected) {
+        if (actual.size() != expected.size()) return false;
+        for (int i = 0; i < actual.size(); i++) {
+            if (!actual.get(i).type().equals(expected.get(i))) return false;
         }
-        signature.append(")");
-        
-        return signature.toString();
+        return true;
     }
 }

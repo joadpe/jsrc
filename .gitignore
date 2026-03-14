@@ -347,5 +347,4 @@ ASALocalRun/
 
 *.DS_Store
 
-target
-target/classes/com/javautil/app/parser/TreeSitterParser.class
+target/

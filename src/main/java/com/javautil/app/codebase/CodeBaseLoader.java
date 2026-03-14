@@ -1,70 +1,51 @@
 package com.javautil.app.codebase;
 
 import java.io.IOException;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Stream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Stateless utility for discovering source files in a directory tree.
+ * Each call returns a fresh list; no internal state is accumulated.
+ */
 public class CodeBaseLoader {
-    
-    private List<Path> filesPath;
-    
-    public CodeBaseLoader(){
-        this.filesPath = new ArrayList<>();
-    }
-    
+
+    private static final Logger logger = LoggerFactory.getLogger(CodeBaseLoader.class);
+
     /**
-     * Recorre una estructura de archivos y filtra solo los archivos .java
-     * @param rootPath La ruta raíz desde donde comenzar el recorrido
-     * @return Lista de rutas de archivos .java encontrados
+     * Walks the directory tree under {@code rootPath} and returns all files
+     * matching the given extension.
+     *
+     * @param rootPath  root directory to scan
+     * @param extension file extension without the dot (e.g. "java")
+     * @return list of matching paths, or empty list if none found or path is invalid
      */
     public List<Path> loadFilesFrom(String rootPath, String extension) {
-        try {
-            Path startPath = Paths.get(rootPath);
-            if (!Files.exists(startPath)) {
-                return filesPath;
-            }
-            
-            Files.walkFileTree(startPath, new SimpleFileVisitor<Path>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    if (file.toString().endsWith("."+extension)) {
-                        filesPath.add(file);
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-                
-                @Override
-                public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
-                    System.err.println("Error al acceder al archivo: " + file + " - " + exc.getMessage());
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-            
-        } catch (IOException e) {
-            System.err.println("Error al recorrer la estructura de archivos: " + e.getMessage());
+        Path startPath = Paths.get(rootPath);
+        if (!Files.exists(startPath) || !Files.isDirectory(startPath)) {
+            logger.warn("Path does not exist or is not a directory: {}", rootPath);
+            return Collections.emptyList();
         }
-        
-        return filesPath;
-    }
-    
-    /**
-     * Obtiene la lista de archivos Java encontrados
-     * @return Lista de rutas de archivos .java
-     */
-    public List<Path> getFilesPath() {
-        return filesPath;
-    }
-    
-    /**
-     * Limpia la lista de archivos Java
-     */
-    public void clearJavaFiles() {
-        filesPath.clear();
+
+        String suffix = "." + extension;
+
+        try (Stream<Path> walk = Files.walk(startPath)) {
+            List<Path> files = walk
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(suffix))
+                    .toList();
+            logger.debug("Found {} .{} files under {}", files.size(), extension, rootPath);
+            return files;
+        } catch (IOException e) {
+            logger.error("Error walking directory tree at {}: {}", rootPath, e.getMessage(), e);
+            return Collections.emptyList();
+        }
     }
 }

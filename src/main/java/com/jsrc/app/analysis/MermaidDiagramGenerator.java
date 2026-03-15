@@ -21,6 +21,18 @@ import com.jsrc.app.parser.model.MethodCall;
 public class MermaidDiagramGenerator {
 
     private static final Logger logger = LoggerFactory.getLogger(MermaidDiagramGenerator.class);
+    private final java.util.Map<String, String> signatures;
+
+    public MermaidDiagramGenerator() {
+        this(java.util.Map.of());
+    }
+
+    /**
+     * @param signatures map of "ClassName.methodName" → "(ParamType1, ParamType2)"
+     */
+    public MermaidDiagramGenerator(java.util.Map<String, String> signatures) {
+        this.signatures = signatures;
+    }
 
     /**
      * Generates a Mermaid sequence diagram string for a single call chain.
@@ -46,7 +58,8 @@ public class MermaidDiagramGenerator {
         }
 
         if (hasEntry) {
-            sb.append("    Entry->>").append(rootClass).append(": ").append(rootMethod).append("()\n");
+            sb.append("    Entry->>").append(rootClass).append(": ")
+              .append(rootMethod).append(resolveParams(rootClass, rootMethod)).append("\n");
         }
 
         List<MethodCall> steps = chain.steps();
@@ -55,22 +68,21 @@ public class MermaidDiagramGenerator {
             String from = step.caller().className();
             String to = step.callee().className();
             String method = step.callee().methodName();
+            String params = resolveParams(to, method);
 
             // Skip unresolved "?" participants — bridge the gap
             if ("?".equals(to) && i + 1 < steps.size()) {
                 String nextFrom = steps.get(i + 1).caller().className();
-                // Draw as a note instead of a broken arrow
                 sb.append("    ").append(from).append("->>").append(nextFrom)
-                  .append(": ").append(method).append("()\n");
+                  .append(": ").append(method).append(params).append("\n");
                 continue;
             }
             if ("?".equals(from) && i > 0) {
-                // Previous step already bridged to us, skip
                 continue;
             }
 
             sb.append("    ").append(from).append("->>").append(to)
-              .append(": ").append(method).append("()\n");
+              .append(": ").append(method).append(params).append("\n");
         }
 
         return sb.toString();
@@ -97,6 +109,15 @@ public class MermaidDiagramGenerator {
             logger.debug("Written diagram: {}", file);
         }
         return generated;
+    }
+
+    /**
+     * Resolves parameter types for a method from the signatures map.
+     * Returns "()" if no signature found.
+     */
+    private String resolveParams(String className, String methodName) {
+        String key = className + "." + methodName;
+        return signatures.getOrDefault(key, "()");
     }
 
     private Set<String> collectParticipants(CallChain chain) {

@@ -267,9 +267,9 @@ public class CallGraphBuilder {
                 }
                 return result.getResult().get();
             }
-            logger.warn("Could not parse {}", path.getFileName());
+            logger.debug("Could not parse {}", path.getFileName());
         } catch (IOException ex) {
-            logger.error("Error reading {}: {}", path, ex.getMessage());
+            logger.debug("Error reading {}: {}", path, ex.getMessage());
         }
         return null;
     }

@@ -36,12 +36,13 @@ public class MermaidDiagramGenerator {
             sb.append("    participant ").append(participant).append("\n");
         }
 
-        // Show the root method that initiates the chain
+        // Show entry point as a call from an anonymous actor
         MethodCall firstStep = chain.steps().getFirst();
         String rootClass = firstStep.caller().className();
         String rootMethod = firstStep.caller().methodName();
         if (!"?".equals(rootClass)) {
-            sb.append("    Note over ").append(rootClass).append(": ").append(rootMethod).append("()\n");
+            sb.append("    actor Entry\n");
+            sb.append("    Entry->>").append(rootClass).append(": ").append(rootMethod).append("()\n");
         }
 
         List<MethodCall> steps = chain.steps();

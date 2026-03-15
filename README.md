@@ -200,7 +200,7 @@ For codebases with reflective method invocation patterns (common in enterprise J
 invoke("invoiceRate", params);
 ```
 
-jsrc resolves this to `invoiceAdapter.invoiceRate()` by:
+jsrc resolves this to `invoiceAdapter.invoiceRate(Object params)` by:
 1. Extracting the string literal from the configured argument position
 2. Stripping the caller suffix ("View") 
 3. Appending the convention name ("Adapter")

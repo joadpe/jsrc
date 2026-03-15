@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -253,7 +254,8 @@ public class CodebaseIndex {
 
     /**
      * Extracts call edges from a Java file using JavaParser.
-     * Each edge represents a method call: caller → callee.
+     * Resolves callee class names using field types, parameter types,
+     * and local variable types for accurate call graph edges.
      */
     private List<CallEdge> extractCallEdges(Path file) {
         List<CallEdge> edges = new ArrayList<>();
@@ -266,11 +268,43 @@ public class CodebaseIndex {
             CompilationUnit cu = result.getResult().get();
             for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
                 String className = cid.getNameAsString();
+
+                // Collect field types for this class
+                Map<String, String> fieldTypes = new HashMap<>();
+                for (com.github.javaparser.ast.body.FieldDeclaration field : cid.getFields()) {
+                    String fieldType = field.getCommonType().asString();
+                    // Strip generics: Map<String,Object> → Map
+                    int genIdx = fieldType.indexOf('<');
+                    if (genIdx > 0) fieldType = fieldType.substring(0, genIdx);
+                    for (com.github.javaparser.ast.body.VariableDeclarator var : field.getVariables()) {
+                        fieldTypes.put(var.getNameAsString(), fieldType);
+                    }
+                }
+
                 for (MethodDeclaration md : cid.getMethods()) {
                     String methodName = md.getNameAsString();
+
+                    // Collect local variable and parameter types
+                    Map<String, String> localTypes = new HashMap<>();
+                    for (com.github.javaparser.ast.body.Parameter param : md.getParameters()) {
+                        String pType = param.getTypeAsString();
+                        int gi = pType.indexOf('<');
+                        if (gi > 0) pType = pType.substring(0, gi);
+                        localTypes.put(param.getNameAsString(), pType);
+                    }
+                    for (com.github.javaparser.ast.body.VariableDeclarator var : md.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+                        var parent = var.getParentNode().orElse(null);
+                        if (parent != null && !(parent instanceof com.github.javaparser.ast.body.FieldDeclaration)) {
+                            String vType = var.getTypeAsString();
+                            int gi = vType.indexOf('<');
+                            if (gi > 0) vType = vType.substring(0, gi);
+                            localTypes.put(var.getNameAsString(), vType);
+                        }
+                    }
+
                     for (MethodCallExpr call : md.findAll(MethodCallExpr.class)) {
                         String calleeMethod = call.getNameAsString();
-                        String calleeClass = resolveCalleeClass(call, className);
+                        String calleeClass = resolveCalleeClass(call, className, fieldTypes, localTypes);
                         int line = call.getBegin().map(p -> p.line).orElse(-1);
                         edges.add(new CallEdge(className, methodName, calleeClass, calleeMethod, line));
                     }
@@ -282,11 +316,26 @@ public class CodebaseIndex {
         return edges;
     }
 
-    private static String resolveCalleeClass(MethodCallExpr call, String currentClass) {
+    /**
+     * Resolves the class of the callee in a method call expression.
+     * Checks: this → current class, variable → local/param/field type, static → class name.
+     */
+    private static String resolveCalleeClass(MethodCallExpr call, String currentClass,
+                                              Map<String, String> fieldTypes,
+                                              Map<String, String> localTypes) {
         if (call.getScope().isEmpty()) return currentClass;
         var scope = call.getScope().get();
         if (scope instanceof ThisExpr) return currentClass;
-        if (scope instanceof NameExpr ne) return ne.getNameAsString();
+        if (scope instanceof NameExpr ne) {
+            String varName = ne.getNameAsString();
+            // Try local/param types first, then fields
+            String type = localTypes.get(varName);
+            if (type != null) return type;
+            type = fieldTypes.get(varName);
+            if (type != null) return type;
+            // Could be a static call on a class name
+            return varName;
+        }
         return "?";
     }
 

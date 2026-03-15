@@ -36,10 +36,26 @@ public class MermaidDiagramGenerator {
             sb.append("    participant ").append(participant).append("\n");
         }
 
-        for (MethodCall step : chain.steps()) {
+        List<MethodCall> steps = chain.steps();
+        for (int i = 0; i < steps.size(); i++) {
+            MethodCall step = steps.get(i);
             String from = step.caller().className();
             String to = step.callee().className();
             String method = step.callee().methodName();
+
+            // Skip unresolved "?" participants — bridge the gap
+            if ("?".equals(to) && i + 1 < steps.size()) {
+                String nextFrom = steps.get(i + 1).caller().className();
+                // Draw as a note instead of a broken arrow
+                sb.append("    ").append(from).append("->>").append(nextFrom)
+                  .append(": ").append(method).append("()\n");
+                continue;
+            }
+            if ("?".equals(from) && i > 0) {
+                // Previous step already bridged to us, skip
+                continue;
+            }
+
             sb.append("    ").append(from).append("->>").append(to)
               .append(": ").append(method).append("()\n");
         }
@@ -73,8 +89,12 @@ public class MermaidDiagramGenerator {
     private Set<String> collectParticipants(CallChain chain) {
         Set<String> participants = new LinkedHashSet<>();
         for (MethodCall step : chain.steps()) {
-            participants.add(step.caller().className());
-            participants.add(step.callee().className());
+            if (!"?".equals(step.caller().className())) {
+                participants.add(step.caller().className());
+            }
+            if (!"?".equals(step.callee().className())) {
+                participants.add(step.callee().className());
+            }
         }
         return participants;
     }

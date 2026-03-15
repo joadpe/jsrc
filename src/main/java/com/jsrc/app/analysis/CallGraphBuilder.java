@@ -1,4 +1,4 @@
-package com.jsrc.app.parser;
+package com.jsrc.app.analysis;
 
 import java.io.IOException;
 import java.nio.file.Files;

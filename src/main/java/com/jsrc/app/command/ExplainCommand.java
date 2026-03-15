@@ -6,8 +6,8 @@ import java.util.Map;
 
 import com.jsrc.app.architecture.LayerResolver;
 import com.jsrc.app.output.JsonWriter;
-import com.jsrc.app.parser.CallGraphBuilder;
-import com.jsrc.app.parser.DependencyAnalyzer;
+import com.jsrc.app.analysis.CallGraphBuilder;
+import com.jsrc.app.analysis.DependencyAnalyzer;
 import com.jsrc.app.parser.model.ClassInfo;
 
 /**

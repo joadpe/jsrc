@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import com.jsrc.app.parser.CallGraphBuilder;
+import com.jsrc.app.analysis.CallGraphBuilder;
 import com.jsrc.app.util.MethodResolver;
 
 public class CalleesCommand implements Command {

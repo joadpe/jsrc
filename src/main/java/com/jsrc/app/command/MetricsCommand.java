@@ -4,7 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import com.jsrc.app.output.JsonWriter;
-import com.jsrc.app.parser.DependencyAnalyzer;
+import com.jsrc.app.analysis.DependencyAnalyzer;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
 

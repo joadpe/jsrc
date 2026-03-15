@@ -1,6 +1,6 @@
 package com.jsrc.app.command;
 
-import com.jsrc.app.parser.DependencyAnalyzer;
+import com.jsrc.app.analysis.DependencyAnalyzer;
 
 public class DepsCommand implements Command {
     private final String className;

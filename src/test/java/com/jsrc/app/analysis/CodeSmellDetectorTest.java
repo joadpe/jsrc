@@ -1,4 +1,4 @@
-package com.jsrc.app.parser;
+package com.jsrc.app.analysis;
 
 import static org.junit.jupiter.api.Assertions.*;
 

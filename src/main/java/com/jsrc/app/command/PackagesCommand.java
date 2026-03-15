@@ -9,7 +9,7 @@ import java.util.Set;
 import java.util.TreeMap;
 
 import com.jsrc.app.output.JsonWriter;
-import com.jsrc.app.parser.DependencyAnalyzer;
+import com.jsrc.app.analysis.DependencyAnalyzer;
 import com.jsrc.app.parser.model.ClassInfo;
 
 /**

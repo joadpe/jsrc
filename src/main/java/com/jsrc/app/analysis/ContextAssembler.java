@@ -1,4 +1,4 @@
-package com.jsrc.app.parser;
+package com.jsrc.app.analysis;
 
 import java.nio.file.Path;
 import java.util.ArrayList;

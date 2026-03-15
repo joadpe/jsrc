@@ -2,7 +2,7 @@ package com.jsrc.app.command;
 
 import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.output.MarkdownFormatter;
-import com.jsrc.app.parser.ContextAssembler;
+import com.jsrc.app.analysis.ContextAssembler;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.util.ClassResolver;
 

@@ -8,8 +8,8 @@ import java.util.Map;
 import java.util.Set;
 
 import com.jsrc.app.output.JsonWriter;
-import com.jsrc.app.parser.CallGraphBuilder;
-import com.jsrc.app.parser.DependencyAnalyzer;
+import com.jsrc.app.analysis.CallGraphBuilder;
+import com.jsrc.app.analysis.DependencyAnalyzer;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodReference;
 

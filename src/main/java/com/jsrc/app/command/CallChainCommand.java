@@ -4,9 +4,9 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import com.jsrc.app.parser.CallChainTracer;
-import com.jsrc.app.parser.CallGraphBuilder;
-import com.jsrc.app.parser.MermaidDiagramGenerator;
+import com.jsrc.app.analysis.CallChainTracer;
+import com.jsrc.app.analysis.CallGraphBuilder;
+import com.jsrc.app.analysis.MermaidDiagramGenerator;
 
 public class CallChainCommand implements Command {
     private final String methodName;

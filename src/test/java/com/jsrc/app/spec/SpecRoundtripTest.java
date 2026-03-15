@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.jsrc.app.output.MarkdownFormatter;
-import com.jsrc.app.parser.ContextAssembler;
+import com.jsrc.app.analysis.ContextAssembler;
 import com.jsrc.app.parser.HybridJavaParser;
 import com.jsrc.app.parser.model.ClassInfo;
 

@@ -98,19 +98,15 @@ public record ProjectConfig(
         List<Map<String, Object>> invokersList = (List<Map<String, Object>>) archMap.get("invokers");
         if (invokersList != null) {
             for (Map<String, Object> im : invokersList) {
-                List<String> suffixes = getStringList(im, "callerSuffixes");
-                if (suffixes.isEmpty()) {
-                    invokers.add(new ArchitectureConfig.InvokerDef(
-                            getString(im, "method", ""),
-                            getInt(im, "targetArg", 0),
-                            getString(im, "resolveClass", "")));
-                } else {
-                    invokers.add(new ArchitectureConfig.InvokerDef(
-                            getString(im, "method", ""),
-                            getInt(im, "targetArg", 0),
-                            getString(im, "resolveClass", ""),
-                            suffixes));
-                }
+                // Always use 4-arg constructor to respect explicit callerSuffixes: []
+                List<String> suffixes = im.containsKey("callerSuffixes")
+                        ? getStringList(im, "callerSuffixes")
+                        : List.of("Detalle", "Vista", "View", "Form", "Panel", "Dialog");
+                invokers.add(new ArchitectureConfig.InvokerDef(
+                        getString(im, "method", ""),
+                        getInt(im, "targetArg", 0),
+                        getString(im, "resolveClass", ""),
+                        suffixes));
             }
         }
 

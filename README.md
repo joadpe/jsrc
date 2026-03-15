@@ -185,10 +185,10 @@ architecture:
     - RequestMapping
 
   invokers:
-    - method: ejecutarMetodo
+    - method: invoke
       targetArg: 0
-      resolveClass: adaptadorBean
-      callerSuffixes: [Detalle, Vista, View, Form]
+      resolveClass: adapter
+      callerSuffixes: [Detail, View, Form]
 ```
 
 ### Invoker Resolution
@@ -196,14 +196,14 @@ architecture:
 For codebases with reflective method invocation patterns (common in enterprise Java):
 
 ```java
-// InvoceView.java
-invoke("invoceRate", params);
+// invoiceView.java
+invoke("invoiceRate", params);
 ```
 
-jsrc resolves this to `LiquidacionAdaptadorBean.calcularImporte()` by:
+jsrc resolves this to `invoiceAdapter.invoiceRate()` by:
 1. Extracting the string literal from the configured argument position
-2. Stripping the caller suffix ("Detalle") 
-3. Appending the convention name ("AdaptadorBean")
+2. Stripping the caller suffix ("View") 
+3. Appending the convention name ("Adapter")
 
 These reflective calls appear in `--callers` output with `"type": "reflective"`.
 

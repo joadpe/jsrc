@@ -1,4 +1,4 @@
-package com.jsrc.app.output;
+package com.jsrc.app.model;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

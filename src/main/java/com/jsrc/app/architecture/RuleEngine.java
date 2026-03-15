@@ -6,7 +6,7 @@ import java.util.List;
 
 import com.jsrc.app.config.ArchitectureConfig;
 import com.jsrc.app.config.ArchitectureConfig.RuleDef;
-import com.jsrc.app.output.DependencyResult;
+import com.jsrc.app.model.DependencyResult;
 import com.jsrc.app.analysis.DependencyAnalyzer;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;

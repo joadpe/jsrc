@@ -4,7 +4,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.TreeSet;
 
-import com.jsrc.app.output.OverviewResult;
+import com.jsrc.app.model.OverviewResult;
 import com.jsrc.app.parser.model.ClassInfo;
 
 public class OverviewCommand implements Command {

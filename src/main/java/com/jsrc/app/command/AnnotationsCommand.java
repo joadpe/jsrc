@@ -4,7 +4,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.jsrc.app.output.AnnotationMatch;
+import com.jsrc.app.model.AnnotationMatch;
 import com.jsrc.app.parser.model.AnnotationInfo;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;

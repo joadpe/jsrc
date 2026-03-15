@@ -12,7 +12,7 @@ import com.jsrc.app.codebase.JavaCodeBase;
 import com.jsrc.app.command.*;
 import com.jsrc.app.config.ProjectConfig;
 import com.jsrc.app.index.IndexedCodebase;
-import com.jsrc.app.output.ExecutionMetrics;
+import com.jsrc.app.model.ExecutionMetrics;
 import com.jsrc.app.output.FieldsFilter;
 import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.output.OutputFormatter;

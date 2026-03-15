@@ -11,8 +11,8 @@ import org.slf4j.LoggerFactory;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.jsrc.app.output.DependencyResult;
-import com.jsrc.app.output.DependencyResult.FieldDep;
+import com.jsrc.app.model.DependencyResult;
+import com.jsrc.app.model.DependencyResult.FieldDep;
 
 /**
  * Analyzes class dependencies using JavaParser.

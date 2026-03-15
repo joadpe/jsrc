@@ -2,7 +2,7 @@ package com.jsrc.app.command;
 
 import java.util.List;
 
-import com.jsrc.app.output.HierarchyResult;
+import com.jsrc.app.model.HierarchyResult;
 import com.jsrc.app.parser.model.ClassInfo;
 
 public class HierarchyCommand implements Command {

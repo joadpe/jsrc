@@ -73,14 +73,14 @@ install_java() {
     echo "Java $MIN_JAVA_VERSION+ not found. Installing via SDKMAN..."
     ensure_sdkman
     sdk_cmd install java 22.0.2-tem -y
-    # Reload PATH to pick up new java
+    sdk_cmd default java 22.0.2-tem
     export PATH="$HOME/.sdkman/candidates/java/current/bin:$PATH"
-    # Verify
     if check_java; then
         return 0
     fi
-    # Try alternative distribution
+    # Fallback: try alternative distribution
     sdk_cmd install java 22.0.2-sem -y
+    sdk_cmd default java 22.0.2-sem
     export PATH="$HOME/.sdkman/candidates/java/current/bin:$PATH"
     if check_java; then
         return 0

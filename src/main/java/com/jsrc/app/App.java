@@ -119,7 +119,10 @@ public class App {
         // Special case: --call-chain may have output dir
         if ("--call-chain".equals(command)) {
             String method = requireMethodArg(argList, "--call-chain");
-            String outDir = argList.size() >= 4 ? argList.get(3) : "./call-chains";
+            // Output dir is the arg after the method name
+            int methodIdx = argList.indexOf(method);
+            String outDir = (methodIdx >= 0 && methodIdx + 1 < argList.size())
+                    ? argList.get(methodIdx + 1) : "./call-chains";
             return new CallChainCommand(method, outDir);
         }
 

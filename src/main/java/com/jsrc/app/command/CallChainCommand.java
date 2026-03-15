@@ -28,8 +28,9 @@ public class CallChainCommand implements Command {
             graphBuilder.build(ctx.javaFiles());
         }
 
-        // Add reflective call edges from invoker config
-        if (ctx.config() != null && !ctx.config().architecture().invokers().isEmpty()) {
+        // Add reflective call edges — skip if index already has them
+        if (ctx.config() != null && !ctx.config().architecture().invokers().isEmpty()
+                && !(ctx.indexed() != null && ctx.indexed().hasCallEdges())) {
             var resolver = new InvokerResolver(ctx.config().architecture().invokers());
             var reflective = resolver.resolve(ctx.javaFiles());
             for (MethodCall edge : resolver.toCallEdges(reflective)) {
@@ -38,12 +39,10 @@ public class CallChainCommand implements Command {
         }
 
         // Create tracer with stop methods from config (e.g. event handlers)
-        CallChainTracer tracer;
-        if (ctx.config() != null && !ctx.config().architecture().chainStopMethods().isEmpty()) {
-            tracer = new CallChainTracer(graphBuilder, ctx.config().architecture().chainStopMethods());
-        } else {
-            tracer = new CallChainTracer(graphBuilder);
-        }
+        java.util.Set<String> stopMethods = (ctx.config() != null && !ctx.config().architecture().chainStopMethods().isEmpty())
+                ? new java.util.HashSet<>(ctx.config().architecture().chainStopMethods())
+                : java.util.Set.of();
+        CallChainTracer tracer = new CallChainTracer(graphBuilder, 20, stopMethods);
         var chains = tracer.traceToRoots(methodName);
 
         ctx.formatter().printCallChains(chains, methodName);

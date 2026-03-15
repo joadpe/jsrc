@@ -15,7 +15,10 @@ public class IndexCommand implements Command {
 
         var existing = CodebaseIndex.load(root);
         var index = new CodebaseIndex();
-        int reindexed = index.build(ctx.parser(), ctx.javaFiles(), root, existing);
+        var invokers = (ctx.config() != null)
+                ? ctx.config().architecture().invokers()
+                : java.util.List.<com.jsrc.app.config.ArchitectureConfig.InvokerDef>of();
+        int reindexed = index.build(ctx.parser(), ctx.javaFiles(), root, existing, invokers);
 
         try {
             index.save(root);

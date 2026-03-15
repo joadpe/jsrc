@@ -64,6 +64,15 @@ public class CodebaseIndex {
      */
     public int build(CodeParser parser, List<Path> files, Path sourceRoot,
                      List<IndexEntry> existing) {
+        return build(parser, files, sourceRoot, existing, List.of());
+    }
+
+    /**
+     * Builds the index with optional invoker definitions for reflective edge extraction.
+     */
+    public int build(CodeParser parser, List<Path> files, Path sourceRoot,
+                     List<IndexEntry> existing,
+                     List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {
         Map<String, IndexEntry> existingByPath = new LinkedHashMap<>();
         for (IndexEntry e : existing) {
             existingByPath.put(e.path(), e);
@@ -71,6 +80,7 @@ public class CodebaseIndex {
 
         entries.clear();
         int reindexed = 0;
+        var edgeParser = new JavaParser(); // reused across files
 
         for (Path file : files) {
             String relativePath = sourceRoot.relativize(file).toString();
@@ -91,8 +101,11 @@ public class CodebaseIndex {
                         .map(ci -> toIndexedClass(ci, file, parser))
                         .toList();
 
-                // Extract call edges from the same file
-                List<CallEdge> edges = extractCallEdges(file);
+                // Extract call edges (direct + reflective)
+                List<CallEdge> edges = new ArrayList<>(extractCallEdges(file, edgeParser));
+                if (!invokers.isEmpty()) {
+                    edges.addAll(extractReflectiveEdges(file, edgeParser, invokers));
+                }
 
                 entries.add(new IndexEntry(relativePath, hash, lastModified, indexed, edges));
                 reindexed++;
@@ -257,11 +270,10 @@ public class CodebaseIndex {
      * Resolves callee class names using field types, parameter types,
      * and local variable types for accurate call graph edges.
      */
-    private List<CallEdge> extractCallEdges(Path file) {
+    private List<CallEdge> extractCallEdges(Path file, JavaParser jp) {
         List<CallEdge> edges = new ArrayList<>();
         try {
             String source = Files.readString(file);
-            var jp = new JavaParser();
             var result = jp.parse(source);
             if (!result.getResult().isPresent()) return edges;
 
@@ -337,6 +349,57 @@ public class CodebaseIndex {
             return varName;
         }
         return "?";
+    }
+
+    /**
+     * Extracts reflective call edges based on invoker config.
+     * E.g. ejecutarMetodo("calcularImporte", ...) → CallerAdaptadorBean.calcularImporte()
+     */
+    private List<CallEdge> extractReflectiveEdges(Path file, JavaParser jp,
+                                                   List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {
+        List<CallEdge> edges = new ArrayList<>();
+        try {
+            String source = Files.readString(file);
+            var result = jp.parse(source);
+            if (!result.getResult().isPresent()) return edges;
+
+            CompilationUnit cu = result.getResult().get();
+            Map<String, com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokerMap = new HashMap<>();
+            for (var inv : invokers) {
+                invokerMap.put(inv.method(), inv);
+            }
+
+            for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+                String callerClass = cid.getNameAsString();
+                for (MethodDeclaration md : cid.getMethods()) {
+                    for (MethodCallExpr call : md.findAll(MethodCallExpr.class)) {
+                        var inv = invokerMap.get(call.getNameAsString());
+                        if (inv == null) continue;
+                        if (call.getArguments().size() <= inv.targetArg()) continue;
+                        var arg = call.getArguments().get(inv.targetArg());
+                        if (!(arg instanceof com.github.javaparser.ast.expr.StringLiteralExpr strLit)) continue;
+
+                        String targetMethod = strLit.getValue();
+                        // Resolve target class: strip suffixes, append convention
+                        String prefix = callerClass;
+                        for (String suffix : inv.callerSuffixes()) {
+                            if (prefix.endsWith(suffix)) {
+                                prefix = prefix.substring(0, prefix.length() - suffix.length());
+                                break;
+                            }
+                        }
+                        String convention = inv.resolveClass();
+                        String targetClass = prefix + convention.substring(0, 1).toUpperCase() + convention.substring(1);
+
+                        int line = call.getBegin().map(p -> p.line).orElse(-1);
+                        edges.add(new CallEdge(callerClass, md.getNameAsString(), targetClass, targetMethod, line));
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("Error extracting reflective edges from {}: {}", file, ex.getMessage());
+        }
+        return edges;
     }
 
     private IndexedClass toIndexedClass(ClassInfo ci, Path file, CodeParser parser) {

@@ -103,7 +103,7 @@ class CallChainTracerTest {
                 """);
 
         CallGraphBuilder graph = buildGraph(file);
-        CallChainTracer tracer = new CallChainTracer(graph, 2);
+        CallChainTracer tracer = new CallChainTracer(graph, 2, java.util.Set.of());
         List<CallChain> chains = tracer.traceToRoots("e");
 
         assertFalse(chains.isEmpty());
@@ -185,7 +185,7 @@ class CallChainTracerTest {
                 public class Dummy { public void x() {} }
                 """);
         CallGraphBuilder graph = buildGraph(file);
-        assertThrows(IllegalArgumentException.class, () -> new CallChainTracer(graph, 0));
+        assertThrows(IllegalArgumentException.class, () -> new CallChainTracer(graph, 0, java.util.Set.of()));
     }
 
     private CallGraphBuilder buildGraph(Path... files) {

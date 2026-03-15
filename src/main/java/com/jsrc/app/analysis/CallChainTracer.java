@@ -32,10 +32,6 @@ public class CallChainTracer {
         this(graph, 20, Set.of());
     }
 
-    public CallChainTracer(CallGraphBuilder graph, int maxDepth) {
-        this(graph, maxDepth, Set.of());
-    }
-
     public CallChainTracer(CallGraphBuilder graph, int maxDepth, Set<String> stopMethods) {
         if (graph == null) {
             throw new IllegalArgumentException("CallGraphBuilder must not be null");
@@ -46,10 +42,6 @@ public class CallChainTracer {
         this.graph = graph;
         this.maxDepth = maxDepth;
         this.stopMethods = stopMethods != null ? stopMethods : Set.of();
-    }
-
-    public CallChainTracer(CallGraphBuilder graph, java.util.List<String> stopMethods) {
-        this(graph, 20, new HashSet<>(stopMethods));
     }
 
     /**

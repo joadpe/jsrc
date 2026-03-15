@@ -65,7 +65,7 @@ public class SearchCommand implements Command {
             }
         }
 
-        System.out.println(JsonWriter.toJson(results));
+        ctx.formatter().printResult(results);
         return results.size();
     }
 }

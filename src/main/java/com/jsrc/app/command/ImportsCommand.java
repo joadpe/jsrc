@@ -75,7 +75,7 @@ public class ImportsCommand implements Command {
             }
         }
 
-        System.out.println(JsonWriter.toJson(dependents));
+        ctx.formatter().printResult(dependents);
         return dependents.size();
     }
 }

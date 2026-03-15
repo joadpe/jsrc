@@ -80,7 +80,7 @@ public class ExplainCommand implements Command {
         result.put("className", ci.qualifiedName());
         result.put("summary", summary.toString().trim());
 
-        System.out.println(JsonWriter.toJson(result));
+        ctx.formatter().printResult(result);
         return 1;
     }
 }

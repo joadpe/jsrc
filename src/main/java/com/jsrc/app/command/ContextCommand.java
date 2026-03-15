@@ -1,6 +1,5 @@
 package com.jsrc.app.command;
 
-import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.output.MarkdownFormatter;
 import com.jsrc.app.analysis.ContextAssembler;
 import com.jsrc.app.parser.model.ClassInfo;
@@ -29,7 +28,7 @@ public class ContextCommand implements Command {
         if (mdOutput) {
             System.out.println(MarkdownFormatter.toMarkdown(ctxMap));
         } else {
-            System.out.println(JsonWriter.toJson(ctxMap));
+            ctx.formatter().printResult(ctxMap);
         }
         return 1;
     }

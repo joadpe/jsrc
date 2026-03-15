@@ -28,7 +28,7 @@ public class VerifyCommand implements Command {
             if (ci == null) return 0;
 
             var result = SpecVerifier.verify(ci, spec);
-            System.out.println(JsonWriter.toJson(result));
+            ctx.formatter().printResult(result);
             @SuppressWarnings("unchecked")
             List<?> discs = (List<?>) result.get("discrepancies");
             return discs.size();

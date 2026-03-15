@@ -26,7 +26,7 @@ public class ChangedCommand implements Command {
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("changedFiles", changedFiles);
             result.put("totalChanged", changedFiles.size());
-            System.out.println(JsonWriter.toJson(result));
+            ctx.formatter().printResult(result);
             return changedFiles.size();
         } catch (Exception e) {
             System.err.printf("Error running git diff: %s%n", e.getMessage());

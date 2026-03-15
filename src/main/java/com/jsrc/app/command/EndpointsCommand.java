@@ -13,7 +13,7 @@ public class EndpointsCommand implements Command {
                 ? ctx.config().architecture().endpointAnnotations() : List.of();
         var mapper = new EndpointMapper(epAnnotations);
         var endpoints = mapper.findEndpoints(allClasses);
-        System.out.println(JsonWriter.toJson(endpoints));
+        ctx.formatter().printResult(endpoints);
         return endpoints.size();
     }
 }

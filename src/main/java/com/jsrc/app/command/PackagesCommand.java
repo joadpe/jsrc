@@ -57,7 +57,7 @@ public class PackagesCommand implements Command {
             result.add(pkgInfo);
         }
 
-        System.out.println(JsonWriter.toJson(result));
+        ctx.formatter().printResult(result);
         return result.size();
     }
 }

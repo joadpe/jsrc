@@ -256,4 +256,10 @@ public class TextFormatter implements OutputFormatter {
             }
         }
     }
+
+    @Override
+    public void printResult(Object data) {
+        // Text mode: print JSON as-is (no fields filtering in text mode)
+        System.out.println(JsonWriter.toJson(data));
+    }
 }

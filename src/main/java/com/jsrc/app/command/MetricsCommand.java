@@ -66,7 +66,7 @@ public class MetricsCommand implements Command {
         result.put("isInterface", ci.isInterface());
         result.put("isAbstract", ci.isAbstract());
 
-        System.out.println(JsonWriter.toJson(result));
+        ctx.formatter().printResult(result);
         return 1;
     }
 }

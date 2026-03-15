@@ -60,7 +60,7 @@ public class BatchCommand implements Command {
                 results.add(entry);
             }
 
-            System.out.println(JsonWriter.toJson(results));
+            ctx.formatter().printResult(results);
             return results.size();
         } catch (IOException e) {
             System.err.println("Error reading stdin: " + e.getMessage());

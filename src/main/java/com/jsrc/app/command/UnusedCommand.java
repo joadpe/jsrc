@@ -74,7 +74,7 @@ public class UnusedCommand implements Command {
         result.put("unimplementedInterfaces", unimplemented);
         result.put("total", unusedMethods.size() + unusedClasses.size() + unimplemented.size());
 
-        System.out.println(JsonWriter.toJson(result));
+        ctx.formatter().printResult(result);
         return unusedMethods.size() + unusedClasses.size() + unimplemented.size();
     }
 }

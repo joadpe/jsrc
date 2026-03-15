@@ -38,7 +38,7 @@ public class DriftCommand implements Command {
         // We can't easily reuse DiffCommand output, so just report count
         report.put("totalIssues", report.get("architectureViolations"));
 
-        System.out.println(JsonWriter.toJson(report));
+        ctx.formatter().printResult(report);
         return ((Number) report.get("architectureViolations")).intValue();
     }
 }

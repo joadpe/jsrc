@@ -338,4 +338,18 @@ public class JsonFormatter implements OutputFormatter {
         map.put("methodName", ref.methodName());
         return map;
     }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public void printResult(Object data) {
+        if (data instanceof Map<?, ?> map) {
+            var filtered = FieldsFilter.filter((Map<String, Object>) map, fields);
+            System.out.println(JsonWriter.toJson(filtered));
+        } else if (data instanceof java.util.Collection<?> coll) {
+            var filtered = FieldsFilter.filterCollection(coll, fields);
+            System.out.println(JsonWriter.toJson(filtered));
+        } else {
+            System.out.println(JsonWriter.toJson(data));
+        }
+    }
 }

@@ -77,7 +77,7 @@ public class HistoryCommand implements Command {
             result.put("authors", List.copyOf(authors));
             result.put("recentCommits", recentMessages);
 
-            System.out.println(JsonWriter.toJson(result));
+            ctx.formatter().printResult(result);
             return 1;
         } catch (Exception e) {
             System.err.printf("Error reading git history: %s%n", e.getMessage());

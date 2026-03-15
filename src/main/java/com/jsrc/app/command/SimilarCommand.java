@@ -75,7 +75,7 @@ public class SimilarCommand implements Command {
         // Sort by similarity descending
         similar.sort((a, b) -> Long.compare((long) b.get("similarity"), (long) a.get("similarity")));
 
-        System.out.println(JsonWriter.toJson(similar));
+        ctx.formatter().printResult(similar);
         return similar.size();
     }
 }

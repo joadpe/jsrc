@@ -116,6 +116,14 @@ public interface OutputFormatter {
     void printCallChains(List<CallChain> chains, String methodName);
 
     /**
+     * Prints a generic result (Map or List) with field filtering applied.
+     * Use this for commands that build ad-hoc result structures.
+     *
+     * @param data a Map or List to output
+     */
+    void printResult(Object data);
+
+    /**
      * Factory method to create the appropriate formatter.
      *
      * @param json true for JSON output, false for human-readable text

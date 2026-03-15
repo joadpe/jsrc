@@ -242,8 +242,7 @@ done
 cd "$INSTALL_DIR"
 exec mvn -q exec:java \\
     -Dexec.args="\$*" \\
-    -Djava.library.path="$LIB_DIR" \\
-    2>/dev/null
+    -Djava.library.path="$LIB_DIR"
 WRAPPER
 chmod +x "$BIN_DIR/jsrc"
 

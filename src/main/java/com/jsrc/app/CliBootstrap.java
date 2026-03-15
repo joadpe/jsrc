@@ -34,7 +34,11 @@ public final class CliBootstrap {
         Set<String> fields = extractFields(argList);
         String configPath = extractOption(argList, "--config");
 
-        // --describe is handled before root/command resolution
+        // --help and --describe are handled before root/command resolution
+        if (argList.contains("--help") || argList.isEmpty()) {
+            return new ParsedArgs(jsonOutput, mdOutput, signatureOnly, showMetrics,
+                    fields, configPath, null, "--help", argList);
+        }
         if (argList.contains("--describe")) {
             return new ParsedArgs(jsonOutput, mdOutput, signatureOnly, showMetrics,
                     fields, configPath, null, "--describe", argList);

@@ -27,6 +27,12 @@ public class App {
         ParsedArgs parsed = CliBootstrap.parse(args);
         if (parsed == null) return;
 
+        // Handle --help
+        if ("--help".equals(parsed.command())) {
+            printHelp();
+            return;
+        }
+
         // Handle --describe (no source root needed)
         if ("--describe".equals(parsed.command())) {
             handleDescribe(parsed);
@@ -176,6 +182,78 @@ public class App {
         System.err.printf("Error: %s requires an argument%n", command);
         System.exit(ExitCode.BAD_USAGE);
         return null;
+    }
+
+    private static void printHelp() {
+        System.out.println("""
+                jsrc — Java Source Code Navigator
+
+                Usage: jsrc [source-root] <command> [args] [flags]
+
+                Discovery:
+                  --overview                Codebase overview: files, classes, methods, packages
+                  --classes                 List all classes, interfaces, enums, records
+                  --packages                Package map with inter-package dependencies
+                  --search <pattern>        Structured text search with class/method context
+                  <methodName>              Search for methods by name
+
+                Analysis:
+                  --summary <class>         Compact class summary with method signatures
+                  --deps <class>            Class dependencies: imports, fields, params
+                  --hierarchy <class>       Extends, implements, subclasses
+                  --implements <iface>      Find all implementors of an interface
+                  --annotations <name>      Find classes/methods with annotation
+                  --smells                  Detect code smells
+                  --stats <class>           Code metrics: LOC, complexity, coupling
+                  --explain <class>         Concise actionable summary
+                  --similar <class>         Find structurally similar classes
+                  --unused                  Detect dead code
+
+                Call Graph:
+                  --callers <method>        Find all callers of a method
+                  --callees <method>        Find all callees of a method
+                  --call-chain <method>     Trace call chains, generate Mermaid diagrams
+
+                Architecture:
+                  --check [ruleId]          Check architecture rules
+                  --layer <name>            List classes in a layer
+                  --endpoints               List REST endpoints
+                  --drift                   Combined architecture + spec check
+                  --verify <class> --spec <md>  Verify against spec
+
+                Source:
+                  --read <Class[.method]>   Read source code
+                  --context <class>         Full context package for reverse engineering
+                  --contract <class>        Extract formal contract
+                  --imports <class>         Find all classes that import a class
+
+                Git:
+                  --changed                 Java files changed (vs HEAD)
+                  --diff                    Files changed since last index
+                  --history <class>         Git history for a class
+
+                Index:
+                  --index                   Build/update persistent codebase index
+
+                Advanced:
+                  --batch                   Execute multiple queries from stdin
+                  --watch                   Daemon mode: serve via stdin JSON
+                  --describe [cmd] --json   Machine-readable command metadata
+
+                Global Flags:
+                  --json                    JSON output
+                  --md                      Markdown output (some commands)
+                  --fields <f1,f2>          Filter output fields
+                  --signature-only          Method signatures only
+                  --metrics                 Show execution metrics
+                  --config <path>           Use specific config file
+
+                Examples:
+                  jsrc src/main/java --overview --json
+                  jsrc --classes --fields name,packageName --json
+                  jsrc --callers processOrder --json
+                  jsrc --smells --json
+                """);
     }
 
     private static List<Path> filterExcludes(List<Path> files, List<String> excludes) {

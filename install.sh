@@ -41,8 +41,16 @@ fi
 
 # ---- Check/install Java ----
 check_java() {
+    # Try java on PATH first, then SDKMAN's current
+    local java_bin=""
     if command -v java &>/dev/null; then
-        JAVA_VER=$(java -version 2>&1 | head -1 | sed 's/.*"\([0-9]*\).*/\1/')
+        java_bin="java"
+    elif [[ -x "$HOME/.sdkman/candidates/java/current/bin/java" ]]; then
+        java_bin="$HOME/.sdkman/candidates/java/current/bin/java"
+        export PATH="$HOME/.sdkman/candidates/java/current/bin:$PATH"
+    fi
+    if [[ -n "$java_bin" ]]; then
+        JAVA_VER=$($java_bin -version 2>&1 | head -1 | sed 's/.*"\([0-9]*\).*/\1/')
         if [[ "$JAVA_VER" -ge "$MIN_JAVA_VERSION" ]]; then
             echo "✓ Java $JAVA_VER found"
             return 0
@@ -74,18 +82,21 @@ install_java() {
     ensure_sdkman
     sdk_cmd install java 22.0.2-tem -y
     sdk_cmd default java 22.0.2-tem
-    export PATH="$HOME/.sdkman/candidates/java/current/bin:$PATH"
-    if check_java; then
-        return 0
-    fi
-    # Fallback: try alternative distribution
-    sdk_cmd install java 22.0.2-sem -y
-    sdk_cmd default java 22.0.2-sem
-    export PATH="$HOME/.sdkman/candidates/java/current/bin:$PATH"
+
+    # Find installed java directly (sdk runs in subshell, PATH not inherited)
+    for candidate in "$HOME/.sdkman/candidates/java/22.0.2-tem" "$HOME/.sdkman/candidates/java/current"; do
+        if [[ -x "$candidate/bin/java" ]]; then
+            export JAVA_HOME="$candidate"
+            export PATH="$candidate/bin:$PATH"
+            break
+        fi
+    done
+
     if check_java; then
         return 0
     fi
     echo "Error: Failed to install Java $MIN_JAVA_VERSION"
+    echo "  Try manually: source ~/.sdkman/bin/sdkman-init.sh && sdk install java 22.0.2-tem"
     exit 1
 }
 

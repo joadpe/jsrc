@@ -100,8 +100,14 @@ public class MermaidDiagramGenerator {
         Files.createDirectories(outputDir);
 
         List<Path> generated = new ArrayList<>();
+        // Use simple method name for file naming (strip class, params, package)
+        String simpleName = methodName;
+        int dot = simpleName.lastIndexOf('.');
+        if (dot >= 0) simpleName = simpleName.substring(dot + 1);
+        int paren = simpleName.indexOf('(');
+        if (paren >= 0) simpleName = simpleName.substring(0, paren);
         for (int i = 0; i < chains.size(); i++) {
-            String fileName = methodName + "_chain_" + (i + 1) + ".mmd";
+            String fileName = simpleName + "_chain_" + (i + 1) + ".mmd";
             Path file = outputDir.resolve(fileName);
             String content = generate(chains.get(i));
             Files.writeString(file, content);

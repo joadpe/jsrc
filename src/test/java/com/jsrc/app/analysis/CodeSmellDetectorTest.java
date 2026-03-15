@@ -12,6 +12,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.jsrc.app.parser.HybridJavaParser;
+import com.jsrc.app.parser.TreeSitterParser;
 import com.jsrc.app.parser.model.CodeSmell;
 import com.jsrc.app.parser.model.CodeSmell.Severity;
 

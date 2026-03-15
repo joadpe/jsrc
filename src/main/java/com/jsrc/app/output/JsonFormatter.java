@@ -5,6 +5,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jsrc.app.model.AnnotationMatch;
+import com.jsrc.app.model.DependencyResult;
+import com.jsrc.app.model.HierarchyResult;
+import com.jsrc.app.model.OverviewResult;
 import com.jsrc.app.parser.model.AnnotationInfo;
 import com.jsrc.app.parser.model.CallChain;
 import com.jsrc.app.parser.model.ClassInfo;

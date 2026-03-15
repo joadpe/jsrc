@@ -24,6 +24,7 @@ import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.MemberValuePair;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
+import com.jsrc.app.analysis.CodeSmellDetector;
 import com.jsrc.app.parser.model.AnnotationInfo;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.CodeSmell;

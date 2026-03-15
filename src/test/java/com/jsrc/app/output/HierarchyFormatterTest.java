@@ -2,6 +2,8 @@ package com.jsrc.app.output;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.jsrc.app.model.HierarchyResult;
+
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.util.List;

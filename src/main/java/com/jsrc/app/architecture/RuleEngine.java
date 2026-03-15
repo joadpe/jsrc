@@ -19,13 +19,13 @@ public class RuleEngine {
 
     private final ArchitectureConfig config;
     private final LayerResolver layerResolver;
-    private final com.jsrc.app.parser.DependencyAnalyzer dependencyAnalyzer;
+    private final DependencyAnalyzer dependencyAnalyzer;
 
     public RuleEngine(ArchitectureConfig config) {
-        this(config, new com.jsrc.app.parser.DependencyAnalyzer());
+        this(config, new DependencyAnalyzer());
     }
 
-    public RuleEngine(ArchitectureConfig config, com.jsrc.app.parser.DependencyAnalyzer dependencyAnalyzer) {
+    public RuleEngine(ArchitectureConfig config, DependencyAnalyzer dependencyAnalyzer) {
         this.config = config;
         this.layerResolver = new LayerResolver(config.layers());
         this.dependencyAnalyzer = dependencyAnalyzer;

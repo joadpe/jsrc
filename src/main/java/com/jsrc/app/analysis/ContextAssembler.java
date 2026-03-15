@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 
 import com.jsrc.app.architecture.LayerResolver;
+import com.jsrc.app.parser.CodeParser;
+import com.jsrc.app.parser.SourceReader;
 import com.jsrc.app.config.ArchitectureConfig;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.CodeSmell;

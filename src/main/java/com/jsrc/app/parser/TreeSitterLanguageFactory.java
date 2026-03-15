@@ -36,12 +36,23 @@ public final class TreeSitterLanguageFactory {
 
     private static String[] buildSystemLibDirs() {
         String userHome = System.getProperty("user.home", "");
-        return new String[] {
-                userHome + "/lib",
-                "/usr/local/lib",
-                "/usr/lib",
-                "/lib"
-        };
+        String javaLibPath = System.getProperty("java.library.path", "");
+        java.util.List<String> dirs = new java.util.ArrayList<>();
+
+        // java.library.path entries first (set via -Djava.library.path)
+        if (!javaLibPath.isBlank()) {
+            for (String dir : javaLibPath.split(java.io.File.pathSeparator)) {
+                if (!dir.isBlank()) dirs.add(dir);
+            }
+        }
+
+        // Standard fallback paths
+        dirs.add(userHome + "/lib");
+        dirs.add("/usr/local/lib");
+        dirs.add("/usr/lib");
+        dirs.add("/lib");
+
+        return dirs.toArray(String[]::new);
     }
 
     private TreeSitterLanguageFactory() {}

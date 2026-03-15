@@ -56,10 +56,11 @@ public final class MethodResolver {
         List<String> paramTypes = null;
         int parenStart = methodPart.indexOf('(');
         if (parenStart >= 0) {
-            int parenEnd = methodPart.indexOf(')', parenStart);
+            int parenEnd = methodPart.lastIndexOf(')');
             if (parenEnd > parenStart + 1) {
-                // process(int,String) → ["int", "String"]
                 String paramsStr = methodPart.substring(parenStart + 1, parenEnd);
+                // Strip generics: HashMap<String, Integer> → HashMap
+                paramsStr = stripGenerics(paramsStr);
                 paramTypes = Arrays.stream(paramsStr.split(","))
                         .map(String::trim)
                         .filter(s -> !s.isEmpty())
@@ -76,6 +77,13 @@ public final class MethodResolver {
         if (lastDot >= 0) {
             className = methodPart.substring(0, lastDot);
             methodPart = methodPart.substring(lastDot + 1);
+
+            // If qualified name (com.foo.Bar), use simple name only
+            int classLastDot = className.lastIndexOf('.');
+            if (classLastDot >= 0 && classLastDot + 1 < className.length()
+                    && Character.isUpperCase(className.charAt(classLastDot + 1))) {
+                className = className.substring(classLastDot + 1);
+            }
         }
 
         return new MethodRef(className, methodPart, paramTypes);
@@ -105,5 +113,25 @@ public final class MethodResolver {
                     return true;
                 })
                 .toList();
+    }
+
+    /**
+     * Strips generic type parameters from a comma-separated param string.
+     * E.g. "HashMap&lt;String, Integer&gt;, List&lt;Foo&gt;" → "HashMap, List"
+     */
+    private static String stripGenerics(String params) {
+        StringBuilder sb = new StringBuilder();
+        int depth = 0;
+        for (int i = 0; i < params.length(); i++) {
+            char c = params.charAt(i);
+            if (c == '<') {
+                depth++;
+            } else if (c == '>') {
+                depth--;
+            } else if (depth == 0) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 }

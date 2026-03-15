@@ -56,38 +56,58 @@ public class CallChainCommand implements Command {
                 : java.util.Set.of();
         CallChainTracer tracer = new CallChainTracer(graphBuilder, 20, stopMethods);
 
+        // Build signature map from index for enriched output and disambiguation
+        Map<String, String> signatures = buildSignatureMap(ctx);
+
         // Parse input: supports methodName, Class.method, Class.method(Type1,Type2)
         var ref = MethodResolver.parse(methodName);
-        List<CallChain> chains;
+        java.util.Set<MethodReference> allTargets = graphBuilder.findMethodsByName(ref.methodName());
 
+        // Filter by class if specified
+        java.util.Set<MethodReference> targets;
         if (ref.hasClassName()) {
-            // Filter targets by class name
-            java.util.Set<MethodReference> targets = graphBuilder.findMethodsByName(ref.methodName());
-            java.util.Set<MethodReference> filtered = new java.util.HashSet<>();
-            for (MethodReference target : targets) {
+            targets = new java.util.HashSet<>();
+            for (MethodReference target : allTargets) {
                 if (target.className().equals(ref.className())) {
                     if (ref.hasParamTypes()) {
                         if (target.parameterCount() < 0 || target.parameterCount() == ref.paramTypes().size()) {
-                            filtered.add(target);
+                            targets.add(target);
                         }
                     } else {
-                        filtered.add(target);
+                        targets.add(target);
                     }
                 }
             }
-            chains = new java.util.ArrayList<>();
-            java.util.Set<String> seen = new java.util.HashSet<>();
-            for (MethodReference target : filtered) {
-                for (CallChain chain : tracer.traceToRoots(target)) {
-                    if (seen.add(chain.summary())) chains.add(chain);
-                }
-            }
         } else {
-            chains = tracer.traceToRoots(ref.methodName());
+            targets = allTargets;
         }
 
-        // Build signature map from index for enriched output
-        Map<String, String> signatures = buildSignatureMap(ctx);
+        // Check for ambiguity: multiple classes with same method name
+        if (!ref.hasClassName() && targets.size() > 1) {
+            java.util.Set<String> classNames = new java.util.TreeSet<>();
+            for (MethodReference t : targets) {
+                String sig = signatures.getOrDefault(t.className() + "." + t.methodName(), "()");
+                classNames.add(t.className() + "." + t.methodName() + sig);
+            }
+            if (classNames.size() > 1) {
+                Map<String, Object> result = new java.util.LinkedHashMap<>();
+                result.put("ambiguous", true);
+                result.put("methodName", ref.methodName());
+                result.put("candidates", new java.util.ArrayList<>(classNames));
+                result.put("message", "Multiple methods named '" + ref.methodName()
+                        + "'. Use Class.method to disambiguate.");
+                ctx.formatter().printResult(result);
+                return 0;
+            }
+        }
+
+        List<CallChain> chains = new java.util.ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (MethodReference target : targets) {
+            for (CallChain chain : tracer.traceToRoots(target)) {
+                if (seen.add(chain.summary())) chains.add(chain);
+            }
+        }
 
         ctx.formatter().printCallChains(chains, methodName, signatures);
 

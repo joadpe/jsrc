@@ -4,10 +4,16 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.jsrc.app.index.IndexEntry;
 import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
@@ -23,14 +29,36 @@ public class SearchCommand implements Command {
         this.pattern = pattern;
     }
 
+    private static final Logger logger = LoggerFactory.getLogger(SearchCommand.class);
+
     @Override
     public int execute(CommandContext ctx) {
         List<Map<String, Object>> results = new ArrayList<>();
 
-        for (Path file : ctx.javaFiles()) {
+        // Use index to narrow search if available and pattern looks like an identifier
+        List<Path> filesToSearch = ctx.javaFiles();
+        if (ctx.indexed() != null && isJavaIdentifier(pattern)) {
+            List<IndexEntry> indexed = ctx.indexed().findEntriesContaining(pattern);
+            if (!indexed.isEmpty()) {
+                Set<String> indexedPaths = new HashSet<>();
+                for (IndexEntry entry : indexed) {
+                    indexedPaths.add(entry.path());
+                }
+                filesToSearch = ctx.javaFiles().stream()
+                        .filter(f -> indexedPaths.contains(f.toString()))
+                        .toList();
+                logger.debug("Index narrowed search from {} to {} files for '{}'",
+                        ctx.javaFiles().size(), filesToSearch.size(), pattern);
+            }
+        }
+
+        for (Path file : filesToSearch) {
             try {
                 List<String> lines = Files.readAllLines(file);
-                List<ClassInfo> classes = ctx.parser().parseClasses(file);
+                // Use indexed class info when available to avoid re-parsing
+                List<ClassInfo> classes = (ctx.indexed() != null)
+                        ? ctx.indexed().findClassesInFile(file.toString())
+                        : ctx.parser().parseClasses(file);
                 boolean inBlockComment = false;
 
                 for (int i = 0; i < lines.size(); i++) {
@@ -143,5 +171,19 @@ public class SearchCommand implements Command {
             }
         }
         return quoteCount % 2 != 0;
+    }
+
+    /**
+     * Checks if the pattern looks like a Java identifier (class name, method name).
+     * Index-based filtering only makes sense for identifiers, not arbitrary text.
+     */
+    private static boolean isJavaIdentifier(String pattern) {
+        if (pattern == null || pattern.isEmpty()) return false;
+        if (!Character.isJavaIdentifierStart(pattern.charAt(0)) && pattern.charAt(0) != '_') return false;
+        for (int i = 1; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            if (!Character.isJavaIdentifierPart(c) && c != '.') return false;
+        }
+        return true;
     }
 }

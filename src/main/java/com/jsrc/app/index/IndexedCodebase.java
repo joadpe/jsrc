@@ -203,6 +203,69 @@ public class IndexedCodebase {
     }
 
     /**
+     * Returns ClassInfo objects for all classes defined in a given file path.
+     *
+     * @param filePath relative or absolute file path
+     * @return classes in that file (empty list if not indexed)
+     */
+    public List<ClassInfo> findClassesInFile(String filePath) {
+        for (IndexEntry entry : entries) {
+            if (filePath.endsWith(entry.path()) || entry.path().equals(filePath)) {
+                return entry.classes().stream()
+                        .map(IndexedCodebase::toClassInfo)
+                        .toList();
+            }
+        }
+        return List.of();
+    }
+
+    /**
+     * Returns index entries whose classes or methods contain the pattern in their names.
+     * Used by SearchCommand to narrow file search when an index is available.
+     *
+     * @param pattern search pattern (matched case-insensitively against class names,
+     *                method names, and annotation names)
+     * @return matching entries (may be empty)
+     */
+    public List<IndexEntry> findEntriesContaining(String pattern) {
+        String lower = pattern.toLowerCase();
+        List<IndexEntry> matching = new ArrayList<>();
+        for (IndexEntry entry : entries) {
+            boolean found = false;
+            for (IndexedClass ic : entry.classes()) {
+                if (ic.name().toLowerCase().contains(lower)
+                        || ic.qualifiedName().toLowerCase().contains(lower)) {
+                    found = true;
+                    break;
+                }
+                for (String ann : ic.annotations()) {
+                    if (ann.toLowerCase().contains(lower)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) break;
+                for (IndexedMethod im : ic.methods()) {
+                    if (im.name().toLowerCase().contains(lower)) {
+                        found = true;
+                        break;
+                    }
+                    for (String ann : im.annotations()) {
+                        if (ann.toLowerCase().contains(lower)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (found) break;
+                }
+                if (found) break;
+            }
+            if (found) matching.add(entry);
+        }
+        return matching;
+    }
+
+    /**
      * Returns the number of indexed files.
      */
     public int fileCount() {

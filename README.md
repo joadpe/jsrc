@@ -196,8 +196,8 @@ architecture:
 For codebases with reflective method invocation patterns (common in enterprise Java):
 
 ```java
-// LiquidacionDetalle.java
-ejecutarMetodo("calcularImporte", params);
+// InvoceView.java
+invoke("invoceRate", params);
 ```
 
 jsrc resolves this to `LiquidacionAdaptadorBean.calcularImporte()` by:

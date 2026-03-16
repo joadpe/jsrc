@@ -130,8 +130,9 @@ public class App {
         String arg = extractArg(argList, command);
 
         // Validate arg for commands that need identifiers
-        if (arg != null && command.startsWith("--")) {
-            if (List.of("--callers", "--callees", "--read", "--search", "--call-chain").contains(command)) {
+        // Skip validation for flag-style args (e.g. --all for --smells)
+        if (arg != null && command.startsWith("--") && !arg.startsWith("--")) {
+            if (List.of("--callers", "--callees", "--read", "--search", "--call-chain", "--smells").contains(command)) {
                 String err = InputValidator.validateMethodRef(arg, "argument");
                 if (err != null) { System.err.println("Error: " + err); System.exit(ExitCode.BAD_USAGE); }
             } else {

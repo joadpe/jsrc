@@ -184,6 +184,39 @@ class SmellsCommandTest {
     }
 
     @Test
+    @DisplayName("Overloaded method with param signature filters to exact overload")
+    void overloadedMethodFiltersBySignature() throws Exception {
+        writeFile("Processor.java", """
+                public class Processor {
+                    public void process(int a) {
+                        System.out.println(a);
+                    }
+                    public void process(int a, int b, int c, int d, int e,
+                                        int f, int g, int h) {
+                        System.out.println("big");
+                    }
+                }
+                """);
+
+        var ctx = buildIndexedContext();
+
+        // Ask for 1-param overload — should NOT have TOO_MANY_PARAMETERS
+        String output1 = captureStdout(() -> {
+            new SmellsCommand("process(int)").execute(ctx);
+        });
+        assertFalse(output1.contains("TOO_MANY_PARAMETERS"),
+                "1-param process should NOT have too-many-params. Got: " + output1);
+
+        // Ask for 8-param overload — should have TOO_MANY_PARAMETERS
+        String output8 = captureStdout(() -> {
+            int result = new SmellsCommand("process(int,int,int,int,int,int,int,int)").execute(ctx);
+            assertTrue(result >= 1, "8-param process should have smells");
+        });
+        assertTrue(output8.contains("TOO_MANY_PARAMETERS"),
+                "Should detect too many params in 8-param overload");
+    }
+
+    @Test
     @DisplayName("Non-matching target prints error")
     void nonMatchingTargetShowsError() throws Exception {
         writeFile("Service.java", "public class Service { public void handle() {} }");

@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.jsrc.app.index.IndexedMethod;
 import com.jsrc.app.parser.model.CodeSmell;
 import com.jsrc.app.util.MethodResolver;
 import com.jsrc.app.util.SignatureUtils;
@@ -23,9 +24,9 @@ import com.jsrc.app.util.SignatureUtils;
  *   <li>A qualified reference — {@code Service.process(String, int)}</li>
  *   <li>A file path fragment — {@code src/main/Service.java}</li>
  * </ul>
- * When a method target is specified, only smells within that method are returned.
- * When multiple classes contain the same method name, returns an ambiguity
- * response for the caller to disambiguate.
+ * When a method target is specified, only smells within that specific method
+ * (matched by name and line range) are returned. This correctly handles
+ * overloaded methods with different parameter counts.
  */
 public class SmellsCommand implements Command {
 
@@ -59,6 +60,12 @@ public class SmellsCommand implements Command {
         return totalSmells;
     }
 
+    /**
+     * Resolved method match: class name, method name, and optional line range
+     * for filtering smells to the exact overload.
+     */
+    private record MethodMatch(String className, String methodName, int startLine, int endLine) {}
+
     private int scanTarget(CommandContext ctx) {
         var ref = MethodResolver.parse(target);
         boolean isMethodRef = ref.hasParamTypes() || ref.hasClassName();
@@ -73,9 +80,10 @@ public class SmellsCommand implements Command {
 
         // 2. Try as method reference via index
         if (ctx.indexed() != null) {
-            // Search index entries directly (IndexedCodebase.findMethodsByName
-            // returns MethodInfo with empty parameters, losing signature data)
+            // Search index entries directly for matching methods
+            List<MethodMatch> matches = new ArrayList<>();
             Set<String> matchingClasses = new LinkedHashSet<>();
+
             for (var entry : ctx.indexed().getEntries()) {
                 for (var ic : entry.classes()) {
                     for (var im : ic.methods()) {
@@ -85,6 +93,7 @@ public class SmellsCommand implements Command {
                             int paramCount = SignatureUtils.countParams(im.signature());
                             if (paramCount >= 0 && paramCount != ref.paramTypes().size()) continue;
                         }
+                        matches.add(new MethodMatch(ic.name(), im.name(), im.startLine(), im.endLine()));
                         matchingClasses.add(ic.name());
                     }
                 }
@@ -95,12 +104,11 @@ public class SmellsCommand implements Command {
                 return reportAmbiguity(ctx, ref, matchingClasses);
             }
 
-            // Resolve class names to files and scan
-            if (!matchingClasses.isEmpty()) {
+            // Resolve class names to files and scan with line-range filter
+            if (!matches.isEmpty()) {
                 List<Path> fileMatches = resolveClassesToFiles(ctx.javaFiles(), matchingClasses);
                 if (!fileMatches.isEmpty()) {
-                    // Filter smells to only those in the requested method
-                    return scanFiles(ctx, fileMatches, ref.methodName());
+                    return scanFilesWithLineFilter(ctx, fileMatches, matches);
                 }
             }
         }
@@ -140,9 +148,8 @@ public class SmellsCommand implements Command {
     }
 
     /**
-     * Scans files for smells, optionally filtering to a specific method.
-     *
-     * @param methodFilter if non-null, only return smells where methodName matches
+     * Scans files for smells, filtering to a specific method name only.
+     * Used when target is a class name (no line-range info).
      */
     private int scanFiles(CommandContext ctx, List<Path> files, String methodFilter) {
         int totalSmells = 0;
@@ -153,6 +160,38 @@ public class SmellsCommand implements Command {
                         .filter(s -> methodFilter.equals(s.methodName()))
                         .toList();
             }
+            totalSmells += smells.size();
+            ctx.formatter().printSmells(smells, file);
+        }
+        return totalSmells;
+    }
+
+    /**
+     * Scans files for smells, filtering by method name AND line range.
+     * This correctly handles overloaded methods — only smells within the
+     * specific overload's line range are included.
+     */
+    private int scanFilesWithLineFilter(CommandContext ctx, List<Path> files,
+                                         List<MethodMatch> matches) {
+        int totalSmells = 0;
+        for (Path file : files) {
+            var smells = ctx.parser().detectSmells(file);
+            String fileNameNoExt = file.getFileName().toString().replace(".java", "");
+
+            // Find matching methods in this file
+            List<MethodMatch> fileMatches = matches.stream()
+                    .filter(m -> m.className().equals(fileNameNoExt))
+                    .toList();
+
+            if (!fileMatches.isEmpty()) {
+                smells = smells.stream()
+                        .filter(s -> fileMatches.stream().anyMatch(m ->
+                                m.methodName().equals(s.methodName())
+                                && s.line() >= m.startLine()
+                                && s.line() <= m.endLine()))
+                        .toList();
+            }
+
             totalSmells += smells.size();
             ctx.formatter().printSmells(smells, file);
         }
@@ -172,7 +211,7 @@ public class SmellsCommand implements Command {
 
     /**
      * Finds files matching a target by exact class name, exact file name,
-     * or path ending with the target (for partial paths like "src/main/Service.java").
+     * or path ending with the target.
      */
     private List<Path> findFileMatches(List<Path> javaFiles, String target) {
         String cleanTarget = target.endsWith(".java")

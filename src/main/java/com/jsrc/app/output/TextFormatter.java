@@ -113,8 +113,10 @@ public class TextFormatter implements OutputFormatter {
         }
         System.out.printf("%s of '%s' (%d):%n", label, target, refs.size());
         for (Map<String, Object> ref : refs) {
-            System.out.printf("  %s.%s() [line %s]%n",
-                    ref.get("className"), ref.get("methodName"), ref.get("line"));
+            String display = ref.containsKey("qualifiedRef")
+                    ? (String) ref.get("qualifiedRef")
+                    : ref.get("className") + "." + ref.get("methodName") + "()";
+            System.out.printf("  %s [line %s]%n", display, ref.get("line"));
         }
     }
 

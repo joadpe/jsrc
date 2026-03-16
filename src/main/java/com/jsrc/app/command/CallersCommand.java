@@ -30,10 +30,10 @@ public class CallersCommand implements Command {
         }
 
         var allTargets = graphBuilder.findMethodsByName(methodName);
-        var targets = ref.hasParamTypes()
-                ? allTargets.stream().filter(t -> t.parameterCount() == ref.paramTypes().size())
-                        .collect(Collectors.toSet())
-                : allTargets;
+        var targets = allTargets.stream()
+                .filter(t -> !ref.hasClassName() || t.className().equals(ref.className()))
+                .filter(t -> !ref.hasParamTypes() || t.parameterCount() == ref.paramTypes().size())
+                .collect(Collectors.toSet());
 
         List<Map<String, Object>> callers = new ArrayList<>();
         for (var target : targets) {

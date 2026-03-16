@@ -29,10 +29,10 @@ public class CalleesCommand implements Command {
         }
 
         var allSources = graphBuilder.findMethodsByName(methodName);
-        var sources = ref.hasParamTypes()
-                ? allSources.stream().filter(t -> t.parameterCount() == ref.paramTypes().size())
-                        .collect(Collectors.toSet())
-                : allSources;
+        var sources = allSources.stream()
+                .filter(t -> !ref.hasClassName() || t.className().equals(ref.className()))
+                .filter(t -> !ref.hasParamTypes() || t.parameterCount() == ref.paramTypes().size())
+                .collect(Collectors.toSet());
 
         List<Map<String, Object>> callees = new ArrayList<>();
         for (var source : sources) {

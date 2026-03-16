@@ -118,11 +118,19 @@ public class CallChainCommand implements Command {
         // Filter chains by arg count when specific overload requested
         if (ref.hasParamTypes()) {
             int expectedCount = ref.paramTypes().size();
+            int beforeFilter = chains.size();
             chains = chains.stream().filter(chain -> {
                 MethodCall lastStep = chain.steps().getLast();
                 int calleeArgs = lastStep.callee().parameterCount();
-                return calleeArgs < 0 || calleeArgs == expectedCount;
+                if (calleeArgs >= 0 && calleeArgs != expectedCount) {
+                    return false;
+                }
+                return true;
             }).toList();
+            if (chains.size() < beforeFilter) {
+                System.err.printf("Filtered %d chain(s) by param count %d → %d remaining%n",
+                        beforeFilter - chains.size(), expectedCount, chains.size());
+            }
         }
 
         ctx.formatter().printCallChains(chains, methodName, signatures);

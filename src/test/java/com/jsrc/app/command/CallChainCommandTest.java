@@ -328,6 +328,75 @@ class CallChainCommandTest {
     }
 
     @Test
+    @DisplayName("Overloaded method displays correct signature per chain")
+    void overloadDisplaysCorrectSignature() throws Exception {
+        String target = """
+                package com.test;
+                public class Svc {
+                    public void process(String s) {}
+                    public void process(String s, int n, boolean b) {}
+                }
+                """;
+        String callerA = """
+                package com.test;
+                public class CallerA {
+                    private Svc svc = new Svc();
+                    public void doA() { svc.process("x"); }
+                }
+                """;
+        String callerB = """
+                package com.test;
+                public class CallerB {
+                    private Svc svc = new Svc();
+                    public void doB() { svc.process("x", 1, true); }
+                }
+                """;
+
+        // Build index
+        List<Path> files = new java.util.ArrayList<>();
+        Path f1 = tempDir.resolve("Svc.java"); Files.writeString(f1, target); files.add(f1);
+        Path f2 = tempDir.resolve("CallerA.java"); Files.writeString(f2, callerA); files.add(f2);
+        Path f3 = tempDir.resolve("CallerB.java"); Files.writeString(f3, callerB); files.add(f3);
+
+        var index = new CodebaseIndex();
+        index.build(parser, files, tempDir, List.of());
+        index.save(tempDir);
+
+        // Verify edges have correct argCount
+        for (var entry : index.getEntries()) {
+            for (var edge : entry.callEdges()) {
+                if (edge.calleeMethod().equals("process") && edge.callerMethod().equals("doA")) {
+                    assertEquals(1, edge.argCount(), "doA calls process with 1 arg");
+                }
+                if (edge.calleeMethod().equals("process") && edge.callerMethod().equals("doB")) {
+                    assertEquals(3, edge.argCount(), "doB calls process with 3 args");
+                }
+            }
+        }
+
+        // Load and run call chain for 3-param overload
+        var indexed = IndexedCodebase.tryLoad(tempDir, files);
+        var ctx = new CommandContext(files, tempDir.toString(), null,
+                new JsonFormatter(), indexed, parser);
+
+        var out = new ByteArrayOutputStream();
+        var oldOut = System.out;
+        System.setOut(new PrintStream(out));
+        try {
+            new CallChainCommand("Svc.process(String,int,boolean)", tempDir.resolve("chains").toString()).execute(ctx);
+        } finally {
+            System.setOut(oldOut);
+        }
+        String output = out.toString().trim();
+
+        // Should only contain CallerB, not CallerA
+        assertTrue(output.contains("CallerB") || output.contains("doB"),
+                "Should include CallerB (3-param caller). Output: " + output);
+        assertFalse(output.contains("CallerA") || output.contains("doA"),
+                "Should NOT include CallerA (1-param caller). Output: " + output);
+    }
+
+    @Test
     @DisplayName("CallEdge argCount survives index roundtrip")
     void callEdgeArgCountRoundtrip() throws Exception {
         String source = """

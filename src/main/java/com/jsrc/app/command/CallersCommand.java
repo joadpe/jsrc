@@ -43,8 +43,9 @@ public class CallersCommand implements Command {
             }
         }
 
-        // Add reflective callers from invoker config
-        if (ctx.config() != null && !ctx.config().architecture().invokers().isEmpty()) {
+        // Add reflective callers — skip if index already has them
+        if (ctx.config() != null && !ctx.config().architecture().invokers().isEmpty()
+                && !(ctx.indexed() != null && ctx.indexed().hasCallEdges())) {
             var resolver = new InvokerResolver(ctx.config().architecture().invokers());
             for (var rc : resolver.resolve(ctx.javaFiles())) {
                 if (rc.targetMethod().equals(methodName)) {

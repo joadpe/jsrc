@@ -305,6 +305,74 @@ class CallChainTracerTest {
                 "Overloaded chains should have different summaries");
     }
 
+    @Test
+    @DisplayName("Should trace separate chains for overloads via loadFromIndex (real flow)")
+    void shouldTraceSeparateChainsForOverloadsViaIndex() throws Exception {
+        // This test covers the REAL user flow: index → save → load → trace
+        // Uses local variable + method call to ensure callee class resolution works
+        Path docs = writeFile("GeneracionDocumentos.java", """
+                public class GeneracionDocumentos {
+                    public Object generaDocumentos(Integer id) {
+                        return _generaDocumentos(id);
+                    }
+                    public Object generaDocumentos(Integer id, Object dir) {
+                        return _generaDocumentos(id, null, dir);
+                    }
+                    private Object _generaDocumentos(Integer id) {
+                        PaqueteDocumentoFacturaXML p = new PaqueteDocumentoFacturaXML();
+                        return p.run();
+                    }
+                    private Object _generaDocumentos(Integer id, Object x, Object dir) {
+                        PaqueteDocumentoFacturaXML p = new PaqueteDocumentoFacturaXML();
+                        return p.run();
+                    }
+                }
+                """);
+        Path paquete = writeFile("PaqueteDocumentoFacturaXML.java", """
+                public class PaqueteDocumentoFacturaXML {
+                    public Object run() { return creaDocumento(); }
+                    private Object creaDocumento() { return null; }
+                }
+                """);
+        Path caller = writeFile("GestorProcesos.java", """
+                public class GestorProcesos {
+                    private GeneracionDocumentos docs = new GeneracionDocumentos();
+                    public void pxAceptar(boolean flag) {
+                        if (flag) {
+                            docs.generaDocumentos(1, null);
+                        } else {
+                            docs.generaDocumentos(1);
+                        }
+                    }
+                }
+                """);
+
+        var files = java.util.List.of(docs, paquete, caller);
+
+        // Build and save index
+        var parser = new com.jsrc.app.parser.HybridJavaParser();
+        var index = new com.jsrc.app.index.CodebaseIndex();
+        index.build(parser, files, tempDir, java.util.List.of());
+        index.save(tempDir);
+
+        // Load from index (real user flow)
+        var loaded = com.jsrc.app.index.CodebaseIndex.load(tempDir);
+        CallGraphBuilder graph = new CallGraphBuilder();
+        graph.loadFromIndex(loaded);
+
+        CallChainTracer tracer = new CallChainTracer(graph);
+        List<CallChain> chains = tracer.traceToRoots("creaDocumento");
+
+        assertEquals(2, chains.size(),
+                "Should find 2 chains (one per overload path) via loadFromIndex. Got: "
+                + chains.stream().map(CallChain::summary).toList());
+
+        String summary1 = chains.get(0).summary();
+        String summary2 = chains.get(1).summary();
+        assertNotEquals(summary1, summary2,
+                "Chains through different overloads should have different summaries");
+    }
+
     private CallGraphBuilder buildGraph(Path... files) {
         CallGraphBuilder graph = new CallGraphBuilder();
         graph.build(List.of(files));

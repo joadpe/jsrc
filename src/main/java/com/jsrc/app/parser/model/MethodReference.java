@@ -47,13 +47,19 @@ public record MethodReference(
         return className + "." + methodName + "()";
     }
 
+    /**
+     * Fuzzy equals: parameterCount of -1 (unknown) matches any count.
+     * This is intentionally NOT a strict equivalence relation —
+     * transitivity does not hold when mixing -1 with different counts.
+     * Required for HashMap lookups where index edges have -1 but
+     * registered methods have actual counts.
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof MethodReference that)) return false;
         if (!className.equals(that.className)) return false;
         if (!methodName.equals(that.methodName)) return false;
-        // -1 means unknown param count — matches any
         if (parameterCount >= 0 && that.parameterCount >= 0) {
             return parameterCount == that.parameterCount;
         }
@@ -62,7 +68,7 @@ public record MethodReference(
 
     @Override
     public int hashCode() {
-        // Don't include parameterCount — it can be -1 (unknown)
+        // Excludes parameterCount for consistency with fuzzy equals
         return Objects.hash(className, methodName);
     }
 

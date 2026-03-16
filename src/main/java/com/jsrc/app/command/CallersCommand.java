@@ -29,9 +29,22 @@ public class CallersCommand implements Command {
         }
 
         var resolved = MethodTargetResolver.resolve(ref, graphBuilder);
-        var targets = resolved.targets();
         var signatures = MethodTargetResolver.buildSignatureMap(ctx.indexed());
         var packages = MethodTargetResolver.buildClassPackageMap(ctx.indexed());
+
+        if (resolved.isAmbiguous()) {
+            var candidates = MethodTargetResolver.buildCandidates(resolved.targets(), signatures);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("ambiguous", true);
+            result.put("methodName", ref.hasClassName()
+                    ? ref.className() + "." + ref.methodName() : ref.methodName());
+            result.put("candidates", candidates);
+            result.put("message", "Multiple methods found. Use Class.method(Type1,Type2) to disambiguate.");
+            ctx.formatter().printResult(result);
+            return 0;
+        }
+
+        var targets = resolved.targets();
 
         List<Map<String, Object>> callers = new ArrayList<>();
         for (var target : targets) {

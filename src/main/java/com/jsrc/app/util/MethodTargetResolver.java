@@ -91,6 +91,71 @@ public final class MethodTargetResolver {
     }
 
     /**
+     * Builds a signature map from indexed entries.
+     * Keys: "ClassName.methodName" (putIfAbsent) and "ClassName.methodName/N" (keyed by param count).
+     * Values: "(Type1, Type2)" extracted from method signatures.
+     */
+    public static java.util.Map<String, String> buildSignatureMap(
+            com.jsrc.app.index.IndexedCodebase indexed) {
+        java.util.Map<String, String> map = new java.util.HashMap<>();
+        if (indexed == null) return map;
+        for (var entry : indexed.getEntries()) {
+            for (var ic : entry.classes()) {
+                for (var im : ic.methods()) {
+                    if (im.signature() == null || im.signature().isEmpty()) continue;
+                    String params = extractParams(im.signature());
+                    int paramCount = countParams(params);
+                    String key = ic.name() + "." + im.name();
+                    map.putIfAbsent(key, params);
+                    map.put(key + "/" + paramCount, params);
+                }
+            }
+        }
+        return map;
+    }
+
+    private static String extractParams(String signature) {
+        int open = signature.indexOf('(');
+        int close = signature.lastIndexOf(')');
+        if (open < 0 || close < 0 || close <= open) return "()";
+        String inner = signature.substring(open + 1, close).trim();
+        if (inner.isEmpty()) return "()";
+        String[] parts = inner.split(",");
+        StringBuilder sb = new StringBuilder("(");
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i].trim();
+            String[] tokens = part.split("\\s+");
+            sb.append(tokens[0]);
+            if (i < parts.length - 1) sb.append(", ");
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
+    private static int countParams(String params) {
+        if (params == null || params.equals("()")) return 0;
+        String inner = params.substring(1, params.length() - 1).trim();
+        if (inner.isEmpty()) return 0;
+        return inner.split(",").length;
+    }
+
+    /**
+     * Resolves the display signature for a MethodReference using the signature map.
+     */
+    public static String displayName(com.jsrc.app.parser.model.MethodReference ref,
+                                      java.util.Map<String, String> signatures) {
+        String key = ref.className() + "." + ref.methodName();
+        String params = null;
+        if (ref.parameterCount() >= 0) {
+            params = signatures.get(key + "/" + ref.parameterCount());
+        }
+        if (params == null) {
+            params = signatures.getOrDefault(key, "()");
+        }
+        return ref.className() + "." + ref.methodName() + params;
+    }
+
+    /**
      * Builds a list of candidate strings for ambiguity display.
      * Format: "ClassName.methodName(Type1, Type2)"
      */

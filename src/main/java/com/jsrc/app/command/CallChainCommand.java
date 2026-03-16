@@ -12,9 +12,7 @@ import com.jsrc.app.analysis.CallChainTracer;
 import com.jsrc.app.analysis.CallGraphBuilder;
 import com.jsrc.app.analysis.MermaidDiagramGenerator;
 import com.jsrc.app.architecture.InvokerResolver;
-import com.jsrc.app.index.IndexedClass;
-import com.jsrc.app.index.IndexedMethod;
-import com.jsrc.app.index.IndexEntry;
+
 import com.jsrc.app.parser.model.CallChain;
 import com.jsrc.app.parser.model.MethodCall;
 import com.jsrc.app.parser.model.MethodReference;
@@ -58,7 +56,7 @@ public class CallChainCommand implements Command {
         CallChainTracer tracer = new CallChainTracer(graphBuilder, 20, stopMethods);
 
         // Build signature map from index for enriched output and disambiguation
-        Map<String, String> signatures = buildSignatureMap(ctx);
+        Map<String, String> signatures = MethodTargetResolver.buildSignatureMap(ctx.indexed());
 
         // Resolve targets using centralized resolver
         var ref = MethodResolver.parse(methodName);
@@ -120,54 +118,4 @@ public class CallChainCommand implements Command {
         return chains.size();
     }
 
-    /**
-     * Builds a map of "ClassName.methodName" → parameter signature from the index.
-     * Used to enrich call chain output with parameter types.
-     */
-    private static Map<String, String> buildSignatureMap(CommandContext ctx) {
-        Map<String, String> map = new HashMap<>();
-        if (ctx.indexed() == null) return map;
-        for (IndexEntry entry : ctx.indexed().getEntries()) {
-            for (IndexedClass ic : entry.classes()) {
-                for (IndexedMethod im : ic.methods()) {
-                    // Include param count in key to distinguish overloads
-                    String params = (im.signature() != null && !im.signature().isEmpty())
-                            ? extractParams(im.signature()) : "()";
-                    int paramCount = countParams(params);
-                    String key = ic.name() + "." + im.name() + "/" + paramCount;
-                    map.putIfAbsent(key, params);
-                    // Also store without param count as fallback
-                    map.putIfAbsent(ic.name() + "." + im.name(), params);
-                }
-            }
-        }
-        return map;
-    }
-
-    private static int countParams(String params) {
-        if (params == null || params.equals("()")) return 0;
-        String inner = params.substring(1, params.length() - 1).trim();
-        if (inner.isEmpty()) return 0;
-        return inner.split(",").length;
-    }
-
-    private static String extractParams(String signature) {
-        int open = signature.indexOf('(');
-        int close = signature.lastIndexOf(')');
-        if (open < 0 || close < 0 || close <= open) return "()";
-        String inner = signature.substring(open + 1, close).trim();
-        if (inner.isEmpty()) return "()";
-        // Simplify: "Facturacion fto, boolean usarCache" → "(Facturacion, boolean)"
-        String[] parts = inner.split(",");
-        StringBuilder sb = new StringBuilder("(");
-        for (int i = 0; i < parts.length; i++) {
-            String part = parts[i].trim();
-            // Take type only (first token), skip param name
-            String[] tokens = part.split("\\s+");
-            sb.append(tokens[0]);
-            if (i < parts.length - 1) sb.append(", ");
-        }
-        sb.append(")");
-        return sb.toString();
-    }
 }

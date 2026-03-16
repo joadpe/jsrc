@@ -82,21 +82,30 @@ public class CallChainCommand implements Command {
             targets = allTargets;
         }
 
-        // Check for ambiguity: multiple methods (different classes or overloads)
-        if (!ref.hasParamTypes() && targets.size() > 1) {
-            // Build unique signatures using param count to distinguish overloads
+        // Check for ambiguity using signatures from index (more reliable than Set size)
+        if (!ref.hasParamTypes()) {
+            String lookupName = ref.hasClassName() ? ref.className() + "." + ref.methodName() : ref.methodName();
             java.util.Set<String> candidates = new java.util.TreeSet<>();
-            for (MethodReference t : targets) {
-                String key = t.className() + "." + t.methodName() + "/" + t.parameterCount();
-                String sig = signatures.getOrDefault(key,
-                        signatures.getOrDefault(t.className() + "." + t.methodName(), "()"));
-                candidates.add(t.className() + "." + t.methodName() + sig);
+            // Scan all signature keys for matches
+            for (var entry : signatures.entrySet()) {
+                String key = entry.getKey();
+                // Match "Class.method/N" or "Class.method"
+                if (ref.hasClassName()) {
+                    if (key.startsWith(ref.className() + "." + ref.methodName())) {
+                        candidates.add(ref.className() + "." + ref.methodName() + entry.getValue());
+                    }
+                } else {
+                    // Match any "*.methodName/N"
+                    if (key.contains("." + ref.methodName() + "/") || key.endsWith("." + ref.methodName())) {
+                        String className = key.substring(0, key.indexOf("." + ref.methodName()));
+                        candidates.add(className + "." + ref.methodName() + entry.getValue());
+                    }
+                }
             }
             if (candidates.size() > 1) {
                 Map<String, Object> result = new java.util.LinkedHashMap<>();
                 result.put("ambiguous", true);
-                result.put("methodName", ref.hasClassName()
-                        ? ref.className() + "." + ref.methodName() : ref.methodName());
+                result.put("methodName", lookupName);
                 result.put("candidates", new java.util.ArrayList<>(candidates));
                 result.put("message", "Multiple methods found. Use Class.method(Type1,Type2) to disambiguate.");
                 ctx.formatter().printResult(result);

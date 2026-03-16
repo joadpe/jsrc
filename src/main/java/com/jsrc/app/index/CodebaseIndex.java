@@ -26,6 +26,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.ThisExpr;
 
 /**
@@ -319,6 +320,34 @@ public class CodebaseIndex {
                         String calleeClass = resolveCalleeClass(call, className, fieldTypes, localTypes);
                         int line = call.getBegin().map(p -> p.line).orElse(-1);
                         edges.add(new CallEdge(className, methodName, calleeClass, calleeMethod, line));
+                    }
+                    // new Foo() constructor invocations
+                    for (ObjectCreationExpr newExpr : md.findAll(ObjectCreationExpr.class)) {
+                        String targetClass = newExpr.getType().getNameAsString();
+                        int line = newExpr.getBegin().map(p -> p.line).orElse(-1);
+                        edges.add(new CallEdge(className, methodName, targetClass, targetClass, line));
+                    }
+                }
+
+                // Constructors — registered with class name as method name
+                for (com.github.javaparser.ast.body.ConstructorDeclaration cd : cid.getConstructors()) {
+                    Map<String, String> ctorTypes = new HashMap<>();
+                    for (com.github.javaparser.ast.body.Parameter param : cd.getParameters()) {
+                        String pType = param.getTypeAsString();
+                        int gi = pType.indexOf('<');
+                        if (gi > 0) pType = pType.substring(0, gi);
+                        ctorTypes.put(param.getNameAsString(), pType);
+                    }
+                    for (MethodCallExpr call : cd.findAll(MethodCallExpr.class)) {
+                        String calleeMethod = call.getNameAsString();
+                        String calleeClass = resolveCalleeClass(call, className, fieldTypes, ctorTypes);
+                        int line = call.getBegin().map(p -> p.line).orElse(-1);
+                        edges.add(new CallEdge(className, className, calleeClass, calleeMethod, line));
+                    }
+                    for (ObjectCreationExpr newExpr : cd.findAll(ObjectCreationExpr.class)) {
+                        String targetClass = newExpr.getType().getNameAsString();
+                        int line = newExpr.getBegin().map(p -> p.line).orElse(-1);
+                        edges.add(new CallEdge(className, className, targetClass, targetClass, line));
                     }
                 }
             }

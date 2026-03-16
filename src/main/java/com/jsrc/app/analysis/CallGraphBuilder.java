@@ -18,11 +18,13 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.ThisExpr;
 import com.jsrc.app.parser.model.MethodCall;
 import com.jsrc.app.parser.model.MethodReference;
@@ -202,6 +204,15 @@ public class CallGraphBuilder {
                 methodsByName.computeIfAbsent(md.getNameAsString(), k -> new HashSet<>()).add(ref);
             }
 
+            // Register constructors as methods named after the class
+            for (ConstructorDeclaration cd : cid.getConstructors()) {
+                MethodReference ref = new MethodReference(
+                        className, className,
+                        cd.getParameters().size(), file);
+                allMethods.add(ref);
+                methodsByName.computeIfAbsent(className, k -> new HashSet<>()).add(ref);
+            }
+
             classContexts.put(qualifiedKey, ctx);
             classContexts.putIfAbsent(className, ctx);
         }
@@ -234,15 +245,42 @@ public class CallGraphBuilder {
 
                 Map<String, String> localTypes = buildLocalTypeMap(md);
 
-                for (MethodCallExpr callExpr : md.findAll(MethodCallExpr.class)) {
-                    MethodReference callee = resolveCallee(callExpr, className, localTypes, classCtx, classContexts);
-                    int line = callExpr.getBegin().map(p -> p.line).orElse(-1);
-                    MethodCall call = new MethodCall(caller, callee, line);
-
-                    calleeIndex.computeIfAbsent(caller, k -> new HashSet<>()).add(call);
-                    callerIndex.computeIfAbsent(callee, k -> new HashSet<>()).add(call);
-                }
+                analyzeCallsInBody(caller, md, className, localTypes, classCtx, classContexts);
             }
+
+            // Analyze constructor bodies
+            for (ConstructorDeclaration cd : cid.getConstructors()) {
+                MethodReference caller = new MethodReference(
+                        className, className,
+                        cd.getParameters().size(), file);
+
+                Map<String, String> localTypes = buildConstructorTypeMap(cd);
+                analyzeCallsInBody(caller, cd, className, localTypes, classCtx, classContexts);
+            }
+        }
+    }
+
+    private void analyzeCallsInBody(MethodReference caller, Node body, String className,
+                                      Map<String, String> localTypes, ClassContext classCtx,
+                                      Map<String, ClassContext> classContexts) {
+        // Method calls
+        for (MethodCallExpr callExpr : body.findAll(MethodCallExpr.class)) {
+            MethodReference callee = resolveCallee(callExpr, className, localTypes, classCtx, classContexts);
+            int line = callExpr.getBegin().map(p -> p.line).orElse(-1);
+            MethodCall call = new MethodCall(caller, callee, line);
+            calleeIndex.computeIfAbsent(caller, k -> new HashSet<>()).add(call);
+            callerIndex.computeIfAbsent(callee, k -> new HashSet<>()).add(call);
+        }
+
+        // Constructor invocations: new Foo(...)
+        for (ObjectCreationExpr newExpr : body.findAll(ObjectCreationExpr.class)) {
+            String targetClass = newExpr.getType().getNameAsString();
+            MethodReference callee = new MethodReference(targetClass, targetClass,
+                    newExpr.getArguments().size(), null);
+            int line = newExpr.getBegin().map(p -> p.line).orElse(-1);
+            MethodCall call = new MethodCall(caller, callee, line);
+            calleeIndex.computeIfAbsent(caller, k -> new HashSet<>()).add(call);
+            callerIndex.computeIfAbsent(callee, k -> new HashSet<>()).add(call);
         }
     }
 
@@ -291,6 +329,20 @@ public class CallGraphBuilder {
         if (type != null) return stripGenerics(type);
 
         return null;
+    }
+
+    private Map<String, String> buildConstructorTypeMap(ConstructorDeclaration cd) {
+        Map<String, String> types = new HashMap<>();
+        for (Parameter param : cd.getParameters()) {
+            types.put(param.getNameAsString(), param.getTypeAsString());
+        }
+        for (VariableDeclarator var : cd.findAll(VariableDeclarator.class)) {
+            Node parent = var.getParentNode().orElse(null);
+            if (parent != null && !(parent instanceof FieldDeclaration)) {
+                types.put(var.getNameAsString(), var.getTypeAsString());
+            }
+        }
+        return types;
     }
 
     private Map<String, String> buildLocalTypeMap(MethodDeclaration md) {

@@ -30,6 +30,7 @@ public class CalleesCommand implements Command {
         var resolved = MethodTargetResolver.resolve(ref, graphBuilder);
         var sources = resolved.targets();
         var signatures = MethodTargetResolver.buildSignatureMap(ctx.indexed());
+        var packages = MethodTargetResolver.buildClassPackageMap(ctx.indexed());
 
         List<Map<String, Object>> callees = new ArrayList<>();
         for (var source : sources) {
@@ -37,7 +38,7 @@ public class CalleesCommand implements Command {
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("className", call.callee().className());
                 entry.put("methodName", call.callee().methodName());
-                entry.put("qualifiedRef", MethodTargetResolver.displayName(call.callee(), signatures));
+                entry.put("qualifiedRef", MethodTargetResolver.qualifiedDisplayName(call.callee(), signatures, packages));
                 entry.put("line", call.line());
                 entry.put("type", "direct");
                 callees.add(entry);

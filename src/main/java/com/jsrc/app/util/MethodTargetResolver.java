@@ -141,9 +141,30 @@ public final class MethodTargetResolver {
 
     /**
      * Resolves the display signature for a MethodReference using the signature map.
+     * Uses simple class name: "Service.process(String, int)"
      */
     public static String displayName(com.jsrc.app.parser.model.MethodReference ref,
                                       java.util.Map<String, String> signatures) {
+        String key = ref.className() + "." + ref.methodName();
+        String params = resolveParams(ref, signatures);
+        return ref.className() + "." + ref.methodName() + params;
+    }
+
+    /**
+     * Resolves the fully qualified display name including package.
+     * E.g. "com.agbar.occam.facturacion.Service.process(String, int)"
+     */
+    public static String qualifiedDisplayName(com.jsrc.app.parser.model.MethodReference ref,
+                                               java.util.Map<String, String> signatures,
+                                               java.util.Map<String, String> classPackages) {
+        String params = resolveParams(ref, signatures);
+        String pkg = classPackages.getOrDefault(ref.className(), "");
+        String qualifiedClass = pkg.isEmpty() ? ref.className() : pkg + "." + ref.className();
+        return qualifiedClass + "." + ref.methodName() + params;
+    }
+
+    private static String resolveParams(com.jsrc.app.parser.model.MethodReference ref,
+                                         java.util.Map<String, String> signatures) {
         String key = ref.className() + "." + ref.methodName();
         String params = null;
         if (ref.parameterCount() >= 0) {
@@ -152,7 +173,22 @@ public final class MethodTargetResolver {
         if (params == null) {
             params = signatures.getOrDefault(key, "()");
         }
-        return ref.className() + "." + ref.methodName() + params;
+        return params;
+    }
+
+    /**
+     * Builds a map of simple class name → package name from indexed entries.
+     */
+    public static java.util.Map<String, String> buildClassPackageMap(
+            com.jsrc.app.index.IndexedCodebase indexed) {
+        java.util.Map<String, String> map = new java.util.HashMap<>();
+        if (indexed == null) return map;
+        for (var entry : indexed.getEntries()) {
+            for (var ic : entry.classes()) {
+                map.putIfAbsent(ic.name(), ic.packageName());
+            }
+        }
+        return map;
     }
 
     /**

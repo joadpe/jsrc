@@ -31,6 +31,7 @@ public class CallersCommand implements Command {
         var resolved = MethodTargetResolver.resolve(ref, graphBuilder);
         var targets = resolved.targets();
         var signatures = MethodTargetResolver.buildSignatureMap(ctx.indexed());
+        var packages = MethodTargetResolver.buildClassPackageMap(ctx.indexed());
 
         List<Map<String, Object>> callers = new ArrayList<>();
         for (var target : targets) {
@@ -38,7 +39,7 @@ public class CallersCommand implements Command {
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("className", call.caller().className());
                 entry.put("methodName", call.caller().methodName());
-                entry.put("qualifiedRef", MethodTargetResolver.displayName(call.caller(), signatures));
+                entry.put("qualifiedRef", MethodTargetResolver.qualifiedDisplayName(call.caller(), signatures, packages));
                 entry.put("line", call.line());
                 entry.put("type", "direct");
                 callers.add(entry);

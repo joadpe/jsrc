@@ -255,7 +255,7 @@ public class CallGraphBuilder {
                         className, className,
                         cd.getParameters().size(), file);
 
-                Map<String, String> localTypes = buildConstructorTypeMap(cd);
+                Map<String, String> localTypes = buildLocalTypeMap(cd);
                 analyzeCallsInBody(caller, cd, className, localTypes, classCtx, classContexts);
             }
         }
@@ -332,34 +332,21 @@ public class CallGraphBuilder {
         return null;
     }
 
-    private Map<String, String> buildConstructorTypeMap(ConstructorDeclaration cd) {
+    /**
+     * Builds a map of variable/parameter name → type for a method or constructor.
+     * Both extend CallableDeclaration, sharing the same parameter/local structure.
+     */
+    private Map<String, String> buildLocalTypeMap(com.github.javaparser.ast.body.CallableDeclaration<?> callable) {
         Map<String, String> types = new HashMap<>();
-        for (Parameter param : cd.getParameters()) {
+        for (Parameter param : callable.getParameters()) {
             types.put(param.getNameAsString(), param.getTypeAsString());
         }
-        for (VariableDeclarator var : cd.findAll(VariableDeclarator.class)) {
+        for (VariableDeclarator var : callable.findAll(VariableDeclarator.class)) {
             Node parent = var.getParentNode().orElse(null);
             if (parent != null && !(parent instanceof FieldDeclaration)) {
                 types.put(var.getNameAsString(), var.getTypeAsString());
             }
         }
-        return types;
-    }
-
-    private Map<String, String> buildLocalTypeMap(MethodDeclaration md) {
-        Map<String, String> types = new HashMap<>();
-
-        for (Parameter param : md.getParameters()) {
-            types.put(param.getNameAsString(), param.getTypeAsString());
-        }
-
-        for (VariableDeclarator var : md.findAll(VariableDeclarator.class)) {
-            Node parent = var.getParentNode().orElse(null);
-            if (parent != null && !(parent instanceof FieldDeclaration)) {
-                types.put(var.getNameAsString(), var.getTypeAsString());
-            }
-        }
-
         return types;
     }
 

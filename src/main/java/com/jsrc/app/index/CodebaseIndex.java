@@ -295,75 +295,52 @@ public class CodebaseIndex {
                 }
 
                 for (MethodDeclaration md : cid.getMethods()) {
-                    String methodName = md.getNameAsString();
-
-                    // Collect local variable and parameter types
-                    Map<String, String> localTypes = new HashMap<>();
-                    for (com.github.javaparser.ast.body.Parameter param : md.getParameters()) {
-                        String pType = param.getTypeAsString();
-                        int gi = pType.indexOf('<');
-                        if (gi > 0) pType = pType.substring(0, gi);
-                        localTypes.put(param.getNameAsString(), pType);
-                    }
-                    for (com.github.javaparser.ast.body.VariableDeclarator var : md.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
-                        var parent = var.getParentNode().orElse(null);
-                        if (parent != null && !(parent instanceof com.github.javaparser.ast.body.FieldDeclaration)) {
-                            String vType = var.getTypeAsString();
-                            int gi = vType.indexOf('<');
-                            if (gi > 0) vType = vType.substring(0, gi);
-                            localTypes.put(var.getNameAsString(), vType);
-                        }
-                    }
-
-                    for (MethodCallExpr call : md.findAll(MethodCallExpr.class)) {
-                        String calleeMethod = call.getNameAsString();
-                        String calleeClass = resolveCalleeClass(call, className, fieldTypes, localTypes);
-                        int line = call.getBegin().map(p -> p.line).orElse(-1);
-                        edges.add(new CallEdge(className, methodName, calleeClass, calleeMethod, line));
-                    }
-                    // new Foo() constructor invocations
-                    for (ObjectCreationExpr newExpr : md.findAll(ObjectCreationExpr.class)) {
-                        String targetClass = newExpr.getType().getNameAsString();
-                        int line = newExpr.getBegin().map(p -> p.line).orElse(-1);
-                        edges.add(new CallEdge(className, methodName, targetClass, targetClass, line));
-                    }
+                    extractEdgesFromCallable(edges, md, className, md.getNameAsString(), fieldTypes);
                 }
-
-                // Constructors — registered with class name as method name
                 for (com.github.javaparser.ast.body.ConstructorDeclaration cd : cid.getConstructors()) {
-                    Map<String, String> ctorTypes = new HashMap<>();
-                    for (com.github.javaparser.ast.body.Parameter param : cd.getParameters()) {
-                        String pType = param.getTypeAsString();
-                        int gi = pType.indexOf('<');
-                        if (gi > 0) pType = pType.substring(0, gi);
-                        ctorTypes.put(param.getNameAsString(), pType);
-                    }
-                    for (com.github.javaparser.ast.body.VariableDeclarator var : cd.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
-                        var parent = var.getParentNode().orElse(null);
-                        if (parent != null && !(parent instanceof com.github.javaparser.ast.body.FieldDeclaration)) {
-                            String vType = var.getTypeAsString();
-                            int gi = vType.indexOf('<');
-                            if (gi > 0) vType = vType.substring(0, gi);
-                            ctorTypes.put(var.getNameAsString(), vType);
-                        }
-                    }
-                    for (MethodCallExpr call : cd.findAll(MethodCallExpr.class)) {
-                        String calleeMethod = call.getNameAsString();
-                        String calleeClass = resolveCalleeClass(call, className, fieldTypes, ctorTypes);
-                        int line = call.getBegin().map(p -> p.line).orElse(-1);
-                        edges.add(new CallEdge(className, className, calleeClass, calleeMethod, line));
-                    }
-                    for (ObjectCreationExpr newExpr : cd.findAll(ObjectCreationExpr.class)) {
-                        String targetClass = newExpr.getType().getNameAsString();
-                        int line = newExpr.getBegin().map(p -> p.line).orElse(-1);
-                        edges.add(new CallEdge(className, className, targetClass, targetClass, line));
-                    }
+                    extractEdgesFromCallable(edges, cd, className, className, fieldTypes);
                 }
             }
         } catch (Exception ex) {
             logger.debug("Error extracting call edges from {}: {}", file, ex.getMessage());
         }
         return edges;
+    }
+
+    /**
+     * Extracts call edges from a method or constructor body.
+     */
+    private static void extractEdgesFromCallable(List<CallEdge> edges,
+                                                  com.github.javaparser.ast.body.CallableDeclaration<?> callable,
+                                                  String className, String callerMethod,
+                                                  Map<String, String> fieldTypes) {
+        Map<String, String> localTypes = new HashMap<>();
+        for (com.github.javaparser.ast.body.Parameter param : callable.getParameters()) {
+            String pType = param.getTypeAsString();
+            int gi = pType.indexOf('<');
+            if (gi > 0) pType = pType.substring(0, gi);
+            localTypes.put(param.getNameAsString(), pType);
+        }
+        for (com.github.javaparser.ast.body.VariableDeclarator var : callable.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+            var parent = var.getParentNode().orElse(null);
+            if (parent != null && !(parent instanceof com.github.javaparser.ast.body.FieldDeclaration)) {
+                String vType = var.getTypeAsString();
+                int gi = vType.indexOf('<');
+                if (gi > 0) vType = vType.substring(0, gi);
+                localTypes.put(var.getNameAsString(), vType);
+            }
+        }
+        for (MethodCallExpr call : callable.findAll(MethodCallExpr.class)) {
+            String calleeMethod = call.getNameAsString();
+            String calleeClass = resolveCalleeClass(call, className, fieldTypes, localTypes);
+            int line = call.getBegin().map(p -> p.line).orElse(-1);
+            edges.add(new CallEdge(className, callerMethod, calleeClass, calleeMethod, line));
+        }
+        for (ObjectCreationExpr newExpr : callable.findAll(ObjectCreationExpr.class)) {
+            String targetClass = newExpr.getType().getNameAsString();
+            int line = newExpr.getBegin().map(p -> p.line).orElse(-1);
+            edges.add(new CallEdge(className, callerMethod, targetClass, targetClass, line));
+        }
     }
 
     /**

@@ -126,8 +126,144 @@ public class CallGraphBuilder {
             }
         }
 
+        // Post-process: resolve "?" callee classes using return type map
+        resolveUnknownCallees(entries);
+
         logger.info("Call graph loaded from index: {} methods, {} call edges",
                 allMethods.size(), callerIndex.values().stream().mapToInt(Set::size).sum());
+    }
+
+    /**
+     * Resolves callee class "?" by looking up the return type of the method
+     * that produces the receiver. Runs iteratively to handle chained calls like
+     * {@code fto.getExplotacion().getIdiomaDefecto().getIdioma()}.
+     * <p>
+     * Pass 1: resolves ?.getIdiomaDefecto() → Explotacion.getIdiomaDefecto()
+     * (because getExplotacion() returns Explotacion and is on the same line).
+     * Pass 2: resolves ?.getIdioma() → IdiomaDefecto.getIdioma()
+     * (because getIdiomaDefecto() was resolved in pass 1 and returns IdiomaDefecto).
+     */
+    private void resolveUnknownCallees(List<com.jsrc.app.index.IndexEntry> entries) {
+        // Build return type map: "ClassName.methodName" → simple return type
+        Map<String, String> returnTypes = new HashMap<>();
+        for (var entry : entries) {
+            for (var ic : entry.classes()) {
+                for (var im : ic.methods()) {
+                    if (im.returnType() != null && !im.returnType().isEmpty()
+                            && !"void".equals(im.returnType())) {
+                        String rt = im.returnType();
+                        int genIdx = rt.indexOf('<');
+                        if (genIdx > 0) rt = rt.substring(0, genIdx);
+                        returnTypes.put(ic.name() + "." + im.name(), rt);
+                    }
+                }
+            }
+        }
+
+        if (returnTypes.isEmpty()) return;
+
+        // Iterate until no more resolutions (handles chained calls)
+        for (int pass = 0; pass < 5; pass++) {
+            boolean changed = resolvePass(returnTypes);
+            if (!changed) break;
+            logger.debug("Return type resolution pass {} completed", pass + 1);
+        }
+    }
+
+    /**
+     * Single pass of unknown callee resolution.
+     * Returns true if any callees were resolved.
+     */
+    private boolean resolvePass(Map<String, String> returnTypes) {
+        Map<MethodReference, Set<MethodCall>> newCalleeIndex = new HashMap<>();
+        boolean changed = false;
+
+        for (var callerEntry : calleeIndex.entrySet()) {
+            MethodReference caller = callerEntry.getKey();
+            Set<MethodCall> calls = callerEntry.getValue();
+
+            // Collect all resolved calls on each line (for return type lookup)
+            Map<Integer, List<MethodCall>> resolvedByLine = new HashMap<>();
+            for (MethodCall call : calls) {
+                if (!"?".equals(call.callee().className())) {
+                    resolvedByLine.computeIfAbsent(call.line(), k -> new java.util.ArrayList<>()).add(call);
+                }
+            }
+
+            Set<MethodCall> updatedCalls = new HashSet<>();
+            for (MethodCall call : calls) {
+                if (!"?".equals(call.callee().className())) {
+                    updatedCalls.add(call);
+                    continue;
+                }
+
+                String resolvedClass = resolveCalleeClass(call, resolvedByLine, returnTypes);
+
+                if (resolvedClass != null) {
+                    MethodReference newCallee = new MethodReference(
+                            resolvedClass, call.callee().methodName(),
+                            call.callee().parameterCount(), null);
+                    MethodCall newCall = new MethodCall(caller, newCallee, call.line());
+                    updatedCalls.add(newCall);
+
+                    // Update callerIndex
+                    callerIndex.getOrDefault(call.callee(), Collections.emptySet()).remove(call);
+                    callerIndex.computeIfAbsent(newCallee, k -> new HashSet<>()).add(newCall);
+
+                    allMethods.add(newCallee);
+                    methodsByName.computeIfAbsent(newCallee.methodName(), k -> new HashSet<>()).add(newCallee);
+                    changed = true;
+                } else {
+                    updatedCalls.add(call);
+                }
+            }
+
+            newCalleeIndex.put(caller, updatedCalls);
+        }
+
+        if (changed) {
+            calleeIndex.clear();
+            calleeIndex.putAll(newCalleeIndex);
+            callerIndex.entrySet().removeIf(e -> e.getValue().isEmpty());
+        }
+        return changed;
+    }
+
+    /**
+     * Tries to resolve a "?" callee class using return types of other calls on the same line,
+     * or by unique method name match across the codebase.
+     */
+    private String resolveCalleeClass(MethodCall call,
+                                       Map<Integer, List<MethodCall>> resolvedByLine,
+                                       Map<String, String> returnTypes) {
+        // Strategy 1: same-line calls whose return type declares this method
+        List<MethodCall> sameLine = resolvedByLine.getOrDefault(call.line(), List.of());
+        for (MethodCall resolved : sameLine) {
+            String rt = returnTypes.get(resolved.callee().className() + "." + resolved.callee().methodName());
+            if (rt != null) {
+                // Check if the return type class actually has this method
+                String candidateKey = rt + "." + call.callee().methodName();
+                if (returnTypes.containsKey(candidateKey)
+                        || methodsByName.getOrDefault(call.callee().methodName(), Set.of())
+                                .stream().anyMatch(m -> m.className().equals(rt))) {
+                    return rt;
+                }
+            }
+        }
+
+        // Strategy 2: unique method name — only one class has this method
+        Set<MethodReference> candidates = methodsByName.get(call.callee().methodName());
+        if (candidates != null) {
+            Set<String> classes = new HashSet<>();
+            for (MethodReference c : candidates) {
+                if (!"?".equals(c.className())) classes.add(c.className());
+            }
+            if (classes.size() == 1) {
+                return classes.iterator().next();
+            }
+        }
+
+        return null;
     }
 
     /**

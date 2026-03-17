@@ -31,6 +31,7 @@ public class CallersCommand implements Command {
         var resolved = MethodTargetResolver.resolve(ref, graphBuilder);
         var signatures = MethodTargetResolver.buildSignatureMap(ctx.indexed());
         var packages = MethodTargetResolver.buildClassPackageMap(ctx.indexed());
+        var methodPackages = MethodTargetResolver.buildMethodPackageMap(ctx.indexed());
 
         if (resolved.isAmbiguous()) {
             var candidates = MethodTargetResolver.buildCandidates(resolved.targets(), signatures, packages);
@@ -52,7 +53,7 @@ public class CallersCommand implements Command {
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("className", call.caller().className());
                 entry.put("methodName", call.caller().methodName());
-                entry.put("qualifiedRef", MethodTargetResolver.qualifiedDisplayName(call.caller(), signatures, packages));
+                entry.put("qualifiedRef", MethodTargetResolver.qualifiedDisplayName(call.caller(), signatures, packages, methodPackages));
                 entry.put("line", call.line());
                 entry.put("type", "direct");
                 callers.add(entry);

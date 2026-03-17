@@ -132,8 +132,27 @@ public final class MethodTargetResolver {
     public static String qualifiedDisplayName(com.jsrc.app.parser.model.MethodReference ref,
                                                java.util.Map<String, String> signatures,
                                                java.util.Map<String, String> classPackages) {
+        return qualifiedDisplayName(ref, signatures, classPackages, null);
+    }
+
+    /**
+     * Resolves the fully qualified display name including package.
+     * When a methodPackages map is provided and multiple classes share the same
+     * simple name, uses the method-level package map for accurate disambiguation.
+     */
+    public static String qualifiedDisplayName(com.jsrc.app.parser.model.MethodReference ref,
+                                               java.util.Map<String, String> signatures,
+                                               java.util.Map<String, String> classPackages,
+                                               java.util.Map<String, String> methodPackages) {
         String params = resolveParams(ref, signatures);
-        String pkg = classPackages.getOrDefault(ref.className(), "");
+        // Try method-level package first (more specific)
+        String pkg = null;
+        if (methodPackages != null) {
+            pkg = methodPackages.get(ref.className() + "." + ref.methodName());
+        }
+        if (pkg == null) {
+            pkg = classPackages.getOrDefault(ref.className(), "");
+        }
         String qualifiedClass = pkg.isEmpty() ? ref.className() : pkg + "." + ref.className();
         return qualifiedClass + "." + ref.methodName() + params;
     }
@@ -153,6 +172,8 @@ public final class MethodTargetResolver {
 
     /**
      * Builds a map of simple class name → package name from indexed entries.
+     * When multiple classes share the same simple name, stores all packages.
+     * Use {@link #resolvePackage} to pick the right one for display.
      */
     public static java.util.Map<String, String> buildClassPackageMap(
             com.jsrc.app.index.IndexedCodebase indexed) {
@@ -161,6 +182,25 @@ public final class MethodTargetResolver {
         for (var entry : indexed.getEntries()) {
             for (var ic : entry.classes()) {
                 map.putIfAbsent(ic.name(), ic.packageName());
+            }
+        }
+        return map;
+    }
+
+    /**
+     * Builds a map of "ClassName.methodName" → package for accurate disambiguation.
+     * Each method is keyed to the package of the class that declares it.
+     */
+    public static java.util.Map<String, String> buildMethodPackageMap(
+            com.jsrc.app.index.IndexedCodebase indexed) {
+        java.util.Map<String, String> map = new java.util.HashMap<>();
+        if (indexed == null) return map;
+        for (var entry : indexed.getEntries()) {
+            for (var ic : entry.classes()) {
+                for (var im : ic.methods()) {
+                    // Key: "ClassName.methodName" → package
+                    map.putIfAbsent(ic.name() + "." + im.name(), ic.packageName());
+                }
             }
         }
         return map;

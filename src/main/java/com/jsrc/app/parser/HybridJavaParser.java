@@ -239,8 +239,19 @@ public class HybridJavaParser implements CodeParser {
 
         boolean isInterface = cid.isInterface();
 
+        List<com.jsrc.app.parser.model.FieldInfo> fields = cid.getFields().stream()
+                .flatMap(fd -> {
+                    String fieldType = fd.getCommonType().asString();
+                    int genIdx = fieldType.indexOf('<');
+                    if (genIdx > 0) fieldType = fieldType.substring(0, genIdx);
+                    final String ft = fieldType;
+                    return fd.getVariables().stream()
+                            .map(v -> new com.jsrc.app.parser.model.FieldInfo(v.getNameAsString(), ft));
+                })
+                .toList();
+
         return new ClassInfo(name, packageName, startLine, endLine,
-                modifiers, methods, superClass, interfaces, annotations, isInterface);
+                modifiers, methods, superClass, interfaces, annotations, isInterface, fields);
     }
 
     private AnnotationInfo toAnnotationInfo(AnnotationExpr ae) {

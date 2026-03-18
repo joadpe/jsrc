@@ -17,7 +17,6 @@ import com.jsrc.app.parser.CodeParser;
 import com.jsrc.app.parser.model.ClassInfo;
 
 import com.github.javaparser.JavaParser;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 
 /**
  * Builds and persists a codebase index for fast lookups.
@@ -297,7 +296,9 @@ public class CodebaseIndex {
         List<String> annotations = ci.annotations().stream()
                 .map(a -> a.name()).toList();
 
-        List<IndexedField> fields = extractFields(file, ci.name());
+        List<IndexedField> fields = ci.fields().stream()
+                .map(f -> new IndexedField(f.name(), f.type()))
+                .toList();
 
         return new IndexedClass(
                 ci.name(), ci.packageName(), ci.startLine(), ci.endLine(),
@@ -306,33 +307,7 @@ public class CodebaseIndex {
                 ci.interfaces(), methods, annotations, fileImports, fields);
     }
 
-    /**
-     * Extracts field declarations from a class in the given file.
-     */
-    private List<IndexedField> extractFields(Path file, String className) {
-        List<IndexedField> fields = new ArrayList<>();
-        try {
-            String source = Files.readString(file);
-            var jp = new JavaParser();
-            var result = jp.parse(source);
-            if (!result.getResult().isPresent()) return fields;
-            for (ClassOrInterfaceDeclaration cid : result.getResult().get()
-                    .findAll(ClassOrInterfaceDeclaration.class)) {
-                if (!cid.getNameAsString().equals(className)) continue;
-                for (com.github.javaparser.ast.body.FieldDeclaration fd : cid.getFields()) {
-                    String fieldType = fd.getCommonType().asString();
-                    int genIdx = fieldType.indexOf('<');
-                    if (genIdx > 0) fieldType = fieldType.substring(0, genIdx);
-                    for (com.github.javaparser.ast.body.VariableDeclarator var : fd.getVariables()) {
-                        fields.add(new IndexedField(var.getNameAsString(), fieldType));
-                    }
-                }
-            }
-        } catch (Exception ex) {
-            logger.debug("Error extracting fields from {}: {}", file, ex.getMessage());
-        }
-        return fields;
-    }
+    // extractFields removed — fields now come from ClassInfo.fields() via HybridJavaParser
 
     /**
      * Extracts import statements from a Java file.

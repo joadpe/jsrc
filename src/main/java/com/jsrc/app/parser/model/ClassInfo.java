@@ -4,12 +4,6 @@ import java.util.List;
 
 /**
  * Represents a parsed class/interface with its metadata.
- * <p>
- * Fields populated by all parsers: name, packageName, startLine, endLine,
- * modifiers, methods.
- * <p>
- * Fields populated only by semantic parsers: superClass, interfaces,
- * annotations, isInterface.
  *
  * @param name         simple class name
  * @param packageName  package declaration (empty string if none)
@@ -21,6 +15,7 @@ import java.util.List;
  * @param interfaces   implemented interface names (empty if none or unknown)
  * @param annotations  annotations on this class (empty if not available)
  * @param isInterface  true if this is an interface rather than a class
+ * @param fields       field declarations (empty if not available)
  */
 public record ClassInfo(
         String name,
@@ -32,8 +27,20 @@ public record ClassInfo(
         String superClass,
         List<String> interfaces,
         List<AnnotationInfo> annotations,
-        boolean isInterface
+        boolean isInterface,
+        List<FieldInfo> fields
 ) {
+    /**
+     * Convenience constructor without fields (backward compat).
+     */
+    public ClassInfo(String name, String packageName, int startLine, int endLine,
+                     List<String> modifiers, List<MethodInfo> methods,
+                     String superClass, List<String> interfaces,
+                     List<AnnotationInfo> annotations, boolean isInterface) {
+        this(name, packageName, startLine, endLine, modifiers, methods,
+                superClass, interfaces, annotations, isInterface, List.of());
+    }
+
     /**
      * Convenience constructor for parsers that don't extract semantic fields.
      */
@@ -42,7 +49,7 @@ public record ClassInfo(
             List<String> modifiers, List<MethodInfo> methods
     ) {
         return new ClassInfo(name, packageName, startLine, endLine,
-                modifiers, methods, "", List.of(), List.of(), false);
+                modifiers, methods, "", List.of(), List.of(), false, List.of());
     }
 
     public String qualifiedName() {

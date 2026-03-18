@@ -17,4 +17,11 @@ public record ParsedArgs(
         String rootPath,
         String command,
         List<String> remainingArgs
-) {}
+) {
+    /**
+     * Compact constructor: ensures remainingArgs is immutable.
+     */
+    public ParsedArgs {
+        remainingArgs = remainingArgs != null ? List.copyOf(remainingArgs) : List.of();
+    }
+}

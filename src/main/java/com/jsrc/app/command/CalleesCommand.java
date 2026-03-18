@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import com.jsrc.app.analysis.CallGraphBuilder;
+import com.jsrc.app.analysis.CallGraph;
 import com.jsrc.app.util.MethodResolver;
 import com.jsrc.app.util.MethodTargetResolver;
 
@@ -20,14 +20,9 @@ public class CalleesCommand implements Command {
         var ref = MethodResolver.parse(methodInput);
         String methodName = ref.methodName();
 
-        CallGraphBuilder graphBuilder = new CallGraphBuilder();
-        if (ctx.indexed() != null && ctx.indexed().hasCallEdges()) {
-            graphBuilder.loadFromIndex(ctx.indexed().getEntries());
-        } else {
-            graphBuilder.build(ctx.javaFiles());
-        }
+        CallGraph graph = ctx.callGraph();
 
-        var resolved = MethodTargetResolver.resolve(ref, graphBuilder);
+        var resolved = MethodTargetResolver.resolve(ref, graph);
         var signatures = MethodTargetResolver.buildSignatureMap(ctx.indexed());
         var packages = MethodTargetResolver.buildClassPackageMap(ctx.indexed());
         var methodPackages = MethodTargetResolver.buildMethodPackageMap(ctx.indexed());
@@ -48,7 +43,7 @@ public class CalleesCommand implements Command {
 
         List<Map<String, Object>> callees = new ArrayList<>();
         for (var source : sources) {
-            for (var call : graphBuilder.getCalleesOf(source)) {
+            for (var call : graph.getCalleesOf(source)) {
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("className", call.callee().className());
                 entry.put("methodName", call.callee().methodName());

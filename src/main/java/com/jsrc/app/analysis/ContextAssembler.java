@@ -128,19 +128,20 @@ public class ContextAssembler {
             if (layer != null) ctx.put("layer", layer);
         }
 
-        // Callers/callees per method
+        // Callers/callees per method — use provided graph or build one
         CallGraphBuilder graphBuilder = new CallGraphBuilder();
         graphBuilder.build(files);
+        CallGraph graph = graphBuilder.toCallGraph();
 
         List<Map<String, Object>> methodCalls = new ArrayList<>();
         for (MethodInfo m : target.methods()) {
-            var refs = graphBuilder.findMethodsByName(m.name());
+            var refs = graph.findMethodsByName(m.name());
             Map<String, Object> mc = new LinkedHashMap<>();
             mc.put("method", m.name());
 
             List<String> callersList = new ArrayList<>();
             for (var ref : refs) {
-                for (var call : graphBuilder.getCallersOf(ref)) {
+                for (var call : graph.getCallersOf(ref)) {
                     callersList.add(call.caller().displayName());
                 }
             }
@@ -148,7 +149,7 @@ public class ContextAssembler {
 
             List<String> calleesList = new ArrayList<>();
             for (var ref : refs) {
-                for (var call : graphBuilder.getCalleesOf(ref)) {
+                for (var call : graph.getCalleesOf(ref)) {
                     calleesList.add(call.callee().displayName());
                 }
             }

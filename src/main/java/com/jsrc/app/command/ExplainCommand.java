@@ -6,7 +6,7 @@ import java.util.Map;
 
 import com.jsrc.app.architecture.LayerResolver;
 import com.jsrc.app.output.JsonWriter;
-import com.jsrc.app.analysis.CallGraphBuilder;
+import com.jsrc.app.analysis.CallGraph;
 import com.jsrc.app.analysis.DependencyAnalyzer;
 import com.jsrc.app.parser.model.ClassInfo;
 
@@ -51,11 +51,10 @@ public class ExplainCommand implements Command {
         }
 
         // Callers
-        var graphBuilder = new CallGraphBuilder();
-        graphBuilder.build(ctx.javaFiles());
+        CallGraph graph = ctx.callGraph();
         long callerCount = ci.methods().stream()
-                .flatMap(m -> graphBuilder.findMethodsByName(m.name()).stream())
-                .flatMap(ref -> graphBuilder.getCallersOf(ref).stream())
+                .flatMap(m -> graph.findMethodsByName(m.name()).stream())
+                .flatMap(ref -> graph.getCallersOf(ref).stream())
                 .map(call -> call.caller().className())
                 .distinct()
                 .filter(name -> !name.equals(ci.name()))

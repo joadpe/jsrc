@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.jsrc.app.output.JsonWriter;
-import com.jsrc.app.analysis.CallGraphBuilder;
+import com.jsrc.app.analysis.CallGraph;
 import com.jsrc.app.analysis.DependencyAnalyzer;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodReference;
@@ -24,8 +24,7 @@ public class UnusedCommand implements Command {
         var analyzer = new DependencyAnalyzer();
 
         // Build call graph for method usage
-        var graphBuilder = new CallGraphBuilder();
-        graphBuilder.build(ctx.javaFiles());
+        CallGraph graph = ctx.callGraph();
 
         // Collect all imported class names
         Set<String> importedClasses = new HashSet<>();
@@ -42,9 +41,9 @@ public class UnusedCommand implements Command {
 
         // Find unused methods (no callers, not main, not constructors)
         List<Map<String, Object>> unusedMethods = new ArrayList<>();
-        for (MethodReference ref : graphBuilder.getAllMethods()) {
+        for (MethodReference ref : graph.getAllMethods()) {
             if (ref.methodName().equals("main") || ref.methodName().equals("<init>")) continue;
-            if (graphBuilder.isRoot(ref)) {
+            if (graph.isRoot(ref)) {
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("className", ref.className());
                 entry.put("methodName", ref.methodName());

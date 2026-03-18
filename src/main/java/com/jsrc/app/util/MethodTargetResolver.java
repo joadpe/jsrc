@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import com.jsrc.app.analysis.CallGraph;
 import com.jsrc.app.analysis.CallGraphBuilder;
 import com.jsrc.app.parser.model.MethodReference;
 
@@ -51,6 +52,13 @@ public final class MethodTargetResolver {
      * @return resolution result with targets and ambiguity flag
      */
     public static Result resolve(MethodResolver.MethodRef ref, CallGraphBuilder graph) {
+        return resolve(ref, graph.toCallGraph());
+    }
+
+    /**
+     * Resolves method targets from an immutable call graph.
+     */
+    public static Result resolve(MethodResolver.MethodRef ref, CallGraph graph) {
         Set<MethodReference> allTargets = graph.findMethodsByName(ref.methodName());
 
         if (allTargets.isEmpty()) {

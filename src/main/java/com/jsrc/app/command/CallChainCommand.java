@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.jsrc.app.analysis.CallChainTracer;
+import com.jsrc.app.analysis.CallGraph;
 import com.jsrc.app.analysis.CallGraphBuilder;
 import com.jsrc.app.analysis.MermaidDiagramGenerator;
 import com.jsrc.app.architecture.InvokerResolver;
@@ -30,37 +31,20 @@ public class CallChainCommand implements Command {
 
     @Override
     public int execute(CommandContext ctx) {
-        CallGraphBuilder graphBuilder = new CallGraphBuilder();
-        if (ctx.indexed() != null && ctx.indexed().hasCallEdges()) {
-            graphBuilder.loadFromIndex(ctx.indexed().getEntries());
-        } else {
-            graphBuilder.build(ctx.javaFiles());
-        }
-
-        // Add reflective call edges from invoker config.
-        // Skip if index has call edges (they include reflective edges from --index).
-        // Only resolve at runtime when there's no index or no call edges indexed.
-        if (ctx.config() != null && !ctx.config().architecture().invokers().isEmpty()
-                && !(ctx.indexed() != null && ctx.indexed().hasCallEdges())) {
-            var resolver = new InvokerResolver(ctx.config().architecture().invokers());
-            var reflective = resolver.resolve(ctx.javaFiles());
-            for (MethodCall edge : resolver.toCallEdges(reflective)) {
-                graphBuilder.addEdge(edge);
-            }
-        }
+        CallGraph graph = ctx.callGraph();
 
         // Create tracer with stop methods from config (e.g. event handlers)
         java.util.Set<String> stopMethods = (ctx.config() != null && !ctx.config().architecture().chainStopMethods().isEmpty())
                 ? new java.util.HashSet<>(ctx.config().architecture().chainStopMethods())
                 : java.util.Set.of();
-        CallChainTracer tracer = new CallChainTracer(graphBuilder, 20, stopMethods);
+        CallChainTracer tracer = new CallChainTracer(graph, 20, stopMethods);
 
         // Build signature map from index for enriched output and disambiguation
         Map<String, String> signatures = MethodTargetResolver.buildSignatureMap(ctx.indexed());
 
         // Resolve targets using centralized resolver
         var ref = MethodResolver.parse(methodName);
-        var resolved = MethodTargetResolver.resolve(ref, graphBuilder);
+        var resolved = MethodTargetResolver.resolve(ref, graph);
 
         var packages = MethodTargetResolver.buildClassPackageMap(ctx.indexed());
 
@@ -108,7 +92,7 @@ public class CallChainCommand implements Command {
         java.util.Set<String> deadEndRoots = new java.util.HashSet<>();
         for (CallChain chain : chains) {
             MethodReference root = chain.root();
-            if (graphBuilder.isRoot(root)) {
+            if (graph.isRoot(root)) {
                 deadEndRoots.add(root.className() + "." + root.methodName());
             }
         }
@@ -128,5 +112,4 @@ public class CallChainCommand implements Command {
         }
         return chains.size();
     }
-
 }

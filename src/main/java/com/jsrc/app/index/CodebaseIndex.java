@@ -320,7 +320,7 @@ public class CodebaseIndex {
             return result.getResult().get().getImports().stream()
                     .map(imp -> imp.getNameAsString() + (imp.isAsterisk() ? ".*" : ""))
                     .toList();
-        } catch (Exception e) {
+        } catch (IOException e) {
             return List.of();
         }
     }

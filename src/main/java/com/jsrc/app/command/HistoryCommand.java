@@ -1,6 +1,7 @@
 package com.jsrc.app.command;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -79,7 +80,7 @@ public class HistoryCommand implements Command {
 
             ctx.formatter().printResult(result);
             return 1;
-        } catch (Exception e) {
+        } catch (IOException | InterruptedException e) {
             System.err.printf("Error reading git history: %s%n", e.getMessage());
             return 0;
         }

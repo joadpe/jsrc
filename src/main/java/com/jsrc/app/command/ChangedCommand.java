@@ -1,6 +1,7 @@
 package com.jsrc.app.command;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +29,7 @@ public class ChangedCommand implements Command {
             result.put("totalChanged", changedFiles.size());
             ctx.formatter().printResult(result);
             return changedFiles.size();
-        } catch (Exception e) {
+        } catch (IOException | InterruptedException e) {
             System.err.printf("Error running git diff: %s%n", e.getMessage());
             return 0;
         }

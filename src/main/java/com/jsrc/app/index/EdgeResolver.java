@@ -1,5 +1,6 @@
 package com.jsrc.app.index;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -75,7 +76,7 @@ public class EdgeResolver {
                             cd.getParameters().size(), fieldTypes);
                 }
             }
-        } catch (Exception ex) {
+        } catch (IOException ex) {
             logger.debug("Error extracting call edges from {}: {}", file, ex.getMessage());
         }
         return edges;
@@ -127,7 +128,7 @@ public class EdgeResolver {
                     }
                 }
             }
-        } catch (Exception ex) {
+        } catch (IOException ex) {
             logger.debug("Error extracting reflective edges from {}: {}", file, ex.getMessage());
         }
         return edges;

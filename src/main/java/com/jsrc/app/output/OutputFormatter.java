@@ -165,4 +165,18 @@ public interface OutputFormatter {
     static OutputFormatter create(boolean json, boolean signatureOnly, java.util.Set<String> fields) {
         return json ? new JsonFormatter(signatureOnly, fields) : new TextFormatter(signatureOnly);
     }
+
+    /**
+     * Factory method with injected output stream.
+     *
+     * @param json          true for JSON output, false for human-readable text
+     * @param signatureOnly true to emit only method signatures
+     * @param fields        set of field names to include in JSON (null = all)
+     * @param out           output stream to write to
+     * @return formatter instance
+     */
+    static OutputFormatter create(boolean json, boolean signatureOnly, java.util.Set<String> fields,
+                                   java.io.PrintStream out) {
+        return json ? new JsonFormatter(signatureOnly, fields, out) : new TextFormatter(signatureOnly, out);
+    }
 }

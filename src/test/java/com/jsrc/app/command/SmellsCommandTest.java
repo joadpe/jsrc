@@ -243,11 +243,14 @@ class SmellsCommandTest {
                 .toList();
     }
 
+    private ByteArrayOutputStream sharedOut;
+
     private CommandContext buildContext() throws Exception {
         var files = javaFiles();
         var parser = new HybridJavaParser();
+        sharedOut = new ByteArrayOutputStream();
         return new CommandContext(files, tempDir.toString(), null,
-                new JsonFormatter(), null, parser);
+                new JsonFormatter(false, null, new PrintStream(sharedOut)), null, parser);
     }
 
     private CommandContext buildIndexedContext() throws Exception {
@@ -257,20 +260,15 @@ class SmellsCommandTest {
         index.build(parser, files, tempDir, List.of());
         index.save(tempDir);
         var indexed = IndexedCodebase.tryLoad(tempDir, files);
+        sharedOut = new ByteArrayOutputStream();
         return new CommandContext(files, tempDir.toString(), null,
-                new JsonFormatter(), indexed, parser);
+                new JsonFormatter(false, null, new PrintStream(sharedOut)), indexed, parser);
     }
 
     private String captureStdout(Runnable action) {
-        var out = new ByteArrayOutputStream();
-        var old = System.out;
-        System.setOut(new PrintStream(out));
-        try {
-            action.run();
-        } finally {
-            System.setOut(old);
-        }
-        return out.toString().trim();
+        sharedOut.reset();
+        action.run();
+        return sharedOut.toString().trim();
     }
 
     private String captureStderr(Runnable action) {

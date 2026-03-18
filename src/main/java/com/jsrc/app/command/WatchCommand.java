@@ -1,8 +1,10 @@
 package com.jsrc.app.command;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintStream;
 import java.nio.file.*;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -10,6 +12,7 @@ import java.util.Map;
 import com.jsrc.app.index.IndexedCodebase;
 import com.jsrc.app.output.JsonReader;
 import com.jsrc.app.output.JsonWriter;
+import com.jsrc.app.output.OutputFormatter;
 
 /**
  * Daemon mode: watches filesystem for changes and serves queries via stdin.
@@ -17,6 +20,9 @@ import com.jsrc.app.output.JsonWriter;
  * <p>
  * Protocol: one JSON command per line on stdin, one JSON result per line on stdout.
  * Send {"command":"quit"} to exit.
+ * <p>
+ * Uses injected output streams per sub-command to capture output
+ * without redirecting System.out (thread-safe).
  */
 public class WatchCommand implements Command {
     @Override
@@ -45,9 +51,14 @@ public class WatchCommand implements Command {
                     // Refresh index if needed
                     var freshIndexed = IndexedCodebase.tryLoad(
                             Paths.get(ctx.rootPath()), ctx.javaFiles());
+
+                    // Capture output via injected stream — no System.setOut hack
+                    var baos = new ByteArrayOutputStream();
+                    var captureStream = new PrintStream(baos);
+                    var captureFormatter = OutputFormatter.create(true, false, null, captureStream);
                     var freshCtx = new CommandContext(
                             ctx.javaFiles(), ctx.rootPath(), ctx.config(),
-                            ctx.formatter(), freshIndexed, ctx.parser());
+                            captureFormatter, freshIndexed, ctx.parser());
 
                     // Execute command
                     Command cmd = CommandFactory.create("--" + command, arg, false);
@@ -62,15 +73,8 @@ public class WatchCommand implements Command {
                         continue;
                     }
 
-                    // Capture output safely
-                    var originalOut = System.out;
-                    var baos = new java.io.ByteArrayOutputStream();
-                    try {
-                        System.setOut(new java.io.PrintStream(baos));
-                        cmd.execute(freshCtx);
-                    } finally {
-                        System.setOut(originalOut); // ALWAYS restore
-                    }
+                    cmd.execute(freshCtx);
+                    captureStream.flush();
                     System.out.println(baos.toString().trim());
                     System.out.flush();
 
@@ -86,6 +90,4 @@ public class WatchCommand implements Command {
         }
         return 0;
     }
-
-
 }

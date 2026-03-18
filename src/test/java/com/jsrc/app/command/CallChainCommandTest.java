@@ -54,17 +54,11 @@ class CallChainCommandTest {
         index.save(tempDir);
         var indexed = IndexedCodebase.tryLoad(tempDir, files);
 
-        var ctx = new CommandContext(files, tempDir.toString(), null,
-                new JsonFormatter(), indexed, parser);
-
         var out = new ByteArrayOutputStream();
-        var oldOut = System.out;
-        System.setOut(new PrintStream(out));
-        try {
-            new CallChainCommand(methodRef, tempDir.resolve("chains").toString()).execute(ctx);
-        } finally {
-            System.setOut(oldOut);
-        }
+        var ctx = new CommandContext(files, tempDir.toString(), null,
+                new JsonFormatter(false, null, new PrintStream(out)), indexed, parser);
+
+        new CallChainCommand(methodRef, tempDir.resolve("chains").toString()).execute(ctx);
         return out.toString().trim();
     }
 
@@ -157,17 +151,11 @@ class CallChainCommandTest {
 
         // Verify via CallChainCommand output
         var indexed = IndexedCodebase.tryLoad(tempDir, files);
-        var ctx = new CommandContext(files, tempDir.toString(), null,
-                new JsonFormatter(), indexed, parser);
-
         var out = new ByteArrayOutputStream();
-        var oldOut = System.out;
-        System.setOut(new PrintStream(out));
-        try {
-            new CallChainCommand("Service.process", tempDir.resolve("chains").toString()).execute(ctx);
-        } finally {
-            System.setOut(oldOut);
-        }
+        var ctx = new CommandContext(files, tempDir.toString(), null,
+                new JsonFormatter(false, null, new PrintStream(out)), indexed, parser);
+
+        new CallChainCommand("Service.process", tempDir.resolve("chains").toString()).execute(ctx);
         String output = out.toString().trim();
         Object parsed = JsonReader.parse(output);
         assertTrue(parsed instanceof java.util.Map, "Should return ambiguity map, got: " + output);
@@ -376,17 +364,11 @@ class CallChainCommandTest {
 
         // Load and run call chain for 3-param overload
         var indexed = IndexedCodebase.tryLoad(tempDir, files);
-        var ctx = new CommandContext(files, tempDir.toString(), null,
-                new JsonFormatter(), indexed, parser);
-
         var out = new ByteArrayOutputStream();
-        var oldOut = System.out;
-        System.setOut(new PrintStream(out));
-        try {
-            new CallChainCommand("Svc.process(String,int,boolean)", tempDir.resolve("chains").toString()).execute(ctx);
-        } finally {
-            System.setOut(oldOut);
-        }
+        var ctx = new CommandContext(files, tempDir.toString(), null,
+                new JsonFormatter(false, null, new PrintStream(out)), indexed, parser);
+
+        new CallChainCommand("Svc.process(String,int,boolean)", tempDir.resolve("chains").toString()).execute(ctx);
         String output = out.toString().trim();
 
         // Should only contain CallerB, not CallerA

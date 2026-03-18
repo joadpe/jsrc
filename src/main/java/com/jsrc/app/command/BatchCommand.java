@@ -1,18 +1,23 @@
 package com.jsrc.app.command;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import com.jsrc.app.output.JsonReader;
-import com.jsrc.app.output.JsonWriter;
+import com.jsrc.app.output.OutputFormatter;
 
 /**
  * Executes multiple queries in a single JVM invocation.
  * Reads JSON array of command strings from stdin.
  * Returns JSON array of results.
+ * <p>
+ * Uses injected output streams per sub-command to capture output
+ * without redirecting System.out (thread-safe).
  */
 public class BatchCommand implements Command {
 
@@ -33,26 +38,31 @@ public class BatchCommand implements Command {
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("command", cmdStr);
 
-                CapturedOutput captured = captureOutput(() -> {
-                    String[] parts = cmdStr.trim().split("\\s+");
-                    String command = parts[0];
-                    String arg = parts.length > 1 ? parts[1] : null;
-                    Command cmd = CommandFactory.create(command, arg, false);
-                    if (cmd == null && !command.startsWith("--")) {
-                        cmd = CommandFactory.createMethodSearch(command);
-                    }
-                    if (cmd != null) {
-                        return cmd.execute(ctx);
-                    }
-                    return -1;
-                });
+                String[] parts = cmdStr.trim().split("\\s+");
+                String command = parts[0];
+                String arg = parts.length > 1 ? parts[1] : null;
+                Command cmd = CommandFactory.create(command, arg, false);
+                if (cmd == null && !command.startsWith("--")) {
+                    cmd = CommandFactory.createMethodSearch(command);
+                }
+                if (cmd != null) {
+                    // Capture output via injected stream — no System.setOut hack
+                    var baos = new ByteArrayOutputStream();
+                    var captureStream = new PrintStream(baos);
+                    var captureFormatter = OutputFormatter.create(true, false, null, captureStream);
+                    var captureCtx = new CommandContext(
+                            ctx.javaFiles(), ctx.rootPath(), ctx.config(),
+                            captureFormatter, ctx.indexed(), ctx.parser());
 
-                if (captured.returnValue >= 0) {
-                    entry.put("resultCount", captured.returnValue);
+                    int resultCount = cmd.execute(captureCtx);
+                    captureStream.flush();
+                    String captured = baos.toString().trim();
+
+                    entry.put("resultCount", resultCount);
                     try {
-                        entry.put("result", JsonReader.parse(captured.text));
+                        entry.put("result", JsonReader.parse(captured));
                     } catch (Exception e) {
-                        entry.put("result", captured.text);
+                        entry.put("result", captured);
                     }
                 } else {
                     entry.put("error", "Unknown command");
@@ -65,22 +75,6 @@ public class BatchCommand implements Command {
         } catch (IOException e) {
             System.err.println("Error reading stdin: " + e.getMessage());
             return 0;
-        }
-    }
-
-    private record CapturedOutput(String text, int returnValue) {}
-
-    private static CapturedOutput captureOutput(java.util.function.IntSupplier action) {
-        var originalOut = System.out;
-        var baos = new java.io.ByteArrayOutputStream();
-        try {
-            System.setOut(new java.io.PrintStream(baos));
-            int result = action.getAsInt();
-            return new CapturedOutput(baos.toString().trim(), result);
-        } catch (Exception e) {
-            return new CapturedOutput(e.getMessage(), -1);
-        } finally {
-            System.setOut(originalOut); // ALWAYS restore
         }
     }
 }

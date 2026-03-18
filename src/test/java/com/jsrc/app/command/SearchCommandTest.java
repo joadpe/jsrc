@@ -33,18 +33,13 @@ class SearchCommandTest {
         Path file = tempDir.resolve("Test.java");
         Files.writeString(file, sourceCode);
 
+        var out = new ByteArrayOutputStream();
+        var formatter = new JsonFormatter(false, null, new PrintStream(out));
         var ctx = new CommandContext(
                 List.of(file), tempDir.toString(), null,
-                new JsonFormatter(), null, parser);
+                formatter, null, parser);
 
-        var out = new ByteArrayOutputStream();
-        var oldOut = System.out;
-        System.setOut(new PrintStream(out));
-        try {
-            new SearchCommand(pattern).execute(ctx);
-        } finally {
-            System.setOut(oldOut);
-        }
+        new SearchCommand(pattern).execute(ctx);
 
         String json = out.toString().trim();
         if (json.isEmpty()) return List.of();

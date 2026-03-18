@@ -1,5 +1,6 @@
 package com.jsrc.app.output;
 
+import java.io.PrintStream;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,24 +22,31 @@ import com.jsrc.app.parser.model.MethodReference;
 /**
  * JSON formatter for CLI output, optimized for agent/LLM consumption.
  * Produces compact JSON to minimize token usage.
+ * Writes to an injected {@link PrintStream} (defaults to {@code System.out}).
  */
 public class JsonFormatter implements OutputFormatter {
 
     private final boolean signatureOnly;
     private final java.util.Set<String> fields;
+    private final PrintStream out;
     private java.util.Map<String, String> currentSignatures = java.util.Map.of();
 
     public JsonFormatter() {
-        this(false, null);
+        this(false, null, System.out);
     }
 
     public JsonFormatter(boolean signatureOnly) {
-        this(signatureOnly, null);
+        this(signatureOnly, null, System.out);
     }
 
     public JsonFormatter(boolean signatureOnly, java.util.Set<String> fields) {
+        this(signatureOnly, fields, System.out);
+    }
+
+    public JsonFormatter(boolean signatureOnly, java.util.Set<String> fields, PrintStream out) {
         this.signatureOnly = signatureOnly;
         this.fields = fields;
+        this.out = out;
     }
 
     @Override
@@ -46,7 +54,7 @@ public class JsonFormatter implements OutputFormatter {
         List<Map<String, Object>> items = methods.stream()
                 .map(m -> FieldsFilter.filter(methodToMap(m, file), fields))
                 .toList();
-        System.out.println(JsonWriter.toJson(items));
+        out.println(JsonWriter.toJson(items));
     }
 
     @Override
@@ -70,7 +78,7 @@ public class JsonFormatter implements OutputFormatter {
         result.put("findings", findings);
         result.put("summary", summary);
 
-        System.out.println(JsonWriter.toJson(result));
+        out.println(JsonWriter.toJson(result));
     }
 
     @Override
@@ -86,7 +94,7 @@ public class JsonFormatter implements OutputFormatter {
             return m;
         }).toList());
         result.put("summary", Map.of("total", violations.size()));
-        System.out.println(JsonWriter.toJson(result));
+        out.println(JsonWriter.toJson(result));
     }
 
     @Override
@@ -96,12 +104,12 @@ public class JsonFormatter implements OutputFormatter {
         map.put("added", added);
         map.put("deleted", deleted);
         map.put("totalChanges", modified.size() + added.size() + deleted.size());
-        System.out.println(JsonWriter.toJson(map));
+        out.println(JsonWriter.toJson(map));
     }
 
     @Override
     public void printRefs(List<Map<String, Object>> refs, String label, String target) {
-        System.out.println(JsonWriter.toJson(refs));
+        out.println(JsonWriter.toJson(refs));
     }
 
     @Override
@@ -115,7 +123,7 @@ public class JsonFormatter implements OutputFormatter {
         map.put("startLine", result.startLine());
         map.put("endLine", result.endLine());
         map.put("content", result.content());
-        System.out.println(JsonWriter.toJson(FieldsFilter.filter(map, fields)));
+        out.println(JsonWriter.toJson(FieldsFilter.filter(map, fields)));
     }
 
     @Override
@@ -127,7 +135,7 @@ public class JsonFormatter implements OutputFormatter {
         map.put("totalMethods", result.totalMethods());
         map.put("totalPackages", result.packages().size());
         map.put("packages", result.packages());
-        System.out.println(JsonWriter.toJson(map));
+        out.println(JsonWriter.toJson(map));
     }
 
     @Override
@@ -149,7 +157,7 @@ public class JsonFormatter implements OutputFormatter {
                     m.put("name", d.name());
                     return m;
                 }).toList());
-        System.out.println(JsonWriter.toJson(map));
+        out.println(JsonWriter.toJson(map));
     }
 
     @Override
@@ -160,7 +168,7 @@ public class JsonFormatter implements OutputFormatter {
         map.put("interfaces", result.interfaces());
         map.put("subClasses", result.subClasses());
         map.put("implementors", result.implementors());
-        System.out.println(JsonWriter.toJson(map));
+        out.println(JsonWriter.toJson(map));
     }
 
     @Override
@@ -176,7 +184,7 @@ public class JsonFormatter implements OutputFormatter {
                     map.put("annotation", annotationToMap(m.annotation()));
                     return map;
                 }).toList();
-        System.out.println(JsonWriter.toJson(items));
+        out.println(JsonWriter.toJson(items));
     }
 
     @Override
@@ -201,7 +209,6 @@ public class JsonFormatter implements OutputFormatter {
             map.put("annotations", ci.annotations().stream()
                     .map(this::annotationToMap).toList());
         }
-        // Methods as compact signatures (no bodies)
         List<Map<String, Object>> methods = ci.methods().stream()
                 .map(m -> {
                     Map<String, Object> mmap = new LinkedHashMap<>();
@@ -214,7 +221,7 @@ public class JsonFormatter implements OutputFormatter {
                 }).toList();
         map.put("methods", methods);
 
-        System.out.println(JsonWriter.toJson(map));
+        out.println(JsonWriter.toJson(map));
     }
 
     @Override
@@ -222,7 +229,7 @@ public class JsonFormatter implements OutputFormatter {
         List<Map<String, Object>> items = classes.stream()
                 .map(ci -> FieldsFilter.filter(classToCompactMap(ci), fields))
                 .toList();
-        System.out.println(JsonWriter.toJson(items));
+        out.println(JsonWriter.toJson(items));
     }
 
     @Override
@@ -251,7 +258,7 @@ public class JsonFormatter implements OutputFormatter {
                     return map;
                 })
                 .toList();
-        System.out.println(JsonWriter.toJson(items));
+        out.println(JsonWriter.toJson(items));
         this.currentSignatures = java.util.Map.of();
     }
 
@@ -306,7 +313,6 @@ public class JsonFormatter implements OutputFormatter {
                 map.put("typeParameters", m.typeParameters());
             }
         }
-        // content intentionally omitted to save tokens
         return map;
     }
 
@@ -360,7 +366,6 @@ public class JsonFormatter implements OutputFormatter {
         map.put("className", ref.className());
         map.put("methodName", ref.methodName());
         String key = ref.className() + "." + ref.methodName();
-        // Try keyed by param count first (for overload disambiguation)
         String params = null;
         if (ref.parameterCount() >= 0) {
             params = currentSignatures.get(key + "/" + ref.parameterCount());
@@ -379,12 +384,12 @@ public class JsonFormatter implements OutputFormatter {
     public void printResult(Object data) {
         if (data instanceof Map<?, ?> map) {
             var filtered = FieldsFilter.filter((Map<String, Object>) map, fields);
-            System.out.println(JsonWriter.toJson(filtered));
+            out.println(JsonWriter.toJson(filtered));
         } else if (data instanceof java.util.Collection<?> coll) {
             var filtered = FieldsFilter.filterCollection(coll, fields);
-            System.out.println(JsonWriter.toJson(filtered));
+            out.println(JsonWriter.toJson(filtered));
         } else {
-            System.out.println(JsonWriter.toJson(data));
+            out.println(JsonWriter.toJson(data));
         }
     }
 }

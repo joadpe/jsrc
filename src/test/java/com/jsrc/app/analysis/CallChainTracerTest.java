@@ -11,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.jsrc.app.analysis.CallGraph;
 import com.jsrc.app.parser.model.CallChain;
 
 class CallChainTracerTest {
@@ -175,7 +176,7 @@ class CallChainTracerTest {
     @Test
     @DisplayName("Should reject null graph")
     void shouldRejectNullGraph() {
-        assertThrows(IllegalArgumentException.class, () -> new CallChainTracer(null));
+        assertThrows(IllegalArgumentException.class, () -> new CallChainTracer((CallGraph) null));
     }
 
     @Test

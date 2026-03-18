@@ -24,17 +24,25 @@ public class CallChainTracer {
 
     private static final Logger logger = LoggerFactory.getLogger(CallChainTracer.class);
 
-    private final CallGraphBuilder graph;
+    private final CallGraph graph;
     private final int maxDepth;
     private final Set<String> stopMethods;
 
-    public CallChainTracer(CallGraphBuilder graph) {
+    public CallChainTracer(CallGraphBuilder graphBuilder) {
+        this(graphBuilder.toCallGraph(), 20, Set.of());
+    }
+
+    public CallChainTracer(CallGraphBuilder graphBuilder, int maxDepth, Set<String> stopMethods) {
+        this(graphBuilder.toCallGraph(), maxDepth, stopMethods);
+    }
+
+    public CallChainTracer(CallGraph graph) {
         this(graph, 20, Set.of());
     }
 
-    public CallChainTracer(CallGraphBuilder graph, int maxDepth, Set<String> stopMethods) {
+    public CallChainTracer(CallGraph graph, int maxDepth, Set<String> stopMethods) {
         if (graph == null) {
-            throw new IllegalArgumentException("CallGraphBuilder must not be null");
+            throw new IllegalArgumentException("CallGraph must not be null");
         }
         if (maxDepth < 1) {
             throw new IllegalArgumentException("maxDepth must be >= 1");

@@ -110,7 +110,17 @@ public final class CommandRegistry {
             new CommandDef("--patterns", "Deep analysis of codebase conventions and patterns",
                     List.of(), List.of("--json"), "object"),
             new CommandDef("--snippet", "Extract code template from real codebase class",
-                    List.of("<pattern>"), List.of("--json"), "object")
+                    List.of("<pattern>"), List.of("--json"), "object"),
+            new CommandDef("--map", "Token-budget-aware repo map ranked by class importance",
+                    List.of(), List.of("--json", "--budget"), "object"),
+            new CommandDef("--context-for", "Auto-plan: what jsrc commands to run for a task",
+                    List.of("<task description>"), List.of("--json", "--budget"), "object"),
+            new CommandDef("--find", "Semantic search using Java concept synonyms",
+                    List.of("<description>"), List.of("--json"), "object"),
+            new CommandDef("--resolve", "Resolve receiver type for a method call expression",
+                    List.of("<expression>"), List.of("--json", "--context"), "object"),
+            new CommandDef("--lint", "Pre-compile diagnostics from index (types, dead code, style)",
+                    List.of("<className>"), List.of("--json"), "array")
     );
 
     /**

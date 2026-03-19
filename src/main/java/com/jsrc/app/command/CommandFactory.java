@@ -60,6 +60,11 @@ public final class CommandFactory {
             case "--style" -> new StyleCommand();
             case "--patterns" -> new PatternsCommand();
             case "--snippet" -> arg != null ? new SnippetCommand(arg) : null;
+            case "--map" -> new MapCommand();
+            case "--context-for" -> arg != null ? new ContextForCommand(arg) : null;
+            case "--find" -> arg != null ? new FindCommand(arg) : null;
+            case "--resolve" -> arg != null ? new ResolveCommand(arg) : null;
+            case "--lint" -> arg != null ? new LintCommand(arg) : null;
             default -> null;
         };
     }

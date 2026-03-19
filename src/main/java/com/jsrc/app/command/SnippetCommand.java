@@ -40,20 +40,26 @@ public class SnippetCommand implements Command {
     public int execute(CommandContext ctx) {
         var allClasses = ctx.getAllClasses();
 
-        // Find matching classes
+        // Find matching classes — auto-discover by suffix
         List<ClassInfo> candidates;
         if ("record".equals(pattern)) {
-            // Records don't have a suffix — find by checking if it looks like a record
-            // (no superclass, few methods, has fields but no setter)
             candidates = allClasses.stream()
                     .filter(ci -> !ci.fields().isEmpty()
                             && ci.methods().stream().noneMatch(m -> m.name().startsWith("set")))
                     .toList();
         } else {
-            String suffix = PATTERN_SUFFIXES.getOrDefault(pattern, pattern.substring(0, 1).toUpperCase() + pattern.substring(1));
+            // Normalize pattern to suffix: "detailbean" → "DetailBean", "dao" → "DAO"
+            String suffix = normalizeSuffix(pattern);
             candidates = allClasses.stream()
                     .filter(ci -> ci.name().endsWith(suffix))
                     .toList();
+            // Fallback: try case-insensitive
+            if (candidates.isEmpty()) {
+                String lower = suffix.toLowerCase();
+                candidates = allClasses.stream()
+                        .filter(ci -> ci.name().toLowerCase().endsWith(lower))
+                        .toList();
+            }
         }
 
         if (candidates.isEmpty()) {
@@ -163,6 +169,24 @@ public class SnippetCommand implements Command {
 
         ctx.formatter().printResult(result);
         return 1;
+    }
+
+    /**
+     * Normalizes a pattern to a proper suffix.
+     * "service" → "Service", "detailbean" → "DetailBean", "dao" → "DAO"
+     */
+    private String normalizeSuffix(String pattern) {
+        // Check known patterns first
+        String known = PATTERN_SUFFIXES.get(pattern.toLowerCase());
+        if (known != null && !known.isEmpty()) return known;
+
+        // All uppercase (like "dao") → uppercase it
+        if (pattern.equals(pattern.toLowerCase()) && pattern.length() <= 4) {
+            return pattern.toUpperCase();
+        }
+
+        // Capitalize first letter
+        return pattern.substring(0, 1).toUpperCase() + pattern.substring(1);
     }
 
     private String extractBaseName(String className, String suffix) {

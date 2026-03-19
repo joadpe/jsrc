@@ -132,7 +132,9 @@ public class CodeSmellDetector {
                 String s = stmt.toString().trim();
                 if (s.contains("printStackTrace")) hasPrintStackTrace = true;
                 else if (s.equals("continue;")) hasContinue = true;
+                else if (s.equals("break;")) hasContinue = true; // break = silent loop exit, same category
                 else if (s.equals("return null;")) hasReturnNull = true;
+                else if (isReturnDefault(s)) hasReturnNull = true; // return false/""/-1/empty = same as null
                 else if (s.equals("return;")) hasReturn = true;
                 else if (isLoggingStatement(s)) hasLogging = true;
                 else hasRealHandling = true; // rethrow, wrap, set flag, etc.
@@ -155,8 +157,8 @@ public class CodeSmellDetector {
                 }
                 if (hasReturnNull) {
                     smells.add(new CodeSmell(
-                            "SILENT_CATCH_RETURN_NULL", Severity.WARNING,
-                            "Catch block returns null — error hidden from caller",
+                            "SILENT_CATCH_RETURN_DEFAULT", Severity.WARNING,
+                            "Catch block returns default/null/empty — error hidden from caller",
                             line, methodName, className));
                 }
                 if (hasReturn && !hasReturnNull) {
@@ -359,6 +361,24 @@ public class CodeSmellDetector {
      * Checks if a statement is a logging call (not real error handling).
      * Matches: logger.error(...), log.warn(...), System.err.println(...), LOG.info(...)
      */
+    /**
+     * Checks if a return statement returns a default/sentinel value that hides the error.
+     * return false, return "", return 0, return -1, return List.of(), return Optional.empty(), etc.
+     */
+    private static boolean isReturnDefault(String stmt) {
+        return stmt.equals("return false;")
+                || stmt.equals("return true;")  // debatable but in a catch = suspicious
+                || stmt.equals("return \"\";")
+                || stmt.equals("return 0;")
+                || stmt.equals("return -1;")
+                || stmt.equals("return -1L;")
+                || stmt.contains("List.of()")
+                || stmt.contains("Set.of()")
+                || stmt.contains("Map.of()")
+                || stmt.contains("Collections.empty")
+                || stmt.contains("Optional.empty()");
+    }
+
     private static boolean isLoggingStatement(String stmt) {
         String lower = stmt.toLowerCase();
         return lower.contains("logger.") || lower.contains("log.") || lower.contains("log4j")

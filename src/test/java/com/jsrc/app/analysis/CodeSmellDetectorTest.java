@@ -487,7 +487,7 @@ class CodeSmellDetectorTest {
                 }
                 """);
         var smells = parser.detectSmells(file);
-        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_RETURN_NULL")),
+        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_RETURN_DEFAULT")),
                 "Should detect catch returning null. Got: " + smells);
     }
 
@@ -552,7 +552,7 @@ class CodeSmellDetectorTest {
         var smells = parser.detectSmells(file);
         assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("CATCH_PRINT_STACKTRACE")),
                 "Should detect printStackTrace. Got: " + smells);
-        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_RETURN_NULL")),
+        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_RETURN_DEFAULT")),
                 "Should detect return null. Got: " + smells);
     }
 
@@ -611,8 +611,8 @@ class CodeSmellDetectorTest {
                 }
                 """);
         var smells = parser.detectSmells(file);
-        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_RETURN_NULL")),
-                "Log + return null should flag SILENT_CATCH_RETURN_NULL. Got: " + smells);
+        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_RETURN_DEFAULT")),
+                "Log + return null should flag SILENT_CATCH_RETURN_DEFAULT. Got: " + smells);
     }
 
     @Test
@@ -635,6 +635,65 @@ class CodeSmellDetectorTest {
         var smells = parser.detectSmells(file);
         assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_CONTINUE")),
                 "Log + continue should flag SILENT_CATCH_CONTINUE. Got: " + smells);
+    }
+
+    @Test
+    @DisplayName("Should detect catch with return false")
+    void shouldDetectReturnFalse() throws IOException {
+        Path file = writeFile("ReturnFalse.java", """
+                public class ReturnFalse {
+                    public boolean check() {
+                        try {
+                            return true;
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    }
+                }
+                """);
+        var smells = parser.detectSmells(file);
+        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_RETURN_DEFAULT")),
+                "return false in catch = silent failure. Got: " + smells);
+    }
+
+    @Test
+    @DisplayName("Should detect catch with return empty collection")
+    void shouldDetectReturnEmptyCollection() throws IOException {
+        Path file = writeFile("ReturnEmpty.java", """
+                public class ReturnEmpty {
+                    public java.util.List<String> getAll() {
+                        try {
+                            return java.util.List.of("data");
+                        } catch (Exception e) {
+                            return java.util.List.of();
+                        }
+                    }
+                }
+                """);
+        var smells = parser.detectSmells(file);
+        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_RETURN_DEFAULT")),
+                "return List.of() in catch = silent failure. Got: " + smells);
+    }
+
+    @Test
+    @DisplayName("Should detect catch with break")
+    void shouldDetectBreak() throws IOException {
+        Path file = writeFile("BreakCatch.java", """
+                public class BreakCatch {
+                    public void process(java.util.List<String> items) {
+                        for (String item : items) {
+                            try {
+                                Integer.parseInt(item);
+                            } catch (NumberFormatException e) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                """);
+        var smells = parser.detectSmells(file);
+        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_CONTINUE")),
+                "break in catch = silent loop exit. Got: " + smells);
     }
 
     @Test

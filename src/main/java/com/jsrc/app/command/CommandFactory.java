@@ -55,6 +55,8 @@ public final class CommandFactory {
             case "--related" -> arg != null ? new RelatedCommand(arg) : null;
             case "--impact" -> arg != null ? new ImpactCommand(arg) : null;
             case "--scope" -> arg != null ? new ScopeCommand(arg) : null;
+            case "--checklist" -> arg != null ? new ChecklistCommand(arg, null) : null;
+            case "--type-check" -> arg != null ? new TypeCheckCommand(arg) : null;
             default -> null;
         };
     }

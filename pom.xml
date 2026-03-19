@@ -15,7 +15,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <junit.version>6.0.3</junit.version>
     <test.groups></test.groups>
-    <test.excludedGroups>integration</test.excludedGroups>
+    <test.excludedGroups></test.excludedGroups>
   </properties>
 
   <dependencies>

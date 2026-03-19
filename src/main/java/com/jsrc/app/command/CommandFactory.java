@@ -50,6 +50,7 @@ public final class CommandFactory {
             case "--watch" -> new WatchCommand();
             case "--stats" -> arg != null ? new MetricsCommand(arg) : null;
             case "--history" -> arg != null ? new HistoryCommand(arg) : null;
+            case "--validate" -> arg != null ? new ValidateCommand(arg) : null;
             default -> null;
         };
     }

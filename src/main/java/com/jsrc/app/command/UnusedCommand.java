@@ -20,15 +20,16 @@ public class UnusedCommand implements Command {
     @Override
     public int execute(CommandContext ctx) {
         var allClasses = ctx.getAllClasses();
-        var analyzer = ctx.dependencyAnalyzer();
 
         // Build call graph for method usage
         CallGraph graph = ctx.callGraph();
 
-        // Collect all imported class names
+        // Collect all imported class names — use index if available (fast)
         Set<String> importedClasses = new HashSet<>();
         for (ClassInfo ci : allClasses) {
-            var deps = analyzer.analyze(ctx.javaFiles(), ci.name());
+            var deps = ctx.indexed() != null
+                    ? ctx.indexed().getDependencies(ci.name())
+                    : ctx.dependencyAnalyzer().analyze(ctx.javaFiles(), ci.name());
             if (deps.isEmpty()) continue;
             var d = deps.get();
             for (String imp : d.imports()) {

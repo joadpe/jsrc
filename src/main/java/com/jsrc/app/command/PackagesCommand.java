@@ -18,7 +18,6 @@ public class PackagesCommand implements Command {
     @Override
     public int execute(CommandContext ctx) {
         var allClasses = ctx.getAllClasses();
-        var analyzer = ctx.dependencyAnalyzer();
 
         // Group classes by package
         Map<String, List<ClassInfo>> byPackage = new TreeMap<>();
@@ -35,7 +34,9 @@ public class PackagesCommand implements Command {
             Set<String> dependsOn = new LinkedHashSet<>();
 
             for (ClassInfo ci : classes) {
-                var deps = analyzer.analyze(ctx.javaFiles(), ci.name());
+                var deps = ctx.indexed() != null
+                        ? ctx.indexed().getDependencies(ci.name())
+                        : ctx.dependencyAnalyzer().analyze(ctx.javaFiles(), ci.name());
                 if (deps.isEmpty()) continue;
                 for (String imp : deps.get().imports()) {
                     int lastDot = imp.lastIndexOf('.');

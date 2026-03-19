@@ -22,14 +22,15 @@ public class ImportsCommand implements Command {
 
     @Override
     public int execute(CommandContext ctx) {
-        var analyzer = ctx.dependencyAnalyzer();
         var allClasses = ctx.getAllClasses();
         List<Map<String, Object>> dependents = new ArrayList<>();
 
         for (ClassInfo ci : allClasses) {
             if (ci.name().equals(className) || ci.qualifiedName().equals(className)) continue;
 
-            var depsOpt = analyzer.analyze(ctx.javaFiles(), ci.name());
+            var depsOpt = ctx.indexed() != null
+                    ? ctx.indexed().getDependencies(ci.name())
+                    : ctx.dependencyAnalyzer().analyze(ctx.javaFiles(), ci.name());
             if (depsOpt.isEmpty()) continue;
             var deps = depsOpt.get();
 

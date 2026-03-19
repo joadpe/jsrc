@@ -19,6 +19,14 @@ import com.jsrc.app.parser.model.FieldInfo;
  */
 public class SnippetCommand implements Command {
 
+    private static final Map<String, String> PATTERN_ANNOTATIONS = Map.of(
+            "service", "Service",
+            "repository", "Repository",
+            "controller", "Controller",
+            "config", "Configuration",
+            "autoconfig", "AutoConfiguration"
+    );
+
     private static final Map<String, String> PATTERN_SUFFIXES = Map.of(
             "service", "Service",
             "repository", "Repository",
@@ -69,11 +77,13 @@ public class SnippetCommand implements Command {
             return 0;
         }
 
-        // Select the most representative: prefer mid-size, most callers
+        // Select the most representative: prefer annotated, then most callers
         CallGraph graph = ctx.callGraph();
+        String expectedAnnotation = PATTERN_ANNOTATIONS.get(pattern.toLowerCase());
         ClassInfo selected = candidates.stream()
                 .sorted(Comparator
-                        .comparingInt((ClassInfo ci) -> -countExternalCallers(ci, graph))
+                        .comparingInt((ClassInfo ci) -> hasExpectedAnnotation(ci, expectedAnnotation) ? -1 : 0)
+                        .thenComparingInt((ClassInfo ci) -> -countExternalCallers(ci, graph))
                         .thenComparingInt(ci -> -ci.methods().size()))
                 .findFirst()
                 .orElse(candidates.getFirst());
@@ -194,6 +204,11 @@ public class SnippetCommand implements Command {
             return className.substring(0, className.length() - suffix.length());
         }
         return className;
+    }
+
+    private boolean hasExpectedAnnotation(ClassInfo ci, String annotation) {
+        if (annotation == null) return false;
+        return ci.annotations().stream().anyMatch(a -> a.name().equals(annotation));
     }
 
     private int countExternalCallers(ClassInfo ci, CallGraph graph) {

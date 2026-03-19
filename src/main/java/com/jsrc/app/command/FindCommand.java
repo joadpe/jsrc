@@ -18,7 +18,7 @@ import com.jsrc.app.parser.model.ClassInfo;
 public class FindCommand implements Command {
 
     private static final Map<String, List<String>> SYNONYMS = Map.ofEntries(
-            Map.entry("database", List.of("database", "datasource", "jdbc", "jpa", "repository", "sql", "connection", "pool", "persistence", "hibernate", "entity", "db")),
+            Map.entry("database", List.of("database", "datasource", "jdbc", "jpa", "repository", "sql", "persistence", "hibernate", "entity", "db")),
             Map.entry("error", List.of("error", "exception", "failureanalyzer", "handler", "fallback", "catch", "throw", "fault")),
             Map.entry("handle", List.of("handle", "handler", "process", "catch", "on", "listener", "intercept")),
             Map.entry("auth", List.of("security", "authentication", "authorization", "token", "credential", "principal", "login", "oauth")),

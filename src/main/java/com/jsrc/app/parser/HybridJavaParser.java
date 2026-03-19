@@ -147,6 +147,12 @@ public class HybridJavaParser implements CodeParser {
                 .map(rd -> recordToClassInfo(rd, packageName))
                 .forEach(classes::add);
 
+        // Also handle enums
+        cu.findAll(com.github.javaparser.ast.body.EnumDeclaration.class).stream()
+                .filter(ed -> ed.getBegin().isPresent())
+                .map(ed -> enumToClassInfo(ed, packageName))
+                .forEach(classes::add);
+
         return classes;
     }
 
@@ -166,6 +172,42 @@ public class HybridJavaParser implements CodeParser {
         List<com.jsrc.app.parser.model.FieldInfo> fields = rd.getParameters().stream()
                 .map(p -> new com.jsrc.app.parser.model.FieldInfo(p.getNameAsString(), p.getTypeAsString()))
                 .toList();
+
+        return new ClassInfo(name, packageName, startLine, endLine,
+                modifiers, methods, "", interfaces, annotations, false, fields);
+    }
+
+    private ClassInfo enumToClassInfo(com.github.javaparser.ast.body.EnumDeclaration ed,
+                                       String packageName) {
+        String name = ed.getNameAsString();
+        int startLine = ed.getBegin().map(p -> p.line).orElse(0);
+        int endLine = ed.getEnd().map(p -> p.line).orElse(0);
+        List<String> modifiers = ed.getModifiers().stream()
+                .map(mod -> mod.getKeyword().asString()).toList();
+        var methods = new java.util.ArrayList<MethodInfo>();
+        ed.getMethods().stream().map(md -> toRichMethodInfo(md, null)).forEach(methods::add);
+        ed.getConstructors().forEach(cd -> {
+            int ctorStart = cd.getBegin().map(p -> p.line).orElse(0);
+            int ctorEnd = cd.getEnd().map(p -> p.line).orElse(0);
+            String ctorSig = cd.getDeclarationAsString(true, true, true);
+            List<MethodInfo.ParameterInfo> ctorParams = cd.getParameters().stream()
+                    .map(this::toParameterInfo).toList();
+            methods.add(new MethodInfo(name, name, ctorStart, ctorEnd, "",
+                    List.of(), ctorParams, cd.toString(), List.of(), List.of(), List.of(), null));
+        });
+        List<AnnotationInfo> annotations = ed.getAnnotations().stream()
+                .map(this::toAnnotationInfo).toList();
+        List<String> interfaces = ed.getImplementedTypes().stream()
+                .map(t -> t.asString()).toList();
+        List<com.jsrc.app.parser.model.FieldInfo> fields = ed.getFields().stream()
+                .flatMap(fd -> {
+                    String fieldType = fd.getCommonType().asString();
+                    int genIdx = fieldType.indexOf('<');
+                    if (genIdx > 0) fieldType = fieldType.substring(0, genIdx);
+                    final String ft = fieldType;
+                    return fd.getVariables().stream()
+                            .map(v -> new com.jsrc.app.parser.model.FieldInfo(v.getNameAsString(), ft));
+                }).toList();
 
         return new ClassInfo(name, packageName, startLine, endLine,
                 modifiers, methods, "", interfaces, annotations, false, fields);

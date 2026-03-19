@@ -34,15 +34,16 @@ public final class CliBootstrap {
 
         Set<String> fields = extractFields(argList);
         String configPath = extractOption(argList, "--config");
+        String outDir = extractOption(argList, "--out");
 
         // --help and --describe are handled before root/command resolution
         if (argList.contains("--help") || argList.isEmpty()) {
             return new ParsedArgs(jsonOutput, mdOutput, signatureOnly, showMetrics,
-                    fields, configPath, null, "--help", argList);
+                    fields, configPath, outDir, null, "--help", argList);
         }
         if (argList.contains("--describe")) {
             return new ParsedArgs(jsonOutput, mdOutput, signatureOnly, showMetrics,
-                    fields, configPath, null, "--describe", argList);
+                    fields, configPath, outDir, null, "--describe", argList);
         }
 
         // Load config for root resolution
@@ -76,7 +77,7 @@ public final class CliBootstrap {
         }
 
         return new ParsedArgs(jsonOutput, mdOutput, signatureOnly, showMetrics,
-                fields, configPath, rootPath, command, argList);
+                fields, configPath, outDir, rootPath, command, argList);
     }
 
     private static Set<String> extractFields(List<String> argList) {

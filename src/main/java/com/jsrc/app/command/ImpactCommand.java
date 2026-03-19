@@ -95,7 +95,33 @@ public class ImpactCommand implements Command {
         result.put("affectedClasses", allAffected.stream().sorted().toList());
         result.put("riskLevel", risk);
 
+        if (ctx.mdOutput()) {
+            String md = toMarkdown(methodInput, directCount, allAffected, risk);
+            com.jsrc.app.output.MarkdownWriter.output(md, ctx.outDir(), "impact-" + methodInput.replace(".", "-"));
+            return allAffected.size();
+        }
+
         ctx.formatter().printResult(result);
         return allAffected.size();
+    }
+
+    private String toMarkdown(String target, int direct, java.util.Set<String> affected, String risk) {
+        String badge = switch (risk) {
+            case "high" -> "🔴 HIGH";
+            case "medium" -> "🟡 MEDIUM";
+            case "low" -> "🟢 LOW";
+            default -> "⚪ NONE";
+        };
+        var sb = new StringBuilder();
+        sb.append("# Impact Analysis: `").append(target).append("`\n\n");
+        sb.append("**Risk Level:** ").append(badge).append("\n\n");
+        sb.append("| Metric | Value |\n|--------|-------|\n");
+        sb.append("| Direct callers | ").append(direct).append(" |\n");
+        sb.append("| Transitive callers | ").append(affected.size()).append(" |\n\n");
+        if (!affected.isEmpty()) {
+            sb.append("## Affected Classes\n\n");
+            for (String cls : affected) sb.append("- `").append(cls).append("`\n");
+        }
+        return sb.toString();
     }
 }

@@ -14,6 +14,7 @@ public record ParsedArgs(
         boolean showMetrics,
         Set<String> fields,
         String configPath,
+        String outDir,
         String rootPath,
         String command,
         List<String> remainingArgs

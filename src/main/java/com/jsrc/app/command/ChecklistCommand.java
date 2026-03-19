@@ -118,6 +118,20 @@ public class ChecklistCommand implements Command {
         result.put("callerCount", callerRefs.size());
         result.put("steps", steps);
 
+        if (ctx.mdOutput()) {
+            var sb = new StringBuilder();
+            sb.append("# Checklist: `").append(methodInput).append("`\n\n");
+            if (task != null) sb.append("**Task:** ").append(task).append("\n\n");
+            sb.append("**File:** `").append(filePath).append("` | **Callers:** ").append(callerRefs.size()).append("\n\n");
+            for (var s : steps) {
+                sb.append("- [ ] **").append(s.get("action")).append("** — ").append(s.get("description")).append("\n");
+                sb.append("  `").append(s.get("location")).append("`\n");
+            }
+            com.jsrc.app.output.MarkdownWriter.output(sb.toString(), ctx.outDir(),
+                    "checklist-" + methodInput.replace(".", "-"));
+            return steps.size();
+        }
+
         ctx.formatter().printResult(result);
         return steps.size();
     }

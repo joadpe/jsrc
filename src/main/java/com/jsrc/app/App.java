@@ -78,7 +78,8 @@ public class App {
         var parser = new HybridJavaParser();
         IndexedCodebase indexed = "--diff".equals(parsed.command()) ? null
                 : IndexedCodebase.tryLoad(Paths.get(parsed.rootPath()), javaFiles);
-        var ctx = new CommandContext(javaFiles, parsed.rootPath(), config, formatter, indexed, parser);
+        var ctx = new CommandContext(javaFiles, parsed.rootPath(), config, formatter, indexed, parser,
+                parsed.mdOutput(), parsed.outDir());
 
         // Dispatch
         var timer = StopWatch.start();

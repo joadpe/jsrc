@@ -26,8 +26,9 @@ public class ContextCommand implements Command {
         if (resultOpt.isEmpty()) return 0;
 
         var ctxMap = resultOpt.get().toMap();
-        if (mdOutput) {
-            System.out.println(MarkdownFormatter.toMarkdown(ctxMap));
+        if (mdOutput || ctx.mdOutput()) {
+            String md = MarkdownFormatter.toMarkdown(ctxMap);
+            com.jsrc.app.output.MarkdownWriter.output(md, ctx.outDir(), "context-" + resolved.name());
         } else {
             ctx.formatter().printResult(ctxMap);
         }

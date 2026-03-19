@@ -133,6 +133,25 @@ public class LintCommand implements Command {
             }
         }
 
+        if (ctx.mdOutput()) {
+            var sb = new StringBuilder();
+            sb.append("# Lint: `").append(className).append("`\n\n");
+            if (diagnostics.isEmpty()) {
+                sb.append("✅ No issues found.\n");
+            } else {
+                sb.append("| Severity | Line | Issue |\n|----------|------|-------|\n");
+                for (var d : diagnostics) {
+                    String icon = "warning".equals(d.get("severity")) ? "⚠️" : "ℹ️";
+                    sb.append("| ").append(icon).append(" ").append(d.get("severity"));
+                    sb.append(" | ").append(d.getOrDefault("line", "-"));
+                    sb.append(" | ").append(d.get("message")).append(" |\n");
+                }
+                sb.append("\n**Total: ").append(diagnostics.size()).append(" issue(s)**\n");
+            }
+            com.jsrc.app.output.MarkdownWriter.output(sb.toString(), ctx.outDir(), "lint-" + className);
+            return diagnostics.size();
+        }
+
         ctx.formatter().printResult(diagnostics);
         return diagnostics.size();
     }

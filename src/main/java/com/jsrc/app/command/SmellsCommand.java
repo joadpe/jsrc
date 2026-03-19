@@ -121,10 +121,29 @@ public class SmellsCommand implements Command {
 
     private int scanFiles(CommandContext ctx, List<Path> files) {
         int totalSmells = 0;
+        var allSmells = new java.util.ArrayList<com.jsrc.app.parser.model.CodeSmell>();
         for (Path file : files) {
             var smells = ctx.parser().detectSmells(file);
             totalSmells += smells.size();
-            ctx.formatter().printSmells(smells, file);
+            allSmells.addAll(smells);
+            if (!ctx.mdOutput()) ctx.formatter().printSmells(smells, file);
+        }
+        if (ctx.mdOutput() && !allSmells.isEmpty()) {
+            var sb = new StringBuilder();
+            sb.append("# Code Smell Report\n\n");
+            sb.append("| Severity | Rule | Class | Method | Line | Message |\n");
+            sb.append("|----------|------|-------|--------|------|---------|\n");
+            for (var s : allSmells) {
+                String icon = "WARNING".equals(s.severity().name()) ? "⚠️" : "ℹ️";
+                sb.append("| ").append(icon).append(" ").append(s.severity());
+                sb.append(" | `").append(s.ruleId()).append("`");
+                sb.append(" | ").append(s.className());
+                sb.append(" | ").append(s.methodName()).append("()");
+                sb.append(" | ").append(s.line());
+                sb.append(" | ").append(s.message()).append(" |\n");
+            }
+            sb.append("\n**Total: ").append(totalSmells).append(" smell(s)**\n");
+            com.jsrc.app.output.MarkdownWriter.output(sb.toString(), ctx.outDir(), "smells-report");
         }
         return totalSmells;
     }

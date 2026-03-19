@@ -27,6 +27,8 @@ public final class CommandContext {
     private final OutputFormatter formatter;
     private final IndexedCodebase indexed;
     private final CodeParser parser;
+    private final boolean mdOutput;
+    private final String outDir;
 
     private CallGraph callGraphCache;
     private DependencyAnalyzer dependencyAnalyzerCache;
@@ -34,12 +36,20 @@ public final class CommandContext {
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser) {
+        this(javaFiles, rootPath, config, formatter, indexed, parser, false, null);
+    }
+
+    public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
+                          OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
+                          boolean mdOutput, String outDir) {
         this.javaFiles = javaFiles;
         this.rootPath = rootPath;
         this.config = config;
         this.formatter = formatter;
         this.indexed = indexed;
         this.parser = parser;
+        this.mdOutput = mdOutput;
+        this.outDir = outDir;
     }
 
     public List<Path> javaFiles() { return javaFiles; }
@@ -48,6 +58,8 @@ public final class CommandContext {
     public OutputFormatter formatter() { return formatter; }
     public IndexedCodebase indexed() { return indexed; }
     public CodeParser parser() { return parser; }
+    public boolean mdOutput() { return mdOutput; }
+    public String outDir() { return outDir; }
 
     /**
      * Returns all classes, using index if available, parsing on-the-fly otherwise.

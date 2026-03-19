@@ -17,12 +17,45 @@ import com.jsrc.app.parser.model.FieldInfo;
 public class LintCommand implements Command {
 
     private static final Set<String> JDK_TYPES = Set.of(
+            // java.lang
             "String", "Object", "Integer", "Long", "Double", "Float", "Boolean",
-            "Byte", "Short", "Character", "List", "Map", "Set", "Collection",
-            "Optional", "Stream", "Iterable", "Comparable", "Serializable",
-            "Runnable", "Callable", "Future", "CompletableFuture",
-            "Path", "File", "IOException", "Exception", "RuntimeException",
-            "Class", "Enum", "Record", "Annotation");
+            "Byte", "Short", "Character", "Number", "Math", "System", "Thread",
+            "Class", "Enum", "Record", "Annotation", "StringBuilder", "StringBuffer",
+            "Runnable", "Callable", "Comparable", "Serializable", "Iterable",
+            "AutoCloseable", "Cloneable", "Throwable",
+            // java.util
+            "List", "Map", "Set", "Collection", "Queue", "Deque", "Iterator",
+            "Optional", "Stream", "Arrays", "Collections", "Objects",
+            "HashMap", "ArrayList", "LinkedList", "HashSet", "TreeMap", "TreeSet",
+            "LinkedHashMap", "LinkedHashSet", "Properties", "UUID", "Random",
+            "Locale", "Currency", "Date", "Calendar", "TimeZone",
+            // java.util.concurrent
+            "Future", "CompletableFuture", "Executor", "ExecutorService",
+            "ConcurrentHashMap", "CopyOnWriteArrayList", "AtomicInteger", "AtomicLong",
+            "CountDownLatch", "Semaphore", "Lock", "ReentrantLock",
+            // java.util.function
+            "Function", "Supplier", "Consumer", "Predicate", "BiFunction", "BiConsumer",
+            // java.io / java.nio
+            "Path", "File", "InputStream", "OutputStream", "Reader", "Writer",
+            "BufferedReader", "BufferedWriter", "PrintStream", "PrintWriter",
+            "IOException", "FileNotFoundException",
+            // java.time
+            "LocalDate", "LocalTime", "LocalDateTime", "ZonedDateTime", "Instant",
+            "Duration", "Period", "ZoneId", "OffsetDateTime",
+            // java.math
+            "BigDecimal", "BigInteger",
+            // java.util.regex
+            "Pattern", "Matcher",
+            // java.net
+            "URL", "URI", "Socket", "HttpURLConnection",
+            // java.lang exceptions
+            "Exception", "RuntimeException", "IllegalArgumentException",
+            "IllegalStateException", "NullPointerException", "UnsupportedOperationException",
+            // Logging
+            "Logger", "Log", "LoggerFactory",
+            // Common Spring types (ubiquitous)
+            "ApplicationContext", "BeanFactory", "Environment", "Resource",
+            "Assert");
 
     private static final Set<String> PRIMITIVES = Set.of(
             "int", "long", "short", "byte", "float", "double", "boolean", "char", "void");

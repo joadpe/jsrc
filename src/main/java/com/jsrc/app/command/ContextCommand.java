@@ -21,11 +21,11 @@ public class ContextCommand implements Command {
 
         var arch = ctx.config() != null ? ctx.config().architecture() : null;
         var assembler = new ContextAssembler(ctx.parser(), ctx.dependencyAnalyzer());
-        var result = assembler.assemble(
+        var resultOpt = assembler.assemble(
                 ctx.javaFiles(), resolved.name(), allClasses, arch, ctx.callGraph());
-        if (result == null) return 0;
+        if (resultOpt.isEmpty()) return 0;
 
-        var ctxMap = result.toMap();
+        var ctxMap = resultOpt.get().toMap();
         if (mdOutput) {
             System.out.println(MarkdownFormatter.toMarkdown(ctxMap));
         } else {

@@ -30,8 +30,9 @@ public class MethodSearchCommand implements Command {
                 // Re-parse only matching files for full method details
                 int totalFound = 0;
                 for (MethodInfo indexed : methods) {
-                    String filePath = ctx.indexed().findFileForClass(indexed.className());
-                    if (filePath == null) continue;
+                    var filePathOpt = ctx.indexed().findFileForClass(indexed.className());
+                    if (filePathOpt.isEmpty()) continue;
+                    String filePath = filePathOpt.get();
                     Path file = findMatchingFile(ctx.javaFiles(), filePath);
                     if (file == null) continue;
                     List<MethodInfo> detailed = ctx.parser().findMethods(file, methodName);

@@ -90,8 +90,9 @@ public class RuleEngine {
         
 
         for (ClassInfo ci : fromClasses) {
-            DependencyResult deps = dependencyAnalyzer.analyze(files, ci.name());
-            if (deps == null) continue;
+            var depsOpt = dependencyAnalyzer.analyze(files, ci.name());
+            if (depsOpt.isEmpty()) continue;
+            DependencyResult deps = depsOpt.get();
 
             for (String imp : deps.imports()) {
                 for (String denied : deniedNames) {
@@ -127,8 +128,9 @@ public class RuleEngine {
 
         for (ClassInfo ci : targetClasses) {
             if (ci.isInterface()) continue;
-            DependencyResult deps = dependencyAnalyzer.analyze(files, ci.name());
-            if (deps == null) continue;
+            var depsOpt2 = dependencyAnalyzer.analyze(files, ci.name());
+            if (depsOpt2.isEmpty()) continue;
+            DependencyResult deps = depsOpt2.get();
 
             // Has field deps but no constructor deps → likely field injection
             if (!deps.fieldDependencies().isEmpty() && deps.constructorDependencies().isEmpty()) {

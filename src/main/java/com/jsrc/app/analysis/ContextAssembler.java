@@ -6,6 +6,8 @@ import java.util.List;
 
 import com.jsrc.app.architecture.LayerResolver;
 import com.jsrc.app.config.ArchitectureConfig;
+import java.util.Optional;
+
 import com.jsrc.app.model.ContextResult;
 import com.jsrc.app.model.ContextResult.HierarchyInfo;
 import com.jsrc.app.model.ContextResult.MethodCallInfo;
@@ -42,20 +44,20 @@ public class ContextAssembler {
      * @param allClasses   pre-parsed classes (from index or on-the-fly)
      * @param archConfig   architecture config (nullable)
      * @param callGraph    pre-built call graph (nullable — builds its own if null)
-     * @return typed context result, or null if class not found
+     * @return typed context result, or empty if class not found
      */
-    public ContextResult assemble(List<Path> files, String className,
-                                   List<ClassInfo> allClasses,
-                                   ArchitectureConfig archConfig,
-                                   CallGraph callGraph) {
+    public Optional<ContextResult> assemble(List<Path> files, String className,
+                                             List<ClassInfo> allClasses,
+                                             ArchitectureConfig archConfig,
+                                             CallGraph callGraph) {
         ClassInfo target = allClasses.stream()
                 .filter(ci -> ci.name().equals(className) || ci.qualifiedName().equals(className))
                 .findFirst().orElse(null);
-        if (target == null) return null;
+        if (target == null) return Optional.empty();
 
         Path targetFile = findFile(files, className);
 
-        DependencyResult deps = dependencyAnalyzer.analyze(files, className);
+        DependencyResult deps = dependencyAnalyzer.analyze(files, className).orElse(null);
 
         HierarchyInfo hierarchy = buildHierarchy(target, allClasses);
 
@@ -71,15 +73,15 @@ public class ContextAssembler {
 
         String file = targetFile != null ? targetFile.toString() : null;
 
-        return new ContextResult(target, deps, hierarchy, layer, methodCalls, smells, source, file);
+        return Optional.of(new ContextResult(target, deps, hierarchy, layer, methodCalls, smells, source, file));
     }
 
     /**
      * Backward-compatible: assembles without external call graph.
      */
-    public ContextResult assemble(List<Path> files, String className,
-                                   List<ClassInfo> allClasses,
-                                   ArchitectureConfig archConfig) {
+    public Optional<ContextResult> assemble(List<Path> files, String className,
+                                             List<ClassInfo> allClasses,
+                                             ArchitectureConfig archConfig) {
         return assemble(files, className, allClasses, archConfig, null);
     }
 
@@ -110,7 +112,7 @@ public class ContextAssembler {
     private String resolveLayer(ClassInfo target, ArchitectureConfig archConfig) {
         if (archConfig == null || archConfig.layers().isEmpty()) return null;
         var resolver = new LayerResolver(archConfig.layers());
-        return resolver.resolve(target);
+        return resolver.resolve(target).orElse(null);
     }
 
     private List<MethodCallInfo> buildMethodCalls(ClassInfo target, CallGraph graph) {
@@ -148,8 +150,9 @@ public class ContextAssembler {
     private String readSource(List<Path> files, String className, Path targetFile) {
         if (targetFile == null) return null;
         var reader = new SourceReader(parser);
-        var readResult = reader.readClass(files, className);
-        return readResult != null ? readResult.content() : null;
+        return reader.readClass(files, className)
+                .map(SourceReader.ReadResult::content)
+                .orElse(null);
     }
 
     private Path findFile(List<Path> files, String className) {

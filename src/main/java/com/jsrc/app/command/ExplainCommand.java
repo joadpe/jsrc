@@ -42,9 +42,9 @@ public class ExplainCommand implements Command {
         // Dependencies
         var analyzer = ctx.dependencyAnalyzer();
         var deps = analyzer.analyze(ctx.javaFiles(), ci.name());
-        if (deps != null) {
-            int fieldCount = deps.fieldDependencies().size();
-            int ctorCount = deps.constructorDependencies().size();
+        if (deps.isPresent()) {
+            int fieldCount = deps.get().fieldDependencies().size();
+            int ctorCount = deps.get().constructorDependencies().size();
             if (ctorCount > 0) summary.append(ctorCount).append(" constructor-injected dep(s). ");
             else if (fieldCount > 0) summary.append(fieldCount).append(" field dep(s). ");
         }
@@ -63,8 +63,8 @@ public class ExplainCommand implements Command {
         // Layer
         if (ctx.config() != null && !ctx.config().architecture().layers().isEmpty()) {
             var resolver = new LayerResolver(ctx.config().architecture().layers());
-            String layer = resolver.resolve(ci);
-            if (layer != null) summary.append("Layer: ").append(layer).append(". ");
+            resolver.resolve(ci).ifPresent(
+                    layer -> summary.append("Layer: ").append(layer).append(". "));
         }
 
         // Smells

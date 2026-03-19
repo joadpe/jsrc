@@ -68,8 +68,8 @@ public class App {
 
         // Apply excludes from config
         var config = parsed.configPath() != null
-                ? com.jsrc.app.config.ProjectConfig.loadFrom(Path.of(parsed.configPath()))
-                : com.jsrc.app.config.ProjectConfig.load(Path.of("."));
+                ? com.jsrc.app.config.ProjectConfig.loadFrom(Path.of(parsed.configPath())).orElse(null)
+                : com.jsrc.app.config.ProjectConfig.load(Path.of(".")).orElse(null);
         if (config != null && !config.excludes().isEmpty()) {
             javaFiles = filterExcludes(javaFiles, config.excludes());
         }

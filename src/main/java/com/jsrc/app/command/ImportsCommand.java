@@ -29,8 +29,9 @@ public class ImportsCommand implements Command {
         for (ClassInfo ci : allClasses) {
             if (ci.name().equals(className) || ci.qualifiedName().equals(className)) continue;
 
-            var deps = analyzer.analyze(ctx.javaFiles(), ci.name());
-            if (deps == null) continue;
+            var depsOpt = analyzer.analyze(ctx.javaFiles(), ci.name());
+            if (depsOpt.isEmpty()) continue;
+            var deps = depsOpt.get();
 
             boolean depends = false;
             String relationship = "";

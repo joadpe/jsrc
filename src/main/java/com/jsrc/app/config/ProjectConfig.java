@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,27 +25,27 @@ public record ProjectConfig(
     private static final Logger logger = LoggerFactory.getLogger(ProjectConfig.class);
     private static final String CONFIG_FILE = ".jsrc.yaml";
 
-    public static ProjectConfig load(Path directory) {
+    public static Optional<ProjectConfig> load(Path directory) {
         Path configFile = directory.resolve(CONFIG_FILE);
-        if (!Files.exists(configFile)) return null;
+        if (!Files.exists(configFile)) return Optional.empty();
         try {
-            return parse(Files.readString(configFile));
+            return Optional.of(parse(Files.readString(configFile)));
         } catch (IOException e) {
             logger.error("Error reading {}: {}", configFile, e.getMessage());
-            return null;
+            return Optional.empty();
         }
     }
 
-    public static ProjectConfig loadFrom(Path configPath) {
+    public static Optional<ProjectConfig> loadFrom(Path configPath) {
         if (!Files.exists(configPath)) {
             logger.warn("Config file not found: {}", configPath);
-            return null;
+            return Optional.empty();
         }
         try {
-            return parse(Files.readString(configPath));
+            return Optional.of(parse(Files.readString(configPath)));
         } catch (IOException e) {
             logger.error("Error reading {}: {}", configPath, e.getMessage());
-            return null;
+            return Optional.empty();
         }
     }
 

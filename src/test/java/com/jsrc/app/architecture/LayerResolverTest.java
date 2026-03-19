@@ -23,9 +23,9 @@ class LayerResolverTest {
     @DisplayName("Should resolve layer by class name pattern")
     void shouldResolveByPattern() {
         var resolver = new LayerResolver(layers);
-        assertEquals("controller", resolver.resolve(classInfo("OrderController")));
-        assertEquals("service", resolver.resolve(classInfo("PaymentService")));
-        assertEquals("repository", resolver.resolve(classInfo("UserRepository")));
+        assertEquals("controller", resolver.resolve(classInfo("OrderController")).orElse(""));
+        assertEquals("service", resolver.resolve(classInfo("PaymentService")).orElse(""));
+        assertEquals("repository", resolver.resolve(classInfo("UserRepository")).orElse(""));
     }
 
     @Test
@@ -35,14 +35,14 @@ class LayerResolverTest {
         var ci = new ClassInfo("OrderHandler", "com.app", 1, 50,
                 List.of("public"), List.of(), "", List.of(),
                 List.of(AnnotationInfo.marker("RestController")), false);
-        assertEquals("controller", resolver.resolve(ci));
+        assertEquals("controller", resolver.resolve(ci).orElse(""));
     }
 
     @Test
     @DisplayName("Should return null for unmatched class")
     void shouldReturnNullForUnmatched() {
         var resolver = new LayerResolver(layers);
-        assertNull(resolver.resolve(classInfo("HelperUtils")));
+        assertTrue(resolver.resolve(classInfo("HelperUtils")).isEmpty());
     }
 
     @Test

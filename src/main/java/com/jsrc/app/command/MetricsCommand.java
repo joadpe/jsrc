@@ -41,8 +41,8 @@ public class MetricsCommand implements Command {
         var analyzer = ctx.dependencyAnalyzer();
         java.util.List<java.nio.file.Path> targetFiles = resolveClassFiles(ctx, ci.name());
         var deps = analyzer.analyze(targetFiles, ci.name());
-        if (deps != null) {
-            coupling = deps.fieldDependencies().size() + deps.constructorDependencies().size();
+        if (deps.isPresent()) {
+            coupling = deps.get().fieldDependencies().size() + deps.get().constructorDependencies().size();
         }
 
         // Depth of inheritance

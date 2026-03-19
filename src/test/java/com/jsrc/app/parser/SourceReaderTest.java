@@ -40,11 +40,11 @@ class SourceReaderTest {
                 """);
 
         var result = reader.readMethod(List.of(file), "OrderService", "create");
-        assertNotNull(result);
-        assertEquals("create", result.methodName());
-        assertEquals("OrderService", result.className());
-        assertTrue(result.content().contains("System.out.println"));
-        assertFalse(result.content().contains("delete"));
+        assertTrue(result.isPresent());
+        assertEquals("create", result.get().methodName());
+        assertEquals("OrderService", result.get().className());
+        assertTrue(result.get().content().contains("System.out.println"));
+        assertFalse(result.get().content().contains("delete"));
     }
 
     @Test
@@ -58,17 +58,17 @@ class SourceReaderTest {
                 """);
 
         var result = reader.readClass(List.of(file), "Service");
-        assertNotNull(result);
-        assertEquals("Service", result.className());
-        assertTrue(result.content().contains("public class Service"));
-        assertTrue(result.content().contains("public void run()"));
+        assertTrue(result.isPresent());
+        assertEquals("Service", result.get().className());
+        assertTrue(result.get().content().contains("public class Service"));
+        assertTrue(result.get().content().contains("public void run()"));
     }
 
     @Test
     @DisplayName("Should return null for nonexistent class")
     void shouldReturnNullForMissingClass() throws IOException {
         Path file = writeFile("Other.java", "public class Other {}");
-        assertNull(reader.readClass(List.of(file), "Missing"));
+        assertTrue(reader.readClass(List.of(file), "Missing").isEmpty());
     }
 
     @Test
@@ -77,7 +77,7 @@ class SourceReaderTest {
         Path file = writeFile("Svc.java", """
                 public class Svc { public void exists() {} }
                 """);
-        assertNull(reader.readMethod(List.of(file), "Svc", "missing"));
+        assertTrue(reader.readMethod(List.of(file), "Svc", "missing").isEmpty());
     }
 
     @Test
@@ -93,10 +93,10 @@ class SourceReaderTest {
                 """);
 
         var result = reader.readMethod(List.of(file), "Meta", "calc");
-        assertNotNull(result);
-        assertNotNull(result.file());
-        assertTrue(result.startLine() > 0);
-        assertTrue(result.endLine() >= result.startLine());
+        assertTrue(result.isPresent());
+        assertNotNull(result.get().file());
+        assertTrue(result.get().startLine() > 0);
+        assertTrue(result.get().endLine() >= result.get().startLine());
     }
 
     private Path writeFile(String name, String content) throws IOException {

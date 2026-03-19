@@ -47,10 +47,10 @@ class SpecRoundtripTest {
         var assembler = new ContextAssembler(parser);
         var result = assembler.assemble(
                 List.of(javaFile), "Calculator", allClasses, null);
-        assertNotNull(result);
+        assertTrue(result.isPresent());
 
         // Generate Markdown
-        String markdown = MarkdownFormatter.toMarkdown(result.toMap());
+        String markdown = MarkdownFormatter.toMarkdown(result.get().toMap());
         assertNotNull(markdown);
         assertTrue(markdown.contains("# Calculator"));
         assertTrue(markdown.contains("add"));

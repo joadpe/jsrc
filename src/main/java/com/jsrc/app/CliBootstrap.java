@@ -47,8 +47,8 @@ public final class CliBootstrap {
 
         // Load config for root resolution
         ProjectConfig config = configPath != null
-                ? ProjectConfig.loadFrom(Path.of(configPath))
-                : ProjectConfig.load(Path.of("."));
+                ? ProjectConfig.loadFrom(Path.of(configPath)).orElse(null)
+                : ProjectConfig.load(Path.of(".")).orElse(null);
 
         String rootPath;
         String command;

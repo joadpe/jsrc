@@ -29,13 +29,14 @@ public class UnusedCommand implements Command {
         Set<String> importedClasses = new HashSet<>();
         for (ClassInfo ci : allClasses) {
             var deps = analyzer.analyze(ctx.javaFiles(), ci.name());
-            if (deps == null) continue;
-            for (String imp : deps.imports()) {
+            if (deps.isEmpty()) continue;
+            var d = deps.get();
+            for (String imp : d.imports()) {
                 int lastDot = imp.lastIndexOf('.');
                 if (lastDot > 0) importedClasses.add(imp.substring(lastDot + 1));
             }
-            for (var field : deps.fieldDependencies()) importedClasses.add(field.type());
-            for (var ctor : deps.constructorDependencies()) importedClasses.add(ctor.type());
+            for (var field : d.fieldDependencies()) importedClasses.add(field.type());
+            for (var ctor : d.constructorDependencies()) importedClasses.add(ctor.type());
         }
 
         // Find unused methods (no callers, not main, not constructors)

@@ -36,8 +36,8 @@ public class PackagesCommand implements Command {
 
             for (ClassInfo ci : classes) {
                 var deps = analyzer.analyze(ctx.javaFiles(), ci.name());
-                if (deps == null) continue;
-                for (String imp : deps.imports()) {
+                if (deps.isEmpty()) continue;
+                for (String imp : deps.get().imports()) {
                     int lastDot = imp.lastIndexOf('.');
                     if (lastDot > 0) {
                         String importPkg = imp.substring(0, lastDot);

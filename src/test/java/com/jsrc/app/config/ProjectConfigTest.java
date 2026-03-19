@@ -28,29 +28,29 @@ class ProjectConfigTest {
                 javaVersion: "21"
                 """);
 
-        ProjectConfig config = ProjectConfig.load(tempDir);
-        assertNotNull(config);
-        assertEquals(2, config.sourceRoots().size());
-        assertEquals("src/main/java", config.sourceRoots().get(0));
-        assertEquals(2, config.excludes().size());
-        assertTrue(config.excludes().contains("**/test/**"));
-        assertEquals("21", config.javaVersion());
+        var config = ProjectConfig.load(tempDir);
+        assertTrue(config.isPresent());
+        assertEquals(2, config.get().sourceRoots().size());
+        assertEquals("src/main/java", config.get().sourceRoots().get(0));
+        assertEquals(2, config.get().excludes().size());
+        assertTrue(config.get().excludes().contains("**/test/**"));
+        assertEquals("21", config.get().javaVersion());
     }
 
     @Test
-    @DisplayName("Should return null when no config file exists")
-    void shouldReturnNullWhenMissing() {
-        assertNull(ProjectConfig.load(tempDir));
+    @DisplayName("Should return empty when no config file exists")
+    void shouldReturnEmptyWhenMissing() {
+        assertTrue(ProjectConfig.load(tempDir).isEmpty());
     }
 
     @Test
     @DisplayName("Should handle empty config file")
     void shouldHandleEmptyConfig() throws IOException {
         Files.writeString(tempDir.resolve(".jsrc.yaml"), "");
-        ProjectConfig config = ProjectConfig.load(tempDir);
-        assertNotNull(config);
-        assertTrue(config.sourceRoots().isEmpty());
-        assertTrue(config.excludes().isEmpty());
+        var config = ProjectConfig.load(tempDir);
+        assertTrue(config.isPresent());
+        assertTrue(config.get().sourceRoots().isEmpty());
+        assertTrue(config.get().excludes().isEmpty());
     }
 
     @Test
@@ -64,10 +64,10 @@ class ProjectConfigTest {
                 javaVersion: "17"
                 """);
 
-        ProjectConfig config = ProjectConfig.load(tempDir);
-        assertNotNull(config);
-        assertEquals(1, config.sourceRoots().size());
-        assertEquals("17", config.javaVersion());
+        var config = ProjectConfig.load(tempDir);
+        assertTrue(config.isPresent());
+        assertEquals(1, config.get().sourceRoots().size());
+        assertEquals("17", config.get().javaVersion());
     }
 
     @Test
@@ -79,8 +79,8 @@ class ProjectConfigTest {
                   - lib/src
                 """);
 
-        ProjectConfig config = ProjectConfig.loadFrom(custom);
-        assertNotNull(config);
-        assertEquals("lib/src", config.sourceRoots().get(0));
+        var config = ProjectConfig.loadFrom(custom);
+        assertTrue(config.isPresent());
+        assertEquals("lib/src", config.get().sourceRoots().get(0));
     }
 }

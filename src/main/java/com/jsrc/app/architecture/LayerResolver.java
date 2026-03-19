@@ -1,6 +1,7 @@
 package com.jsrc.app.architecture;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 import com.jsrc.app.config.ArchitectureConfig.LayerDef;
@@ -19,13 +20,13 @@ public class LayerResolver {
     }
 
     /**
-     * Returns the layer name for a class, or null if no layer matches.
+     * Returns the layer name for a class, or empty if no layer matches.
      */
-    public String resolve(ClassInfo ci) {
+    public Optional<String> resolve(ClassInfo ci) {
         for (LayerDef layer : layers) {
-            if (matches(ci, layer)) return layer.name();
+            if (matches(ci, layer)) return Optional.of(layer.name());
         }
-        return null;
+        return Optional.empty();
     }
 
     /**

@@ -12,8 +12,8 @@ public class DepsCommand implements Command {
     public int execute(CommandContext ctx) {
         var analyzer = ctx.dependencyAnalyzer();
         var result = analyzer.analyze(ctx.javaFiles(), className);
-        if (result != null) {
-            ctx.formatter().printDependencies(result);
+        if (result.isPresent()) {
+            ctx.formatter().printDependencies(result.get());
             return 1;
         }
         System.err.printf("Class '%s' not found.%n", className);

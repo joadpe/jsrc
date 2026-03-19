@@ -18,8 +18,9 @@ public class SummaryCommand implements Command {
         ClassInfo ci = resolveOrExit(allClasses, className);
         if (ci == null) return 0;
 
-        String filePath = ctx.indexed() != null ? ctx.indexed().findFileForClass(ci.name()) : null;
-        ctx.formatter().printClassSummary(ci, Path.of(filePath != null ? filePath : ""));
+        String filePath = ctx.indexed() != null
+                ? ctx.indexed().findFileForClass(ci.name()).orElse("") : "";
+        ctx.formatter().printClassSummary(ci, Path.of(filePath));
         return 1;
     }
 

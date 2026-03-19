@@ -31,9 +31,9 @@ class DependencyAnalyzerTest {
                 }
                 """);
 
-        DependencyResult result = analyzer.analyze(List.of(file), "OrderService");
+        var result = analyzer.analyze(List.of(file), "OrderService");
         assertNotNull(result, "Should find OrderService");
-        assertFalse(result.imports().isEmpty(), "Should have imports");
+        assertFalse(result.get().imports().isEmpty(), "Should have imports");
     }
 
     @Test
@@ -48,10 +48,10 @@ class DependencyAnalyzerTest {
                 }
                 """);
 
-        DependencyResult result = analyzer.analyze(List.of(file), "OrderService");
-        assertNotNull(result);
-        assertFalse(result.fieldDependencies().isEmpty(), "Should detect field dependencies");
-        assertTrue(result.fieldDependencies().stream()
+        var result = analyzer.analyze(List.of(file), "OrderService");
+        assertTrue(result.isPresent());
+        assertFalse(result.get().fieldDependencies().isEmpty(), "Should detect field dependencies");
+        assertTrue(result.get().fieldDependencies().stream()
                 .anyMatch(f -> f.type().equals("OrderRepository")),
                 "Should detect OrderRepository field");
     }
@@ -69,9 +69,9 @@ class DependencyAnalyzerTest {
                 }
                 """);
 
-        DependencyResult result = analyzer.analyze(List.of(file), "OrderService");
-        assertNotNull(result);
-        assertFalse(result.constructorDependencies().isEmpty(), "Should detect constructor params");
+        var result = analyzer.analyze(List.of(file), "OrderService");
+        assertTrue(result.isPresent());
+        assertFalse(result.get().constructorDependencies().isEmpty(), "Should detect constructor params");
     }
 
     @Test
@@ -80,7 +80,7 @@ class DependencyAnalyzerTest {
         Path file = tempDir.resolve("Other.java");
         Files.writeString(file, "public class Other {}");
 
-        DependencyResult result = analyzer.analyze(List.of(file), "NonExistent");
-        assertNull(result, "Should return null for class not found");
+        var result = analyzer.analyze(List.of(file), "NonExistent");
+        assertTrue(result.isEmpty(), "Should return empty for class not found");
     }
 }

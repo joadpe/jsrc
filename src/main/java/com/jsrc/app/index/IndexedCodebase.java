@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -137,15 +138,15 @@ public class IndexedCodebase {
     /**
      * Returns the file path (relative) for a given class name.
      */
-    public String findFileForClass(String className) {
+    public Optional<String> findFileForClass(String className) {
         for (IndexEntry entry : entries) {
             for (IndexedClass ic : entry.classes()) {
                 if (ic.name().equals(className) || ic.qualifiedName().equals(className)) {
-                    return entry.path();
+                    return Optional.of(entry.path());
                 }
             }
         }
-        return null;
+        return Optional.empty();
     }
 
     /**

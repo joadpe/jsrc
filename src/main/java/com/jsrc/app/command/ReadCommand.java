@@ -18,14 +18,14 @@ public class ReadCommand implements Command {
     public int execute(CommandContext ctx) {
         var reader = ctx.sourceReader();
         var ref = MethodResolver.parse(target);
-        SourceReader.ReadResult result;
+        SourceReader.ReadResult result = null;
 
         if (ref.hasClassName()) {
             result = findMethodRead(ctx, reader, ref);
         } else if (target.contains("(")) {
             result = findMethodReadAllFiles(ctx, ref);
         } else {
-            result = reader.readClass(ctx.javaFiles(), target);
+            result = reader.readClass(ctx.javaFiles(), target).orElse(null);
             if (result == null) {
                 result = findMethodReadAllFiles(ctx, ref);
             }
@@ -41,7 +41,8 @@ public class ReadCommand implements Command {
 
     private SourceReader.ReadResult findMethodRead(CommandContext ctx, SourceReader reader,
                                                     MethodResolver.MethodRef ref) {
-        var result = reader.readMethod(ctx.javaFiles(), ref.className(), ref.methodName());
+        var resultOpt = reader.readMethod(ctx.javaFiles(), ref.className(), ref.methodName());
+        var result = resultOpt.orElse(null);
         if (result != null && ref.hasParamTypes()) {
             Path file = findFileForClass(ctx, ref.className());
             if (file != null) {
@@ -65,8 +66,9 @@ public class ReadCommand implements Command {
         if (ctx.indexed() != null) {
             var indexed = ctx.indexed().findMethodsByName(ref.methodName());
             for (MethodInfo im : indexed) {
-                String filePath = ctx.indexed().findFileForClass(im.className());
-                if (filePath == null) continue;
+                var filePathOpt = ctx.indexed().findFileForClass(im.className());
+                if (filePathOpt.isEmpty()) continue;
+                String filePath = filePathOpt.get();
                 Path file = findFileByPath(ctx.javaFiles(), filePath);
                 if (file == null) continue;
                 List<MethodInfo> methods = ctx.parser().findMethods(file, ref.methodName());
@@ -104,9 +106,9 @@ public class ReadCommand implements Command {
     private static Path findFileForClass(CommandContext ctx, String className) {
         // Try index first
         if (ctx.indexed() != null) {
-            String path = ctx.indexed().findFileForClass(className);
-            if (path != null) {
-                return findFileByPath(ctx.javaFiles(), path);
+            var path = ctx.indexed().findFileForClass(className);
+            if (path.isPresent()) {
+                return findFileByPath(ctx.javaFiles(), path.get());
             }
         }
         // Fallback: match by filename

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,20 +48,20 @@ public class SourceReader {
      * @param files     Java files to search
      * @param className class name (simple name recommended)
      * @param methodName method name
-     * @return source with metadata, or null if not found
+     * @return source with metadata, or empty if not found
      */
-    public ReadResult readMethod(List<Path> files, String className, String methodName) {
+    public Optional<ReadResult> readMethod(List<Path> files, String className, String methodName) {
         for (Path file : files) {
             List<MethodInfo> methods = parser.findMethods(file, methodName);
             for (MethodInfo m : methods) {
                 if (matchesClass(m.className(), className)) {
-                    return new ReadResult(
+                    return Optional.of(new ReadResult(
                             m.className(), m.name(), file,
-                            m.startLine(), m.endLine(), m.content());
+                            m.startLine(), m.endLine(), m.content()));
                 }
             }
         }
-        return null;
+        return Optional.empty();
     }
 
     /**
@@ -68,9 +69,9 @@ public class SourceReader {
      *
      * @param files     Java files to search
      * @param className class name (simple or qualified)
-     * @return source with metadata, or null if not found
+     * @return source with metadata, or empty if not found
      */
-    public ReadResult readClass(List<Path> files, String className) {
+    public Optional<ReadResult> readClass(List<Path> files, String className) {
         for (Path file : files) {
             List<ClassInfo> classes = parser.parseClasses(file);
             for (ClassInfo ci : classes) {
@@ -78,14 +79,14 @@ public class SourceReader {
                         || matchesClass(ci.qualifiedName(), className)) {
                     String content = extractLines(file, ci.startLine(), ci.endLine());
                     if (content != null) {
-                        return new ReadResult(
+                        return Optional.of(new ReadResult(
                                 ci.name(), null, file,
-                                ci.startLine(), ci.endLine(), content);
+                                ci.startLine(), ci.endLine(), content));
                     }
                 }
             }
         }
-        return null;
+        return Optional.empty();
     }
 
     private boolean matchesClass(String actual, String expected) {

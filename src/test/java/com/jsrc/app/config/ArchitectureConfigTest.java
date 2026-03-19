@@ -38,8 +38,7 @@ class ArchitectureConfigTest {
                         - Repository
                 """);
 
-        ProjectConfig config = ProjectConfig.load(tempDir);
-        assertNotNull(config);
+        var config = ProjectConfig.load(tempDir).orElseThrow();
         assertNotNull(config.architecture());
         assertEquals(3, config.architecture().layers().size());
 
@@ -66,7 +65,7 @@ class ArchitectureConfigTest {
                       denyAnnotation: Autowired
                 """);
 
-        ProjectConfig config = ProjectConfig.load(tempDir);
+        var config = ProjectConfig.load(tempDir).orElseThrow();
         assertNotNull(config.architecture());
         assertEquals(2, config.architecture().rules().size());
 
@@ -90,7 +89,7 @@ class ArchitectureConfigTest {
                       resolveClass: adaptadorBean
                 """);
 
-        ProjectConfig config = ProjectConfig.load(tempDir);
+        var config = ProjectConfig.load(tempDir).orElseThrow();
         assertNotNull(config.architecture());
         assertEquals(2, config.architecture().invokers().size());
 
@@ -111,7 +110,7 @@ class ArchitectureConfigTest {
                     - RequestMapping
                 """);
 
-        ProjectConfig config = ProjectConfig.load(tempDir);
+        var config = ProjectConfig.load(tempDir).orElseThrow();
         assertNotNull(config.architecture());
         assertEquals(3, config.architecture().endpointAnnotations().size());
     }
@@ -124,8 +123,7 @@ class ArchitectureConfigTest {
                   - src/main/java
                 """);
 
-        ProjectConfig config = ProjectConfig.load(tempDir);
-        assertNotNull(config);
+        var config = ProjectConfig.load(tempDir).orElseThrow();
         assertNotNull(config.architecture());
         assertTrue(config.architecture().layers().isEmpty());
     }

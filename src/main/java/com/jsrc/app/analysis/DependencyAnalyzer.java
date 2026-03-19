@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,14 +34,14 @@ public class DependencyAnalyzer {
      *
      * @param files     Java source files to search
      * @param className simple or qualified class name
-     * @return dependency result, or null if class not found
+     * @return dependency result, or empty if class not found
      */
-    public DependencyResult analyze(List<Path> files, String className) {
+    public Optional<DependencyResult> analyze(List<Path> files, String className) {
         for (Path file : files) {
             DependencyResult result = analyzeFile(file, className);
-            if (result != null) return result;
+            if (result != null) return Optional.of(result);
         }
-        return null;
+        return Optional.empty();
     }
 
     private DependencyResult analyzeFile(Path file, String className) {

@@ -25,17 +25,17 @@ public class AnnotationsCommand implements Command {
                 AnnotationInfo ann = m.annotations().stream()
                         .filter(a -> a.name().equals(annotationName))
                         .findFirst().orElse(AnnotationInfo.marker(annotationName));
-                String filePath = ctx.indexed().findFileForClass(m.className());
+                String filePath = ctx.indexed().findFileForClass(m.className()).orElse("");
                 matches.add(new AnnotationMatch("method", m.name(), m.className(),
-                        Path.of(filePath != null ? filePath : ""), m.startLine(), ann));
+                        Path.of(filePath), m.startLine(), ann));
             }
             for (ClassInfo ci : ctx.indexed().findClassesByAnnotation(annotationName)) {
                 AnnotationInfo ann = ci.annotations().stream()
                         .filter(a -> a.name().equals(annotationName))
                         .findFirst().orElse(AnnotationInfo.marker(annotationName));
-                String filePath = ctx.indexed().findFileForClass(ci.name());
+                String filePath = ctx.indexed().findFileForClass(ci.name()).orElse("");
                 matches.add(new AnnotationMatch("class", ci.name(), ci.name(),
-                        Path.of(filePath != null ? filePath : ""), ci.startLine(), ann));
+                        Path.of(filePath), ci.startLine(), ann));
             }
         } else {
             for (Path file : ctx.javaFiles()) {

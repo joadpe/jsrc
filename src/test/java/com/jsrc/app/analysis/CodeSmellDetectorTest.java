@@ -601,6 +601,48 @@ class CodeSmellDetectorTest {
     }
 
     @Test
+    @DisplayName("Should flag catch with logging + return null")
+    void shouldFlagCatchWithLoggingAndReturnNull() throws IOException {
+        Path file = writeFile("LogReturnNull.java", """
+                public class LogReturnNull {
+                    public String load() {
+                        try {
+                            return "data";
+                        } catch (Exception e) {
+                            System.err.println("Error: " + e);
+                            return null;
+                        }
+                    }
+                }
+                """);
+        var smells = parser.detectSmells(file);
+        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_RETURN_NULL")),
+                "Log + return null should flag SILENT_CATCH_RETURN_NULL. Got: " + smells);
+    }
+
+    @Test
+    @DisplayName("Should flag catch with logging + continue")
+    void shouldFlagCatchWithLoggingAndContinue() throws IOException {
+        Path file = writeFile("LogContinue.java", """
+                public class LogContinue {
+                    public void process(java.util.List<String> items) {
+                        for (String item : items) {
+                            try {
+                                Integer.parseInt(item);
+                            } catch (NumberFormatException e) {
+                                System.err.println("Bad: " + item);
+                                continue;
+                            }
+                        }
+                    }
+                }
+                """);
+        var smells = parser.detectSmells(file);
+        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH_CONTINUE")),
+                "Log + continue should flag SILENT_CATCH_CONTINUE. Got: " + smells);
+    }
+
+    @Test
     @DisplayName("Should NOT flag catch with logging + rethrow")
     void shouldNotFlagCatchWithLoggingAndRethrow() throws IOException {
         Path file = writeFile("LogRethrow.java", """

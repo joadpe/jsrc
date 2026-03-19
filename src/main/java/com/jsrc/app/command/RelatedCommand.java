@@ -91,6 +91,7 @@ public class RelatedCommand implements Command {
 
         // Build ranked list
         List<Map<String, Object>> ranked = scores.entrySet().stream()
+                .filter(e -> !UTILITY_TYPES.contains(e.getKey()))
                 .sorted(Comparator.comparingInt((Map.Entry<String, Integer> e) -> -e.getValue())
                         .thenComparing(Map.Entry::getKey))
                 .map(e -> {
@@ -109,7 +110,9 @@ public class RelatedCommand implements Command {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("target", target.qualifiedName());
-        result.put("directDeps", directDeps.stream().filter(d -> !d.equals(target.name())).toList());
+        result.put("directDeps", directDeps.stream()
+                .filter(d -> !d.equals(target.name()) && !UTILITY_TYPES.contains(d))
+                .toList());
         result.put("callers", callers.stream().toList());
         result.put("samePackage", samePackage);
         result.put("ranked", ranked);
@@ -118,8 +121,25 @@ public class RelatedCommand implements Command {
         return ranked.size();
     }
 
+    private static final Set<String> UTILITY_TYPES = Set.of(
+            // Primitives + wrappers
+            "int", "long", "short", "byte", "float", "double", "boolean", "char",
+            "String", "Integer", "Long", "Double", "Float", "Boolean", "Number",
+            // Collections and common utility
+            "List", "Map", "Set", "Collection", "Queue", "Deque", "Iterator",
+            "Optional", "Stream", "Arrays", "Collections", "Objects",
+            "Object", "Class", "Enum", "Void",
+            // Common ubiquitous types
+            "Assert", "HashMap", "ArrayList", "LinkedList", "HashSet",
+            "LinkedHashMap", "LinkedHashSet", "TreeMap",
+            "Function", "Supplier", "Consumer", "Predicate", "BiFunction",
+            "StringBuilder", "Pattern", "Matcher",
+            "Path", "File", "InputStream", "OutputStream",
+            "Exception", "RuntimeException", "IOException",
+            "Logger", "Log", "LoggerFactory"
+    );
+
     private static boolean isPrimitive(String type) {
-        return Set.of("int", "long", "short", "byte", "float", "double", "boolean", "char", "String")
-                .contains(type);
+        return UTILITY_TYPES.contains(type);
     }
 }

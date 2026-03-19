@@ -71,12 +71,14 @@ public final class MarkdownFormatter {
             }
         }
 
-        // Call graph — compact
+        // Call graph — compact, deduplicated by method name
         List<Map<String, Object>> callGraph = (List<Map<String, Object>>) ctx.get("callGraph");
         if (callGraph != null && !callGraph.isEmpty()) {
             md.append("## Call Graph\n\n");
+            java.util.Set<String> seenMethods = new java.util.HashSet<>();
             for (Map<String, Object> cg : callGraph) {
                 String method = (String) cg.get("method");
+                if (!seenMethods.add(method)) continue; // skip duplicate overloads
                 md.append("### ").append(method).append("()\n\n");
 
                 List<String> callees = (List<String>) cg.get("callees");

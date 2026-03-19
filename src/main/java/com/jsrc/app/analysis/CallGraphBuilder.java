@@ -50,7 +50,9 @@ public class CallGraphBuilder {
     private final Map<String, Set<MethodReference>> methodsByName = new HashMap<>();
 
     public CallGraphBuilder() {
-        this.javaParser = new JavaParser();
+        var config = new com.github.javaparser.ParserConfiguration()
+                .setLanguageLevel(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_21);
+        this.javaParser = new JavaParser(config);
     }
 
     /**

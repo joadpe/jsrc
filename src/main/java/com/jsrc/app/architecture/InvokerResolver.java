@@ -63,7 +63,7 @@ public class InvokerResolver {
         List<ReflectiveCall> results = new ArrayList<>();
         if (invokers.isEmpty()) return results;
 
-        var javaParser = new JavaParser();
+        var jpConfig = new com.github.javaparser.ParserConfiguration().setLanguageLevel(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_21); var javaParser = new JavaParser(jpConfig);
         for (Path file : files) {
             try {
                 String source = Files.readString(file);

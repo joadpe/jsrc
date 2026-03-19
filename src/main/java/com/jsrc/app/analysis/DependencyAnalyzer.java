@@ -26,7 +26,9 @@ public class DependencyAnalyzer {
     private final JavaParser javaParser;
 
     public DependencyAnalyzer() {
-        this.javaParser = new JavaParser();
+        var config = new com.github.javaparser.ParserConfiguration()
+                .setLanguageLevel(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_21);
+        this.javaParser = new JavaParser(config);
     }
 
     /**

@@ -75,7 +75,7 @@ public class CodebaseIndex {
 
         entries.clear();
         int reindexed = 0;
-        var edgeParser = new JavaParser(); // reused across files
+        var edgeConfig = new com.github.javaparser.ParserConfiguration().setLanguageLevel(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_21); var edgeParser = new JavaParser(edgeConfig); // reused across files
 
         for (Path file : files) {
             String relativePath = sourceRoot.relativize(file).toString();

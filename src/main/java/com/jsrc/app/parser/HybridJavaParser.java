@@ -55,7 +55,9 @@ public class HybridJavaParser implements CodeParser {
 
     public HybridJavaParser() {
         this.treeSitter = new TreeSitterParser("java");
-        this.javaParser = new JavaParser();
+        var config = new com.github.javaparser.ParserConfiguration()
+                .setLanguageLevel(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_21);
+        this.javaParser = new JavaParser(config);
         this.smellDetector = new CodeSmellDetector();
     }
 
@@ -85,7 +87,7 @@ public class HybridJavaParser implements CodeParser {
         logger.debug("TreeSitter located '{}' at lines {} in {}, enriching with JavaParser",
                 methodName, targetLines, path.getFileName());
 
-        CompilationUnit cu = parseWithJavaParser(path);
+        CompilationUnit cu = parseWithJavaParserStrict(path);
         if (cu == null) return tsLocations;
 
         List<MethodInfo> enriched = cu.findAll(MethodDeclaration.class).stream()
@@ -113,7 +115,7 @@ public class HybridJavaParser implements CodeParser {
     public List<MethodInfo> findAllMethods(Path path) {
         if (!isValidPath(path)) return Collections.emptyList();
 
-        CompilationUnit cu = parseWithJavaParser(path);
+        CompilationUnit cu = parseWithJavaParserStrict(path);
         if (cu == null) return treeSitter.findAllMethods(path);
 
         return cu.findAll(MethodDeclaration.class).stream()
@@ -133,10 +135,40 @@ public class HybridJavaParser implements CodeParser {
                 .map(pd -> pd.getNameAsString())
                 .orElse("");
 
-        return cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+        var classes = new java.util.ArrayList<com.jsrc.app.parser.model.ClassInfo>();
+        cu.findAll(ClassOrInterfaceDeclaration.class).stream()
                 .filter(cid -> cid.getBegin().isPresent())
                 .map(cid -> toClassInfo(cid, packageName))
+                .forEach(classes::add);
+
+        // Also handle records (Java 16+)
+        cu.findAll(com.github.javaparser.ast.body.RecordDeclaration.class).stream()
+                .filter(rd -> rd.getBegin().isPresent())
+                .map(rd -> recordToClassInfo(rd, packageName))
+                .forEach(classes::add);
+
+        return classes;
+    }
+
+    private ClassInfo recordToClassInfo(com.github.javaparser.ast.body.RecordDeclaration rd,
+                                         String packageName) {
+        String name = rd.getNameAsString();
+        int startLine = rd.getBegin().map(p -> p.line).orElse(0);
+        int endLine = rd.getEnd().map(p -> p.line).orElse(0);
+        List<String> modifiers = rd.getModifiers().stream()
+                .map(mod -> mod.getKeyword().asString()).toList();
+        List<MethodInfo> methods = rd.getMethods().stream()
+                .map(md -> toRichMethodInfo(md, null)).toList();
+        List<AnnotationInfo> annotations = rd.getAnnotations().stream()
+                .map(this::toAnnotationInfo).toList();
+        List<String> interfaces = rd.getImplementedTypes().stream()
+                .map(t -> t.asString()).toList();
+        List<com.jsrc.app.parser.model.FieldInfo> fields = rd.getParameters().stream()
+                .map(p -> new com.jsrc.app.parser.model.FieldInfo(p.getNameAsString(), p.getTypeAsString()))
                 .toList();
+
+        return new ClassInfo(name, packageName, startLine, endLine,
+                modifiers, methods, "", interfaces, annotations, false, fields);
     }
 
     @Override
@@ -145,7 +177,7 @@ public class HybridJavaParser implements CodeParser {
             return Collections.emptyList();
         }
 
-        CompilationUnit cu = parseWithJavaParser(path);
+        CompilationUnit cu = parseWithJavaParserStrict(path);
         if (cu == null) return Collections.emptyList();
 
         return cu.findAll(MethodDeclaration.class).stream()
@@ -162,7 +194,7 @@ public class HybridJavaParser implements CodeParser {
     public List<CodeSmell> detectSmells(Path path) {
         if (!isValidPath(path)) return Collections.emptyList();
 
-        CompilationUnit cu = parseWithJavaParser(path);
+        CompilationUnit cu = parseWithJavaParserStrict(path);
         if (cu == null) return Collections.emptyList();
 
         return smellDetector.analyzeFile(cu);
@@ -278,11 +310,37 @@ public class HybridJavaParser implements CodeParser {
 
     // ---- helpers ----
 
-    private CompilationUnit parseWithJavaParser(Path path) {
+    /**
+     * Parses with strict mode — only returns CU if parse was fully successful.
+     * Use for operations that need full AST fidelity (findMethods, detectSmells).
+     */
+    private CompilationUnit parseWithJavaParserStrict(Path path) {
         try {
             String source = Files.readString(path);
             var result = javaParser.parse(source);
             if (result.isSuccessful() && result.getResult().isPresent()) {
+                return result.getResult().get();
+            }
+            logger.warn("JavaParser could not parse {}, falling back to TreeSitter", path.getFileName());
+        } catch (IOException ex) {
+            logger.debug("Error reading file {}: {}", path, ex.getMessage());
+            skippedFiles.add(path.toString());
+        }
+        return null;
+    }
+
+    /**
+     * Parses with lenient mode — returns CU even with parse problems.
+     * Use for metadata extraction (parseClasses) where partial info is still useful.
+     */
+    private CompilationUnit parseWithJavaParser(Path path) {
+        try {
+            String source = Files.readString(path);
+            var result = javaParser.parse(source);
+            if (result.getResult().isPresent()) {
+                if (!result.isSuccessful()) {
+                    logger.debug("Parsed {} with {} problem(s)", path.getFileName(), result.getProblems().size());
+                }
                 return result.getResult().get();
             }
             logger.warn("JavaParser could not parse {}, falling back to TreeSitter", path.getFileName());

@@ -25,7 +25,10 @@ public class ReadCommand implements Command {
         } else if (target.contains("(")) {
             result = findMethodReadAllFiles(ctx, ref);
         } else {
-            result = reader.readClass(ctx.javaFiles(), target).orElse(null);
+            // Fast path: locate file via index for class read
+            Path classFile = findFileForClass(ctx, target);
+            List<Path> classSearch = classFile != null ? List.of(classFile) : ctx.javaFiles();
+            result = reader.readClass(classSearch, target).orElse(null);
             if (result == null) {
                 result = findMethodReadAllFiles(ctx, ref);
             }
@@ -41,23 +44,23 @@ public class ReadCommand implements Command {
 
     private SourceReader.ReadResult findMethodRead(CommandContext ctx, SourceReader reader,
                                                     MethodResolver.MethodRef ref) {
-        var resultOpt = reader.readMethod(ctx.javaFiles(), ref.className(), ref.methodName());
-        var result = resultOpt.orElse(null);
-        if (result != null && ref.hasParamTypes()) {
-            Path file = findFileForClass(ctx, ref.className());
-            if (file != null) {
-                var methods = MethodResolver.filter(
-                        ctx.parser().findMethods(file, ref.methodName()), ref);
-                if (!methods.isEmpty()) {
-                    MethodInfo m = methods.getFirst();
-                    return new SourceReader.ReadResult(
-                            m.className(), m.name(), file,
-                            m.startLine(), m.endLine(), m.content());
-                }
-                return null;
+        // Fast path: locate file via index, then parse only that file
+        Path targetFile = findFileForClass(ctx, ref.className());
+        List<Path> searchFiles = targetFile != null ? List.of(targetFile) : ctx.javaFiles();
+
+        if (ref.hasParamTypes() && targetFile != null) {
+            var methods = MethodResolver.filter(
+                    ctx.parser().findMethods(targetFile, ref.methodName()), ref);
+            if (!methods.isEmpty()) {
+                MethodInfo m = methods.getFirst();
+                return new SourceReader.ReadResult(
+                        m.className(), m.name(), targetFile,
+                        m.startLine(), m.endLine(), m.content());
             }
+            return null;
         }
-        return result;
+
+        return reader.readMethod(searchFiles, ref.className(), ref.methodName()).orElse(null);
     }
 
     private SourceReader.ReadResult findMethodReadAllFiles(CommandContext ctx,

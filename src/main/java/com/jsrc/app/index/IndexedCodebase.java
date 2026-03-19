@@ -150,6 +150,70 @@ public class IndexedCodebase {
     }
 
     /**
+     * Assembles dependency information for a class from the index.
+     * Avoids on-the-fly parsing — uses indexed imports, fields, and constructor params.
+     *
+     * @param className simple or qualified class name
+     * @return dependency result, or empty if not found
+     */
+    public Optional<com.jsrc.app.model.DependencyResult> getDependencies(String className) {
+        for (IndexEntry entry : entries) {
+            for (IndexedClass ic : entry.classes()) {
+                if (!ic.name().equals(className) && !ic.qualifiedName().equals(className)) continue;
+
+                List<com.jsrc.app.model.DependencyResult.FieldDep> fieldDeps = ic.fields().stream()
+                        .map(f -> new com.jsrc.app.model.DependencyResult.FieldDep(f.type(), f.name()))
+                        .toList();
+
+                // Constructor params: find methods named after the class (constructors)
+                List<com.jsrc.app.model.DependencyResult.FieldDep> ctorDeps = ic.methods().stream()
+                        .filter(m -> m.name().equals(ic.name()))
+                        .flatMap(m -> extractParamsFromSignature(m.signature()).stream())
+                        .toList();
+
+                return Optional.of(new com.jsrc.app.model.DependencyResult(
+                        ic.qualifiedName(), ic.imports(), fieldDeps, ctorDeps));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Extracts parameter names and types from a method signature string.
+     * E.g. "public OrderService(OrderRepo repo, EventBus bus)" → [(OrderRepo,repo), (EventBus,bus)]
+     */
+    private static List<com.jsrc.app.model.DependencyResult.FieldDep> extractParamsFromSignature(String signature) {
+        if (signature == null || signature.isEmpty()) return List.of();
+        int openParen = signature.indexOf('(');
+        int closeParen = signature.lastIndexOf(')');
+        if (openParen < 0 || closeParen <= openParen + 1) return List.of();
+
+        String paramStr = signature.substring(openParen + 1, closeParen).trim();
+        if (paramStr.isEmpty()) return List.of();
+
+        var result = new ArrayList<com.jsrc.app.model.DependencyResult.FieldDep>();
+        for (String param : paramStr.split(",")) {
+            param = param.trim();
+            // Remove annotations like @NonNull
+            while (param.startsWith("@")) {
+                int space = param.indexOf(' ');
+                if (space > 0) param = param.substring(space + 1).trim();
+                else break;
+            }
+            int lastSpace = param.lastIndexOf(' ');
+            if (lastSpace > 0) {
+                String type = param.substring(0, lastSpace).trim();
+                String name = param.substring(lastSpace + 1).trim();
+                // Strip generics from type
+                int genIdx = type.indexOf('<');
+                if (genIdx > 0) type = type.substring(0, genIdx);
+                result.add(new com.jsrc.app.model.DependencyResult.FieldDep(type, name));
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns all methods matching a name from the index.
      */
     public List<MethodInfo> findMethodsByName(String methodName) {

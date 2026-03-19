@@ -10,8 +10,16 @@ public class DepsCommand implements Command {
 
     @Override
     public int execute(CommandContext ctx) {
-        var analyzer = ctx.dependencyAnalyzer();
-        var result = analyzer.analyze(ctx.javaFiles(), className);
+        // Fast path: use index if available
+        if (ctx.indexed() != null) {
+            var indexed = ctx.indexed().getDependencies(className);
+            if (indexed.isPresent()) {
+                ctx.formatter().printDependencies(indexed.get());
+                return 1;
+            }
+        }
+        // Fallback: parse on-the-fly
+        var result = ctx.dependencyAnalyzer().analyze(ctx.javaFiles(), className);
         if (result.isPresent()) {
             ctx.formatter().printDependencies(result.get());
             return 1;

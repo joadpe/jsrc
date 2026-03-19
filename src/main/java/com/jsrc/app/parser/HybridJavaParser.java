@@ -252,9 +252,21 @@ public class HybridJavaParser implements CodeParser {
                 .map(mod -> mod.getKeyword().asString())
                 .toList();
 
-        List<MethodInfo> methods = cid.getMethods().stream()
+        var methods = new java.util.ArrayList<MethodInfo>();
+        cid.getMethods().stream()
                 .map(md -> toRichMethodInfo(md, null))
-                .toList();
+                .forEach(methods::add);
+        // Include constructors as methods (for dependency analysis and call graph)
+        cid.getConstructors().forEach(cd -> {
+            int ctorStart = cd.getBegin().map(p -> p.line).orElse(0);
+            int ctorEnd = cd.getEnd().map(p -> p.line).orElse(0);
+            String ctorSig = cd.getDeclarationAsString(true, true, true);
+            List<MethodInfo.ParameterInfo> ctorParams = cd.getParameters().stream()
+                    .map(this::toParameterInfo).toList();
+            methods.add(new MethodInfo(cid.getNameAsString(), cid.getNameAsString(),
+                    ctorStart, ctorEnd, "", List.of("public"), ctorParams,
+                    cd.toString(), List.of(), List.of(), List.of(), null));
+        });
 
         String superClass = cid.getExtendedTypes().stream()
                 .findFirst()

@@ -20,8 +20,12 @@ public final class MarkdownWriter {
      * @param filename filename without extension (e.g. "smells-report")
      */
     public static void output(String markdown, String outDir, String filename) {
+        output(markdown, outDir, filename, System.out);
+    }
+
+    public static void output(String markdown, String outDir, String filename, java.io.PrintStream out) {
         if (outDir == null) {
-            System.out.println(markdown);
+            out.println(markdown);
             return;
         }
         try {

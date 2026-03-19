@@ -399,7 +399,8 @@ public class CodeSmellDetector {
 
     private static boolean isLoggingStatement(String stmt) {
         String lower = stmt.toLowerCase();
-        return lower.contains("logger.") || lower.contains("log.") || lower.contains("log4j")
+        // Match: logger.error(...), log.warn(...), LOG.info(...), LOGGER.debug(...)
+        return lower.matches(".*(logger?|log)\\.(error|warn|info|debug|trace)\\(.*")
                 || lower.contains("system.err.println") || lower.contains("system.out.println");
     }
 }

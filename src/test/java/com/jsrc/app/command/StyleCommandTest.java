@@ -48,7 +48,8 @@ class StyleCommandTest {
                     private static final Logger log = LoggerFactory.getLogger(A.class);
                 }
                 """);
-        assertEquals("SLF4J", result.get("logging"));
+        String logging = (String) result.get("logging");
+        assertEquals("SLF4J", logging, "Should detect SLF4J from org.slf4j import");
     }
 
     @Test

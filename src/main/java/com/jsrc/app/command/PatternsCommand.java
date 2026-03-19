@@ -30,8 +30,9 @@ public class PatternsCommand implements Command {
             for (var entry : ctx.indexed().getEntries()) {
                 for (var ic : entry.classes()) {
                     for (String imp : ic.imports()) {
-                        if (imp.contains("slf4j")) loggingCounts.merge("SLF4J", 1, Integer::sum);
-                        else if (imp.contains("log4j")) loggingCounts.merge("Log4j", 1, Integer::sum);
+                        if (imp.contains("org.slf4j")) loggingCounts.merge("SLF4J", 1, Integer::sum);
+                        else if (imp.contains("org.apache.logging.log4j")) loggingCounts.merge("Log4j2", 1, Integer::sum);
+                        else if (imp.contains("org.apache.commons.logging")) loggingCounts.merge("commons-logging", 1, Integer::sum);
                         else if (imp.contains("java.util.logging")) loggingCounts.merge("JUL", 1, Integer::sum);
                     }
                 }

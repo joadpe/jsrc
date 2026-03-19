@@ -22,7 +22,7 @@ public class StyleCommand implements Command {
             return 0;
         }
 
-        int slf4j = 0, log4j = 0, sysout = 0;
+        int slf4j = 0, log4j = 0, commonsLogging = 0, jul = 0;
         int ctorInjection = 0, fieldInjection = 0;
         int requireNonNull = 0, optionalReturns = 0;
         int totalClasses = allClasses.size();
@@ -33,8 +33,10 @@ public class StyleCommand implements Command {
                 for (var ic : entry.classes()) {
                     // Logging
                     for (String imp : ic.imports()) {
-                        if (imp.contains("slf4j")) slf4j++;
-                        else if (imp.contains("log4j")) log4j++;
+                        if (imp.contains("org.slf4j")) slf4j++;
+                        else if (imp.contains("org.apache.logging.log4j")) log4j++;
+                        else if (imp.contains("org.apache.commons.logging")) commonsLogging++;
+                        else if (imp.contains("java.util.logging")) jul++;
                     }
 
                     // Injection: constructor with params vs @Autowired fields
@@ -72,11 +74,12 @@ public class StyleCommand implements Command {
 
         // Logging
         String logging;
-        if (slf4j > log4j && slf4j > sysout) logging = "SLF4J";
-        else if (log4j > slf4j) logging = "Log4j";
-        else if (sysout > 0) logging = "System.out";
-        else if (slf4j > 0) logging = "SLF4J";
-        else logging = "none";
+        int maxLog = Math.max(Math.max(slf4j, log4j), Math.max(commonsLogging, jul));
+        if (maxLog == 0) logging = "none";
+        else if (slf4j == maxLog) logging = "SLF4J";
+        else if (commonsLogging == maxLog) logging = "commons-logging";
+        else if (log4j == maxLog) logging = "Log4j2";
+        else logging = "JUL";
         result.put("logging", logging);
 
         // Injection

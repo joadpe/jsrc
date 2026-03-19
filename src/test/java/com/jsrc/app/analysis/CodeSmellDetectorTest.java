@@ -676,6 +676,26 @@ class CodeSmellDetectorTest {
     }
 
     @Test
+    @DisplayName("Should detect catch with only flag assignment")
+    void shouldDetectFlagAssignment() throws IOException {
+        Path file = writeFile("FlagCatch.java", """
+                public class FlagCatch {
+                    public void process() {
+                        boolean hasError = false;
+                        try {
+                            Integer.parseInt("bad");
+                        } catch (NumberFormatException e) {
+                            hasError = true;
+                        }
+                    }
+                }
+                """);
+        var smells = parser.detectSmells(file);
+        assertTrue(smells.stream().anyMatch(s -> s.ruleId().equals("SILENT_CATCH")),
+                "Flag assignment without propagation = silent. Got: " + smells);
+    }
+
+    @Test
     @DisplayName("Should detect catch with break")
     void shouldDetectBreak() throws IOException {
         Path file = writeFile("BreakCatch.java", """

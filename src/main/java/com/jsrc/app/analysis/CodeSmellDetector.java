@@ -137,6 +137,7 @@ public class CodeSmellDetector {
                 else if (isReturnDefault(s)) hasReturnNull = true; // return false/""/-1/empty = same as null
                 else if (s.equals("return;")) hasReturn = true;
                 else if (isLoggingStatement(s)) hasLogging = true;
+                else if (isFlagAssignment(s)) { /* flag assignment = suspicious, not real handling */ }
                 else hasRealHandling = true; // rethrow, wrap, set flag, etc.
             }
 
@@ -147,6 +148,13 @@ public class CodeSmellDetector {
                     smells.add(new CodeSmell(
                             "SILENT_CATCH", Severity.WARNING,
                             "Catch block logs but does not propagate error — caller unaware of failure",
+                            line, methodName, className));
+                }
+                // Catch with no recognized pattern and no real handling = silent
+                if (!hasLogging && !hasContinue && !hasReturnNull && !hasReturn && !hasPrintStackTrace) {
+                    smells.add(new CodeSmell(
+                            "SILENT_CATCH", Severity.WARNING,
+                            "Catch block does not propagate error — caller unaware of failure",
                             line, methodName, className));
                 }
                 if (hasContinue) {
@@ -377,6 +385,16 @@ public class CodeSmellDetector {
                 || stmt.contains("Map.of()")
                 || stmt.contains("Collections.empty")
                 || stmt.contains("Optional.empty()");
+    }
+
+    /**
+     * Checks if a statement is just setting a boolean/status flag.
+     * E.g. "hasError = true;", "success = false;", "failed = true;"
+     * These swallow the exception into a flag that may never be checked.
+     */
+    private static boolean isFlagAssignment(String stmt) {
+        // Pattern: identifier = true/false;
+        return stmt.matches("[a-zA-Z_][a-zA-Z0-9_]* = (true|false);");
     }
 
     private static boolean isLoggingStatement(String stmt) {

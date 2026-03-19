@@ -22,7 +22,10 @@ public class LintCommand implements Command {
             "Byte", "Short", "Character", "Number", "Math", "System", "Thread",
             "Class", "Enum", "Record", "Annotation", "StringBuilder", "StringBuffer",
             "Runnable", "Callable", "Comparable", "Serializable", "Iterable",
-            "AutoCloseable", "Cloneable", "Throwable",
+            "AutoCloseable", "Cloneable", "Throwable", "ThreadLocal", "InheritableThreadLocal",
+            "ProcessBuilder", "Runtime", "ClassLoader", "SecurityManager", "StackTraceElement",
+            "Deprecated", "Override", "SuppressWarnings", "FunctionalInterface",
+            "Void", "ThreadGroup", "Package", "Module",
             // java.util
             "List", "Map", "Set", "Collection", "Queue", "Deque", "Iterator",
             "Optional", "Stream", "Arrays", "Collections", "Objects",
@@ -81,6 +84,23 @@ public class LintCommand implements Command {
         Set<String> knownTypes = new java.util.HashSet<>(JDK_TYPES);
         knownTypes.addAll(PRIMITIVES);
         for (var ci : allClasses) knownTypes.add(ci.name());
+
+        // Resolve types from the class's own imports
+        if (ctx.indexed() != null) {
+            for (var entry : ctx.indexed().getEntries()) {
+                for (var ic : entry.classes()) {
+                    if (ic.name().equals(target.name())) {
+                        for (String imp : ic.imports()) {
+                            // Extract simple name from import: org.springframework.core.io.ResourceLoader → ResourceLoader
+                            int lastDot = imp.lastIndexOf('.');
+                            if (lastDot >= 0 && !imp.endsWith(".*")) {
+                                knownTypes.add(imp.substring(lastDot + 1));
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         List<Map<String, Object>> diagnostics = new ArrayList<>();
 

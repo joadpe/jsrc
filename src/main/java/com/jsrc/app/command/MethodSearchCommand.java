@@ -1,7 +1,10 @@
 package com.jsrc.app.command;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.jsrc.app.parser.model.MethodInfo;
 import com.jsrc.app.util.MethodResolver;
@@ -18,6 +21,8 @@ public class MethodSearchCommand implements Command {
         var ref = MethodResolver.parse(methodInput);
         String methodName = ref.methodName();
 
+        List<Map<String, Object>> allResults = new ArrayList<>();
+
         // Fast path: use index when available and no param type filtering needed
         if (ctx.indexed() != null && !ref.hasParamTypes()) {
             List<MethodInfo> methods = ctx.indexed().findMethodsByName(methodName);
@@ -27,8 +32,6 @@ public class MethodSearchCommand implements Command {
                         .toList();
             }
             if (!methods.isEmpty()) {
-                // Re-parse only matching files for full method details
-                int totalFound = 0;
                 for (MethodInfo indexed : methods) {
                     var filePathOpt = ctx.indexed().findFileForClass(indexed.className());
                     if (filePathOpt.isEmpty()) continue;
@@ -41,17 +44,15 @@ public class MethodSearchCommand implements Command {
                                 .filter(m -> m.className().equals(ref.className()))
                                 .toList();
                     }
-                    if (!detailed.isEmpty()) {
-                        totalFound += detailed.size();
-                        ctx.formatter().printMethods(detailed, file, methodName);
+                    for (MethodInfo m : detailed) {
+                        allResults.add(methodToMap(m, file));
                     }
                 }
-                return totalFound;
+                return outputResults(ctx, allResults, methodName);
             }
         }
 
         // Fallback: scan all files
-        int totalFound = 0;
         for (Path file : ctx.javaFiles()) {
             List<MethodInfo> methods;
             if (ref.hasParamTypes()) {
@@ -64,12 +65,48 @@ public class MethodSearchCommand implements Command {
                         .filter(m -> m.className().equals(ref.className()))
                         .toList();
             }
-            if (!methods.isEmpty()) {
-                totalFound += methods.size();
-                ctx.formatter().printMethods(methods, file, methodName);
+            for (MethodInfo m : methods) {
+                allResults.add(methodToMap(m, file));
             }
         }
-        return totalFound;
+        return outputResults(ctx, allResults, methodName);
+    }
+
+    private int outputResults(CommandContext ctx, List<Map<String, Object>> results, String methodName) {
+        if (!ctx.fullOutput() && results.size() > 30) {
+            var compact = new LinkedHashMap<String, Object>();
+            compact.put("method", methodName);
+            compact.put("total", results.size());
+            // Group by class
+            var byClass = new LinkedHashMap<String, Integer>();
+            for (var r : results) {
+                String cls = (String) r.getOrDefault("className", "");
+                if (!cls.isEmpty()) byClass.merge(cls, 1, Integer::sum);
+            }
+            compact.put("classesWithMethod", byClass.size());
+            compact.put("topClasses", byClass.entrySet().stream()
+                    .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                    .limit(10)
+                    .map(e -> Map.of("class", e.getKey(), "overloads", e.getValue()))
+                    .toList());
+            compact.put("matches", results.subList(0, 30));
+            compact.put("truncated", true);
+            compact.put("hint", "Use --full or Class.method to narrow results");
+            ctx.formatter().printResult(compact);
+        } else {
+            ctx.formatter().printResult(results);
+        }
+        return results.size();
+    }
+
+    private Map<String, Object> methodToMap(MethodInfo m, Path file) {
+        var map = new LinkedHashMap<String, Object>();
+        map.put("name", m.name());
+        map.put("className", m.className());
+        map.put("signature", m.signature());
+        map.put("file", file.toString());
+        map.put("startLine", m.startLine());
+        return map;
     }
 
     private static Path findMatchingFile(List<Path> files, String indexPath) {

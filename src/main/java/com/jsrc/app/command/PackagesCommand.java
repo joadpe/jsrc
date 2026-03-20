@@ -57,7 +57,25 @@ public class PackagesCommand implements Command {
             result.add(pkgInfo);
         }
 
-        ctx.formatter().printResult(result);
+        if (!ctx.fullOutput() && result.size() > 30) {
+            // Compact: top 30 packages by class count + summary
+            var sorted = result.stream()
+                    .sorted((a, b) -> Integer.compare(
+                            ((Number) b.get("classes")).intValue(),
+                            ((Number) a.get("classes")).intValue()))
+                    .limit(30)
+                    .toList();
+            var compact = new LinkedHashMap<String, Object>();
+            compact.put("totalPackages", result.size());
+            compact.put("totalClasses", result.stream()
+                    .mapToInt(p -> ((Number) p.get("classes")).intValue()).sum());
+            compact.put("packages", sorted);
+            compact.put("truncated", true);
+            compact.put("hint", "Use --full to see all " + result.size() + " packages");
+            ctx.formatter().printResult(compact);
+        } else {
+            ctx.formatter().printResult(result);
+        }
         return result.size();
     }
 }

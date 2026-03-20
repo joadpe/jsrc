@@ -55,7 +55,29 @@ public class AnnotationsCommand implements Command {
             }
         }
 
-        ctx.formatter().printAnnotationMatches(matches);
+        if (!ctx.fullOutput() && matches.size() > 30) {
+            // Compact: group by type (class vs method), show counts + top 30
+            long classCount = matches.stream().filter(m -> "class".equals(m.type())).count();
+            long methodCount = matches.stream().filter(m -> "method".equals(m.type())).count();
+            var compact = new java.util.LinkedHashMap<String, Object>();
+            compact.put("annotation", annotationName);
+            compact.put("total", matches.size());
+            compact.put("onClasses", classCount);
+            compact.put("onMethods", methodCount);
+            compact.put("matches", matches.subList(0, 30).stream()
+                    .map(m -> {
+                        var map = new java.util.LinkedHashMap<String, Object>();
+                        map.put("type", m.type());
+                        map.put("className", m.className());
+                        map.put("name", m.name());
+                        return map;
+                    }).toList());
+            compact.put("truncated", true);
+            compact.put("hint", "Use --full to see all " + matches.size() + " matches");
+            ctx.formatter().printResult(compact);
+        } else {
+            ctx.formatter().printAnnotationMatches(matches);
+        }
         return matches.size();
     }
 }

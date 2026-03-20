@@ -22,10 +22,18 @@ public class SummaryCommand implements Command {
         ClassInfo ci = resolveOrExit(allClasses, className);
         if (ci == null) return 0;
 
-        // Compact mode (default): limit to top 20 methods sorted by name
+        // Compact mode (default): limit to top 20 methods sorted by caller count
         if (!ctx.fullOutput() && ci.methods().size() > 20) {
+            var graph = ctx.callGraph();
+            String cn = ci.name();
             List<MethodInfo> trimmed = ci.methods().stream()
-                    .sorted(Comparator.comparing(MethodInfo::name))
+                    .sorted(Comparator.<MethodInfo, Integer>comparing(m ->
+                            graph.findMethodsByName(m.name()).stream()
+                                    .filter(r -> r.className().equals(cn))
+                                    .mapToInt(r -> graph.getCallersOf(r).size())
+                                    .sum())
+                            .reversed()
+                            .thenComparing(MethodInfo::name))
                     .limit(20)
                     .toList();
             ci = ci.withMethods(trimmed);

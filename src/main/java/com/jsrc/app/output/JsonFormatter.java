@@ -128,12 +128,17 @@ public class JsonFormatter implements OutputFormatter {
 
     @Override
     public void printOverview(OverviewResult result) {
+        printOverview(result, result.packages().size());
+    }
+
+    @Override
+    public void printOverview(OverviewResult result, int packageCount) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("totalFiles", result.totalFiles());
         map.put("totalClasses", result.totalClasses());
         map.put("totalInterfaces", result.totalInterfaces());
         map.put("totalMethods", result.totalMethods());
-        map.put("totalPackages", result.packages().size());
+        map.put("totalPackages", packageCount);
         if (!result.packages().isEmpty()) {
             map.put("packages", result.packages());
         }

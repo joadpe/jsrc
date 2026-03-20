@@ -78,6 +78,13 @@ public interface OutputFormatter {
     void printOverview(OverviewResult result);
 
     /**
+     * Print overview with explicit package count (for compact mode where list is omitted).
+     */
+    default void printOverview(OverviewResult result, int packageCount) {
+        printOverview(result);
+    }
+
+    /**
      * Prints class dependency results.
      *
      * @param result dependency data for the queried class

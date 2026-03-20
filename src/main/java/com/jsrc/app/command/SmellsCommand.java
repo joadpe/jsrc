@@ -131,18 +131,53 @@ public class SmellsCommand implements Command {
         if (ctx.mdOutput() && !allSmells.isEmpty()) {
             var sb = new StringBuilder();
             sb.append("# Code Smell Report\n\n");
-            sb.append("| Severity | Rule | Class | Method | Line | Message |\n");
-            sb.append("|----------|------|-------|--------|------|---------|\n");
-            for (var s : allSmells) {
-                String icon = "WARNING".equals(s.severity().name()) ? "⚠️" : "ℹ️";
-                sb.append("| ").append(icon).append(" ").append(s.severity());
-                sb.append(" | `").append(s.ruleId()).append("`");
-                sb.append(" | ").append(s.className());
-                sb.append(" | ").append(s.methodName()).append("()");
-                sb.append(" | ").append(s.line());
-                sb.append(" | ").append(s.message()).append(" |\n");
+
+            // Build method signature lookup from index
+            var signatures = new java.util.HashMap<String, String>();
+            if (ctx.indexed() != null) {
+                for (var entry : ctx.indexed().getEntries()) {
+                    for (var ic : entry.classes()) {
+                        for (var im : ic.methods()) {
+                            signatures.put(ic.qualifiedName() + "." + im.name(), im.signature());
+                        }
+                    }
+                }
             }
-            sb.append("\n**Total: ").append(totalSmells).append(" smell(s)**\n");
+
+            // Group by class → method
+            var byClass = new java.util.LinkedHashMap<String, java.util.LinkedHashMap<String, java.util.List<com.jsrc.app.parser.model.CodeSmell>>>();
+            for (var s : allSmells) {
+                String qualifiedClass = s.className();
+                // Try to find qualified name from index
+                if (ctx.indexed() != null) {
+                    var fileForClass = ctx.indexed().findFileForClass(s.className());
+                    if (fileForClass.isPresent()) {
+                        var classInfo = ctx.indexed().getAllClasses().stream()
+                                .filter(c -> c.name().equals(s.className()))
+                                .findFirst();
+                        if (classInfo.isPresent()) qualifiedClass = classInfo.get().qualifiedName();
+                    }
+                }
+                byClass.computeIfAbsent(qualifiedClass, k -> new java.util.LinkedHashMap<>())
+                        .computeIfAbsent(s.methodName(), k -> new java.util.ArrayList<>())
+                        .add(s);
+            }
+
+            for (var classEntry : byClass.entrySet()) {
+                sb.append("## ").append(classEntry.getKey()).append("\n\n");
+                for (var methodEntry : classEntry.getValue().entrySet()) {
+                    String methodName = methodEntry.getKey();
+                    String sig = signatures.getOrDefault(classEntry.getKey() + "." + methodName, methodName + "()");
+                    sb.append("### `").append(sig).append("`\n\n");
+                    for (var smell : methodEntry.getValue()) {
+                        String icon = "WARNING".equals(smell.severity().name()) ? "⚠️" : "ℹ️";
+                        sb.append("- ").append(icon).append(" **").append(smell.ruleId()).append("** — ").append(smell.message()).append("\n");
+                    }
+                    sb.append("\n");
+                }
+            }
+
+            sb.append("**Total: ").append(totalSmells).append(" smell(s)**\n");
             com.jsrc.app.output.MarkdownWriter.output(sb.toString(), ctx.outDir(), "smells-report");
         }
         return totalSmells;

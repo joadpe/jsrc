@@ -61,6 +61,14 @@ public class TestForCommand implements Command {
             }
         }
 
+        // Cache test class names to avoid O(callers × classes) in BFS
+        Set<String> testClassNames = new LinkedHashSet<>();
+        for (var ci : allClasses) {
+            if (isTestClass(ci.name(), allClasses)) {
+                testClassNames.add(ci.name());
+            }
+        }
+
         List<Map<String, Object>> tests = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
 
@@ -92,14 +100,14 @@ public class TestForCommand implements Command {
                     targetMethods.add(mref);
                 }
             }
-            findTransitiveTestCallers(graph, allClasses, targetMethods, tests, seen, ctx);
+            findTransitiveTestCallers(graph, testClassNames, targetMethods, tests, seen, ctx);
         }
 
         // MEDIUM: Test class imports target class (depth-independent, fallback)
         if (className != null && ctx.indexed() != null) {
             String cn = className;
             for (var ci : allClasses) {
-                if (!isTestClass(ci.name(), allClasses)) continue;
+                if (!testClassNames.contains(ci.name())) continue;
                 var deps = ctx.indexed().getDependencies(ci.name());
                 if (deps.isEmpty()) continue;
                 boolean imports = deps.get().imports().stream()
@@ -139,7 +147,7 @@ public class TestForCommand implements Command {
     /**
      * BFS upward through the call graph, finding test classes at each depth level.
      */
-    private void findTransitiveTestCallers(CallGraph graph, List<ClassInfo> allClasses,
+    private void findTransitiveTestCallers(CallGraph graph, Set<String> testClassNames,
                                             Set<MethodReference> seeds,
                                             List<Map<String, Object>> tests,
                                             Set<String> seen, CommandContext ctx) {
@@ -155,7 +163,7 @@ public class TestForCommand implements Command {
                     var caller = call.caller();
                     String callerClass = caller.className();
 
-                    if (isTestClass(callerClass, allClasses)) {
+                    if (testClassNames.contains(callerClass)) {
                         String qualified = ctx.qualify(callerClass);
                         if (seen.add(qualified)) {
                             String confidence = depthToConfidence(depth);
@@ -167,7 +175,7 @@ public class TestForCommand implements Command {
                     }
 
                     // Queue non-test callers for next level traversal
-                    if (!isTestClass(callerClass, allClasses) && visited.add(caller)) {
+                    if (!testClassNames.contains(callerClass) && visited.add(caller)) {
                         nextLevel.add(caller);
                     }
                 }

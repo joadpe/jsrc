@@ -137,19 +137,23 @@ public final class CommandRegistry {
      * Prints all commands as JSON or text.
      */
     public static void describeAll(boolean json) {
+        describeAll(json, System.out);
+    }
+
+    public static void describeAll(boolean json, java.io.PrintStream out) {
         if (json) {
             List<Map<String, Object>> items = COMMANDS.stream()
                     .map(CommandRegistry::toMap)
                     .toList();
-            System.out.println(JsonWriter.toJson(items));
+            out.println(JsonWriter.toJson(items));
         } else {
-            System.out.println("Available commands:");
+            out.println("Available commands:");
             for (CommandDef cmd : COMMANDS) {
-                System.out.printf("  %-20s %s%n", cmd.name(), cmd.description());
+                out.printf("  %-20s %s%n", cmd.name(), cmd.description());
                 if (!cmd.args().isEmpty()) {
-                    System.out.printf("    args: %s%n", String.join(" ", cmd.args()));
+                    out.printf("    args: %s%n", String.join(" ", cmd.args()));
                 }
-                System.out.printf("    flags: %s%n", String.join(" ", cmd.flags()));
+                out.printf("    flags: %s%n", String.join(" ", cmd.flags()));
             }
         }
     }
@@ -158,18 +162,22 @@ public final class CommandRegistry {
      * Prints detail for a specific command.
      */
     public static boolean describeCommand(String commandName, boolean json) {
+        return describeCommand(commandName, json, System.out);
+    }
+
+    public static boolean describeCommand(String commandName, boolean json, java.io.PrintStream out) {
         for (CommandDef cmd : COMMANDS) {
             if (cmd.name().equals(commandName)) {
                 if (json) {
-                    System.out.println(JsonWriter.toJson(toMap(cmd)));
+                    out.println(JsonWriter.toJson(toMap(cmd)));
                 } else {
-                    System.out.printf("Command: %s%n", cmd.name());
-                    System.out.printf("  Description: %s%n", cmd.description());
+                    out.printf("Command: %s%n", cmd.name());
+                    out.printf("  Description: %s%n", cmd.description());
                     if (!cmd.args().isEmpty()) {
-                        System.out.printf("  Args: %s%n", String.join(" ", cmd.args()));
+                        out.printf("  Args: %s%n", String.join(" ", cmd.args()));
                     }
-                    System.out.printf("  Flags: %s%n", String.join(" ", cmd.flags()));
-                    System.out.printf("  Output: %s%n", cmd.outputType());
+                    out.printf("  Flags: %s%n", String.join(" ", cmd.flags()));
+                    out.printf("  Output: %s%n", cmd.outputType());
                 }
                 return true;
             }

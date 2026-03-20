@@ -151,6 +151,13 @@ public class App {
             return new VerifyCommand(cls, argList.get(specIdx + 1));
         }
 
+        // Special case: --test-for may have --depth
+        if ("--test-for".equals(command)) {
+            String method = requireMethodArg(argList, "--test-for");
+            int depth = extractDepth(argList);
+            return new TestForCommand(method, depth);
+        }
+
         // Special case: --call-chain may have output dir
         if ("--call-chain".equals(command)) {
             String method = requireMethodArg(argList, "--call-chain");
@@ -208,6 +215,20 @@ public class App {
             sb.append(token);
         }
         return sb.isEmpty() ? null : sb.toString();
+    }
+
+    private static int extractDepth(List<String> argList) {
+        int idx = argList.indexOf("--depth");
+        if (idx < 0 || idx + 1 >= argList.size()) return 1; // default
+        String value = argList.get(idx + 1);
+        if ("full".equalsIgnoreCase(value)) return Integer.MAX_VALUE;
+        try {
+            int depth = Integer.parseInt(value);
+            if (depth < 0) throw new BadUsageException("--depth must be >= 0, got: " + depth);
+            return depth;
+        } catch (NumberFormatException e) {
+            throw new BadUsageException("--depth must be a number or 'full', got: " + value);
+        }
     }
 
     private static String extractArg(List<String> argList, String command) {

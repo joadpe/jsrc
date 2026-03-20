@@ -66,7 +66,7 @@ public final class CommandFactory {
             case "--resolve" -> arg != null ? new ResolveCommand(arg) : null;
             case "--lint" -> arg != null ? new LintCommand(arg) : null;
             case "--diff-impact" -> new DiffImpactCommand(arg);
-            case "--test-for" -> arg != null ? new TestForCommand(arg) : null;
+            case "--test-for" -> arg != null ? new TestForCommand(arg) : null; // depth handled in App.resolveCommand
             case "--breaking-changes" -> arg != null ? new BreakingChangesCommand(arg) : null;
             case "--complexity" -> arg != null ? new ComplexityCommand(arg) : null;
             case "--entry-points" -> new EntryPointsCommand(arg);

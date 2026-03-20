@@ -124,7 +124,7 @@ public final class CommandRegistry {
             new CommandDef("--diff-impact", "Git changes → consolidated impact analysis + suggested tests",
                     List.of("[ref]"), List.of("--json", "--md"), "object"),
             new CommandDef("--test-for", "Find tests related to a method with confidence level",
-                    List.of("<Class.method>"), List.of("--json"), "object"),
+                    List.of("<Class.method>", "[--depth N|full]"), List.of("--json"), "object"),
             new CommandDef("--breaking-changes", "Impact via inheritance, interfaces, reflection",
                     List.of("<className>"), List.of("--json"), "object"),
             new CommandDef("--complexity", "Cyclomatic complexity + fan-out + effort estimate",

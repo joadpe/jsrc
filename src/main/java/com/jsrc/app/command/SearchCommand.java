@@ -64,7 +64,34 @@ public class SearchCommand implements Command {
             }
         }
 
-        ctx.formatter().printResult(results);
+        if (!ctx.fullOutput() && results.size() > 30) {
+            // Compact: summary by class + top 30 matches
+            var byClass = new LinkedHashMap<String, Integer>();
+            int inCode = 0, inComments = 0;
+            for (var r : results) {
+                String cls = (String) r.getOrDefault("className", "");
+                if (!cls.isEmpty()) byClass.merge(cls, 1, Integer::sum);
+                if (Boolean.TRUE.equals(r.get("inComment"))) inComments++;
+                else inCode++;
+            }
+            var compact = new LinkedHashMap<String, Object>();
+            compact.put("total", results.size());
+            compact.put("inCode", inCode);
+            compact.put("inComments", inComments);
+            compact.put("classesMentioned", byClass.size());
+            // Top 10 classes by mention count
+            compact.put("topClasses", byClass.entrySet().stream()
+                    .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                    .limit(10)
+                    .map(e -> Map.of("class", e.getKey(), "count", e.getValue()))
+                    .toList());
+            compact.put("matches", results.subList(0, 30));
+            compact.put("truncated", true);
+            compact.put("hint", "Use --full to see all " + results.size() + " matches");
+            ctx.formatter().printResult(compact);
+        } else {
+            ctx.formatter().printResult(results);
+        }
         return results.size();
     }
 

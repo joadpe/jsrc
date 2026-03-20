@@ -22,9 +22,11 @@ public class OverviewCommand implements Command {
         }
 
         int fileCount = ctx.indexed() != null ? ctx.indexed().fileCount() : ctx.javaFiles().size();
+        // Compact mode (default): omit package list to save tokens
+        List<String> packageList = ctx.fullOutput() ? List.copyOf(packages) : List.of();
         ctx.formatter().printOverview(new OverviewResult(
                 fileCount, totalClasses, totalInterfaces,
-                totalMethods, List.copyOf(packages)));
+                totalMethods, packageList));
         return totalClasses + totalInterfaces;
     }
 }

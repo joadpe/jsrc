@@ -29,6 +29,7 @@ public final class CommandContext {
     private final CodeParser parser;
     private final boolean mdOutput;
     private final String outDir;
+    private final boolean fullOutput;
 
     private CallGraph callGraphCache;
     private DependencyAnalyzer dependencyAnalyzerCache;
@@ -36,12 +37,18 @@ public final class CommandContext {
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser) {
-        this(javaFiles, rootPath, config, formatter, indexed, parser, false, null);
+        this(javaFiles, rootPath, config, formatter, indexed, parser, false, null, false);
     }
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
                           boolean mdOutput, String outDir) {
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, false);
+    }
+
+    public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
+                          OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
+                          boolean mdOutput, String outDir, boolean fullOutput) {
         this.javaFiles = javaFiles;
         this.rootPath = rootPath;
         this.config = config;
@@ -50,6 +57,7 @@ public final class CommandContext {
         this.parser = parser;
         this.mdOutput = mdOutput;
         this.outDir = outDir;
+        this.fullOutput = fullOutput;
     }
 
     public List<Path> javaFiles() { return javaFiles; }
@@ -60,6 +68,7 @@ public final class CommandContext {
     public CodeParser parser() { return parser; }
     public boolean mdOutput() { return mdOutput; }
     public String outDir() { return outDir; }
+    public boolean fullOutput() { return fullOutput; }
 
     private java.util.Map<String, String> qualifiedNameCache;
 

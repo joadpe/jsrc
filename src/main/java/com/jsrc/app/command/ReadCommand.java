@@ -35,7 +35,24 @@ public class ReadCommand implements Command {
         }
 
         if (result != null) {
-            ctx.formatter().printReadResult(result);
+            // Compact mode: if content is large and it's a full-class read, truncate
+            boolean isClassRead = !ref.hasClassName() && !target.contains("(");
+            if (!ctx.fullOutput() && isClassRead && result.content() != null
+                    && result.content().length() > 5000) {
+                var compact = new java.util.LinkedHashMap<String, Object>();
+                compact.put("class", result.className());
+                compact.put("file", result.file().toString());
+                compact.put("lines", result.startLine() + "-" + result.endLine());
+                compact.put("chars", result.content().length());
+                compact.put("hint", "Large class. Use --read Class.method for specific methods, or --full for complete source.");
+                String[] lines = result.content().split("\n");
+                int previewLines = Math.min(100, lines.length);
+                compact.put("preview", String.join("\n", java.util.Arrays.copyOf(lines, previewLines)));
+                compact.put("truncated", lines.length > previewLines);
+                ctx.formatter().printResult(compact);
+            } else {
+                ctx.formatter().printReadResult(result);
+            }
             return 1;
         }
         System.err.printf("'%s' not found.%n", target);

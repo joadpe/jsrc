@@ -62,4 +62,12 @@ public record ClassInfo(
     public boolean isAbstract() {
         return modifiers.contains("abstract");
     }
+
+    /**
+     * Returns a copy with a different method list (e.g. trimmed for compact output).
+     */
+    public ClassInfo withMethods(List<MethodInfo> newMethods) {
+        return new ClassInfo(name, packageName, startLine, endLine, modifiers,
+                newMethods, superClass, interfaces, annotations, isInterface, fields);
+    }
 }

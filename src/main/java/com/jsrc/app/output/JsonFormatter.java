@@ -134,7 +134,9 @@ public class JsonFormatter implements OutputFormatter {
         map.put("totalInterfaces", result.totalInterfaces());
         map.put("totalMethods", result.totalMethods());
         map.put("totalPackages", result.packages().size());
-        map.put("packages", result.packages());
+        if (!result.packages().isEmpty()) {
+            map.put("packages", result.packages());
+        }
         out.println(JsonWriter.toJson(map));
     }
 

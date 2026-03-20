@@ -12,6 +12,7 @@ public record ParsedArgs(
         boolean mdOutput,
         boolean signatureOnly,
         boolean showMetrics,
+        boolean fullOutput,
         Set<String> fields,
         String configPath,
         String outDir,

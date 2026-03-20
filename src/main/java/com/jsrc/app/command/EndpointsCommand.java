@@ -13,7 +13,16 @@ public class EndpointsCommand implements Command {
                 ? ctx.config().architecture().endpointAnnotations() : List.of();
         var mapper = new EndpointMapper(epAnnotations);
         var endpoints = mapper.findEndpoints(allClasses);
-        ctx.formatter().printResult(endpoints);
+        // Compact mode (default): limit to 25 endpoints + total count
+        if (!ctx.fullOutput() && endpoints.size() > 25) {
+            var compact = new java.util.LinkedHashMap<String, Object>();
+            compact.put("total", endpoints.size());
+            compact.put("endpoints", endpoints.subList(0, 25));
+            compact.put("truncated", true);
+            ctx.formatter().printResult(compact);
+        } else {
+            ctx.formatter().printResult(endpoints);
+        }
         return endpoints.size();
     }
 }

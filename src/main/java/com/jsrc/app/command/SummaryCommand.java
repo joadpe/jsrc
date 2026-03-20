@@ -2,7 +2,11 @@ package com.jsrc.app.command;
 
 import java.nio.file.Path;
 
+import java.util.Comparator;
+import java.util.List;
+
 import com.jsrc.app.parser.model.ClassInfo;
+import com.jsrc.app.parser.model.MethodInfo;
 import com.jsrc.app.util.ClassResolver;
 
 public class SummaryCommand implements Command {
@@ -17,6 +21,15 @@ public class SummaryCommand implements Command {
         var allClasses = ctx.getAllClasses();
         ClassInfo ci = resolveOrExit(allClasses, className);
         if (ci == null) return 0;
+
+        // Compact mode (default): limit to top 20 methods sorted by name
+        if (!ctx.fullOutput() && ci.methods().size() > 20) {
+            List<MethodInfo> trimmed = ci.methods().stream()
+                    .sorted(Comparator.comparing(MethodInfo::name))
+                    .limit(20)
+                    .toList();
+            ci = ci.withMethods(trimmed);
+        }
 
         String filePath = ctx.indexed() != null
                 ? ctx.indexed().findFileForClass(ci.name()).orElse("") : "";

@@ -62,12 +62,19 @@ public final class MarkdownFormatter {
             md.append("## Methods (").append(methods.size()).append(")\n\n");
             for (Map<String, Object> m : methods) {
                 String sig = (String) m.getOrDefault("signature", m.get("name") + "()");
-                String ret = (String) m.getOrDefault("returnType", "void");
                 int start = m.get("startLine") instanceof Number n ? n.intValue() : 0;
                 int end = m.get("endLine") instanceof Number n ? n.intValue() : 0;
 
-                md.append("### ").append(truncate(sig, 80)).append("\n\n");
-                md.append("Returns `").append(ret).append("` | Lines ").append(start).append("-").append(end).append("\n\n");
+                // Single line: signature + throws + lines
+                StringBuilder methodLine = new StringBuilder();
+                methodLine.append(sig);
+                if (m.containsKey("throws")) {
+                    @SuppressWarnings("unchecked")
+                    List<String> thrw = (List<String>) m.get("throws");
+                    if (!thrw.isEmpty()) methodLine.append(" throws ").append(String.join(", ", thrw));
+                }
+                md.append("### `").append(truncate(methodLine.toString(), 100)).append("`\n\n");
+                md.append("Lines ").append(start).append("-").append(end).append("\n\n");
             }
         }
 

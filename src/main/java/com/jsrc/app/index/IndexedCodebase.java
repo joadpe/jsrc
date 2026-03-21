@@ -29,11 +29,30 @@ public class IndexedCodebase {
 
     private static final Logger logger = LoggerFactory.getLogger(IndexedCodebase.class);
 
-    private final List<IndexEntry> entries; // mutable for setCachedSmells
+    private final List<IndexEntry> entries; // mutable for setCachedSmells/lazy load
     private List<ClassInfo> allClasses;
+    private java.nio.file.Path sourceRoot;
+    private boolean edgesLoaded = false;
+    private boolean smellsLoaded = false;
 
     private IndexedCodebase(List<IndexEntry> entries) {
         this.entries = entries;
+    }
+
+    /** Lazily load call edges from split file when first needed. */
+    public void ensureEdgesLoaded() {
+        if (!edgesLoaded && sourceRoot != null) {
+            CodebaseIndex.loadEdgesInto(sourceRoot, entries);
+            edgesLoaded = true;
+        }
+    }
+
+    /** Lazily load cached smells from split file when first needed. */
+    public void ensureSmellsLoaded() {
+        if (!smellsLoaded && sourceRoot != null) {
+            CodebaseIndex.loadSmellsInto(sourceRoot, entries);
+            smellsLoaded = true;
+        }
     }
 
     /**
@@ -46,7 +65,8 @@ public class IndexedCodebase {
      * @return IndexedCodebase if index exists, null otherwise
      */
     public static IndexedCodebase tryLoad(Path sourceRoot, List<Path> currentFiles) {
-        List<IndexEntry> existing = CodebaseIndex.load(sourceRoot);
+        // Load classes only (fast) — edges and smells loaded lazily when needed
+        List<IndexEntry> existing = CodebaseIndex.loadClassesOnly(sourceRoot);
         if (existing.isEmpty()) {
             return null;
         }
@@ -115,7 +135,12 @@ public class IndexedCodebase {
             logger.info("Index up-to-date: {} entries", refreshed.size());
         }
 
-        return new IndexedCodebase(refreshed);
+        var indexed = new IndexedCodebase(refreshed);
+        indexed.sourceRoot = sourceRoot;
+        // If loaded from split file, edges need lazy loading
+        indexed.edgesLoaded = refreshed.stream().anyMatch(e -> !e.callEdges().isEmpty());
+        indexed.smellsLoaded = refreshed.stream().anyMatch(e -> !e.smells().isEmpty());
+        return indexed;
     }
 
     // tryLoad(Path) without refresh removed — use tryLoad(Path, List<Path>) which auto-refreshes
@@ -331,11 +356,13 @@ public class IndexedCodebase {
      * Returns true if any entry has call edges indexed.
      */
     public boolean hasCallEdges() {
+        ensureEdgesLoaded();
         return entries.stream().anyMatch(e -> !e.callEdges().isEmpty());
     }
 
     /** Returns true if the index has precomputed code smells. */
     public boolean hasCachedSmells() {
+        ensureSmellsLoaded();
         return entries.stream().anyMatch(e -> !e.smells().isEmpty());
     }
 

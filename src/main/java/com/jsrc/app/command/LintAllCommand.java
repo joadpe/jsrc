@@ -27,6 +27,7 @@ public class LintAllCommand implements Command {
         List<Map<String, Object>> mutableStatics = new ArrayList<>();
         List<Map<String, Object>> godClasses = new ArrayList<>();
         List<Map<String, Object>> highParamMethods = new ArrayList<>();
+        List<Map<String, Object>> primitiveObsession = new ArrayList<>();
 
         for (var entry : ctx.indexed().getEntries()) {
             for (var ic : entry.classes()) {
@@ -73,6 +74,28 @@ public class LintAllCommand implements Command {
                         finding.put("issue", "Too many parameters: " + m.paramCount() + " (threshold: 5)");
                         highParamMethods.add(finding);
                     }
+
+                    // Primitive obsession: 3+ String params in same method
+                    if (m.signature() != null) {
+                        long stringCount = 0;
+                        String sig = m.signature();
+                        int idx = sig.indexOf('(');
+                        if (idx >= 0) {
+                            String params = sig.substring(idx);
+                            for (int si = 0; si < params.length() - 5; si++) {
+                                if (params.startsWith("String", si)) stringCount++;
+                            }
+                        }
+                        if (stringCount >= 3) {
+                            Map<String, Object> finding = new LinkedHashMap<>();
+                            finding.put("class", ic.qualifiedName());
+                            finding.put("method", m.name());
+                            finding.put("stringParams", stringCount);
+                            finding.put("signature", m.signature());
+                            finding.put("issue", "Primitive obsession: " + stringCount + " String parameters — consider a value object");
+                            primitiveObsession.add(finding);
+                        }
+                    }
                 }
             }
         }
@@ -97,12 +120,20 @@ public class LintAllCommand implements Command {
                 "findings", highParamMethods.size() > 20
                         ? highParamMethods.subList(0, 20) : highParamMethods));
 
-        int total = mutableStatics.size() + godClasses.size() + highParamMethods.size();
+        primitiveObsession.sort(Comparator.<Map<String, Object>, Long>comparing(
+                m -> ((Number) m.get("stringParams")).longValue()).reversed());
+        result.put("primitiveObsession", Map.of(
+                "count", primitiveObsession.size(),
+                "findings", primitiveObsession.size() > 20
+                        ? primitiveObsession.subList(0, 20) : primitiveObsession));
+
+        int total = mutableStatics.size() + godClasses.size() + highParamMethods.size() + primitiveObsession.size();
         result.put("totalIssues", total);
         result.put("summary", Map.of(
                 "mutableStatics", mutableStatics.size(),
                 "godClasses", godClasses.size(),
-                "highParamMethods", highParamMethods.size()));
+                "highParamMethods", highParamMethods.size(),
+                "primitiveObsession", primitiveObsession.size()));
 
         ctx.formatter().printResult(result);
         return total;

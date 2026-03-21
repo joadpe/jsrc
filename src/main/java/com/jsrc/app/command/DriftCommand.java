@@ -24,7 +24,7 @@ public class DriftCommand implements Command {
                 report.put("violations", violations.stream().map(v -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("ruleId", v.ruleId());
-                    m.put("className", v.className());
+                    m.put("class", v.className());
                     m.put("message", v.message());
                     return m;
                 }).toList());

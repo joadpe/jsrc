@@ -120,8 +120,8 @@ public class ValidateCommand implements Command {
                              Map<String, String> signatures) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("valid", true);
-        result.put("className", ctx.qualify(match.className()));
-        result.put("methodName", match.methodName());
+        result.put("class", ctx.qualify(match.className()));
+        result.put("method", match.methodName());
         String sig = signatures.get(match.className() + "." + match.methodName());
         if (sig != null) result.put("signature", sig);
         ctx.formatter().printResult(result);
@@ -148,7 +148,7 @@ public class ValidateCommand implements Command {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("valid", true);
         result.put("ambiguous", true);
-        result.put("methodName", ref.methodName());
+        result.put("method", ref.methodName());
         List<String> candidates = matches.stream()
                 .map(m -> {
                     String sig = signatures.get(m.className() + "." + m.methodName());
@@ -242,8 +242,8 @@ public class ValidateCommand implements Command {
                                       String signature) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("valid", true);
-        result.put("className", ctx.qualify(className));
-        result.put("methodName", methodName);
+        result.put("class", ctx.qualify(className));
+        result.put("method", methodName);
         result.put("signature", signature);
         ctx.formatter().printResult(result);
         return 1;

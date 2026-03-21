@@ -31,7 +31,7 @@ public class CalleesCommand implements Command {
             var candidates = MethodTargetResolver.buildCandidates(resolved.targets(), signatures, packages);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("ambiguous", true);
-            result.put("methodName", ref.hasClassName()
+            result.put("method", ref.hasClassName()
                     ? ref.className() + "." + ref.methodName() : ref.methodName());
             result.put("candidates", candidates);
             result.put("message", "Multiple methods found. Use Class.method(Type1,Type2) to disambiguate.");
@@ -45,9 +45,9 @@ public class CalleesCommand implements Command {
         for (var source : sources) {
             for (var call : graph.getCalleesOf(source)) {
                 Map<String, Object> entry = new LinkedHashMap<>();
-                entry.put("className", ctx.qualify(call.callee().className()));
-                entry.put("methodName", call.callee().methodName());
-                entry.put("qualifiedRef", MethodTargetResolver.qualifiedDisplayName(call.callee(), signatures, packages, methodPackages));
+                entry.put("class", ctx.qualify(call.callee().className()));
+                entry.put("method", call.callee().methodName());
+
                 entry.put("line", call.line());
                 entry.put("type", "direct");
                 callees.add(entry);

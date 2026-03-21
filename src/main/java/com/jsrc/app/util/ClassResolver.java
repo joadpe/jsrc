@@ -66,7 +66,7 @@ public final class ClassResolver {
     public static void printAmbiguous(List<String> candidates, String className) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("ambiguous", true);
-        result.put("className", className);
+        result.put("class", className);
         result.put("candidates", candidates);
         result.put("message", "Multiple classes named '" + className
                 + "'. Use qualified name to disambiguate.");

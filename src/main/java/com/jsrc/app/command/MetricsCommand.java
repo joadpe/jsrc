@@ -58,7 +58,7 @@ public class MetricsCommand implements Command {
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("className", ci.qualifiedName());
+        result.put("class", ci.qualifiedName());
         result.put("loc", loc);
         result.put("methods", methodCount);
         result.put("complexity", complexity);

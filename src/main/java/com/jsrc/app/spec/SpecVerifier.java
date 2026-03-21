@@ -19,7 +19,7 @@ public class SpecVerifier {
      */
     public static Map<String, Object> verify(ClassInfo impl, SpecParser.Spec spec) {
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("className", spec.className());
+        result.put("class", spec.className());
         result.put("specMethods", spec.methods().size());
         result.put("implMethods", impl.methods().size());
 

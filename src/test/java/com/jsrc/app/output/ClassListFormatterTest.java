@@ -28,7 +28,6 @@ class ClassListFormatterTest {
         assertTrue(out.startsWith("["));
         assertTrue(out.contains("\"name\":\"OrderService\""));
         assertTrue(out.contains("\"packageName\":\"com.app.service\""));
-        assertTrue(out.contains("\"qualifiedName\":\"com.app.service.OrderService\""));
         assertTrue(out.contains("\"isInterface\":false"));
         assertTrue(out.contains("\"isAbstract\":false"));
         assertTrue(out.contains("\"methodCount\":0"));

@@ -30,9 +30,9 @@ class SignatureOnlyTest {
             fmt.printMethods(List.of(method), Path.of("Service.java"), "process");
         });
         assertTrue(out.contains("\"signature\":"));
-        assertTrue(out.contains("\"className\":\"Service\""));
+        assertTrue(out.contains("\"class\":\"Service\""));
         assertTrue(out.contains("\"file\":\"Service.java\""));
-        assertTrue(out.contains("\"startLine\":10"));
+        assertTrue(out.contains("\"line\":10"));
         assertFalse(out.contains("\"modifiers\""), "Should omit modifiers in signature-only mode");
         assertFalse(out.contains("\"parameters\""), "Should omit parameters array in signature-only mode");
         assertFalse(out.contains("\"returnType\""), "Should omit returnType in signature-only mode");

@@ -117,8 +117,8 @@ public class SearchCommand implements Command {
                 break;
             }
         }
-        match.put("className", enclosingClass);
-        match.put("methodName", enclosingMethod);
+        match.put("class", enclosingClass);
+        match.put("method", enclosingMethod);
         match.put("inComment", inComment);
         results.add(match);
     }

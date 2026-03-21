@@ -94,8 +94,8 @@ public class TypeCheckCommand implements Command {
         }
 
         result.put("valid", true);
-        result.put("className", ctx.qualify(foundClass));
-        result.put("methodName", methodName);
+        result.put("class", ctx.qualify(foundClass));
+        result.put("method", methodName);
         result.put("returnType", returnType != null ? returnType : "unknown");
         result.put("signature", foundSig);
         if (VOID_TYPES.contains(returnType)) {

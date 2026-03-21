@@ -52,7 +52,7 @@ public class CallChainCommand implements Command {
             var candidates = MethodTargetResolver.buildCandidates(resolved.targets(), signatures, packages);
             Map<String, Object> result = new java.util.LinkedHashMap<>();
             result.put("ambiguous", true);
-            result.put("methodName", ref.hasClassName()
+            result.put("method", ref.hasClassName()
                     ? ref.className() + "." + ref.methodName() : ref.methodName());
             result.put("candidates", candidates);
             result.put("message", "Multiple methods found. Use Class.method(Type1,Type2) to disambiguate.");

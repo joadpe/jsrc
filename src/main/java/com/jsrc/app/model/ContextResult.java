@@ -53,7 +53,7 @@ public record ContextResult(
         summary.put("qualifiedName", target.qualifiedName());
         summary.put("isInterface", target.isInterface());
         summary.put("isAbstract", target.isAbstract());
-        summary.put("startLine", target.startLine());
+        summary.put("line", target.startLine());
         summary.put("endLine", target.endLine());
         if (!target.superClass().isEmpty()) summary.put("superClass", target.superClass());
         if (!target.interfaces().isEmpty()) summary.put("interfaces", target.interfaces());
@@ -69,7 +69,7 @@ public record ContextResult(
             mm.put("name", m.name());
             mm.put("signature", m.signature());
             mm.put("returnType", m.returnType());
-            mm.put("startLine", m.startLine());
+            mm.put("line", m.startLine());
             mm.put("endLine", m.endLine());
             if (!m.annotations().isEmpty()) {
                 mm.put("annotations", m.annotations().stream().map(a -> a.toString()).toList());

@@ -32,7 +32,7 @@ public class CallersCommand implements Command {
             var candidates = MethodTargetResolver.buildCandidates(resolved.targets(), signatures, packages);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("ambiguous", true);
-            result.put("methodName", ref.hasClassName()
+            result.put("method", ref.hasClassName()
                     ? ref.className() + "." + ref.methodName() : ref.methodName());
             result.put("candidates", candidates);
             result.put("message", "Multiple methods found. Use Class.method(Type1,Type2) to disambiguate.");
@@ -46,9 +46,9 @@ public class CallersCommand implements Command {
         for (var target : targets) {
             for (var call : graph.getCallersOf(target)) {
                 Map<String, Object> entry = new LinkedHashMap<>();
-                entry.put("className", ctx.qualify(call.caller().className()));
-                entry.put("methodName", call.caller().methodName());
-                entry.put("qualifiedRef", MethodTargetResolver.qualifiedDisplayName(call.caller(), signatures, packages, methodPackages));
+                entry.put("class", ctx.qualify(call.caller().className()));
+                entry.put("method", call.caller().methodName());
+
                 entry.put("line", call.line());
                 entry.put("type", "direct");
                 callers.add(entry);
@@ -62,8 +62,8 @@ public class CallersCommand implements Command {
             for (var rc : resolver.resolve(ctx.javaFiles())) {
                 if (rc.targetMethod().equals(methodName)) {
                     Map<String, Object> entry = new LinkedHashMap<>();
-                    entry.put("className", rc.callerClass());
-                    entry.put("methodName", rc.callerMethod());
+                    entry.put("class", rc.callerClass());
+                    entry.put("method", rc.callerMethod());
                     entry.put("line", rc.line());
                     entry.put("type", "reflective");
                     entry.put("targetClass", rc.targetClass());

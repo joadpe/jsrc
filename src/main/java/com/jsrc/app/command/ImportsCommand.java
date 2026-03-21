@@ -70,7 +70,7 @@ public class ImportsCommand implements Command {
 
             if (depends) {
                 Map<String, Object> entry = new LinkedHashMap<>();
-                entry.put("className", ci.qualifiedName());
+                entry.put("class", ci.qualifiedName());
                 entry.put("relationship", relationship);
                 dependents.add(entry);
             }

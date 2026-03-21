@@ -360,7 +360,7 @@ public class CodebaseIndex {
         map.put("name", ic.name());
         map.put("packageName", ic.packageName());
         map.put("qualifiedName", ic.qualifiedName());
-        map.put("startLine", ic.startLine());
+        map.put("line", ic.startLine());
         map.put("endLine", ic.endLine());
         map.put("isInterface", ic.isInterface());
         map.put("isAbstract", ic.isAbstract());
@@ -388,7 +388,7 @@ public class CodebaseIndex {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("name", im.name());
         map.put("signature", im.signature());
-        map.put("startLine", im.startLine());
+        map.put("line", im.startLine());
         map.put("endLine", im.endLine());
         map.put("returnType", im.returnType());
         map.put("annotations", im.annotations());

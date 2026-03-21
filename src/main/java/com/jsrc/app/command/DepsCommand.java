@@ -31,10 +31,11 @@ public class DepsCommand implements Command {
         if (!ctx.fullOutput()) {
             // Compact: filter out java.*/javax.* imports, show only types
             var compact = new java.util.LinkedHashMap<String, Object>();
-            compact.put("className", deps.className());
+            compact.put("class", deps.className());
             compact.put("imports", deps.imports().stream()
                     .filter(i -> !i.startsWith("java.") && !i.startsWith("javax.")
-                            && !i.startsWith("jakarta."))
+                            && !i.startsWith("jakarta.") && !i.startsWith("org.slf4j.")
+                            && !i.startsWith("org.apache.commons."))
                     .toList());
             compact.put("fieldTypes", deps.fieldDependencies().stream()
                     .map(com.jsrc.app.model.DependencyResult.FieldDep::type)

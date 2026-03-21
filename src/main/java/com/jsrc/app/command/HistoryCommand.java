@@ -71,7 +71,7 @@ public class HistoryCommand implements Command {
             }
 
             Map<String, Object> result = new LinkedHashMap<>();
-            result.put("className", className);
+            result.put("class", className);
             result.put("file", targetFile.toString());
             result.put("totalCommits", totalCommits);
             result.put("lastModified", lastModified);

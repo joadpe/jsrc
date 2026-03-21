@@ -87,7 +87,7 @@ public class JsonFormatter implements OutputFormatter {
         result.put("violations", violations.stream().map(v -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("ruleId", v.ruleId());
-            m.put("className", v.className());
+            m.put("class", v.className());
             m.put("message", v.message());
             if (!v.file().isEmpty()) m.put("file", v.file());
             if (v.line() > 0) m.put("line", v.line());
@@ -115,13 +115,12 @@ public class JsonFormatter implements OutputFormatter {
     @Override
     public void printReadResult(com.jsrc.app.parser.SourceReader.ReadResult result) {
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("className", result.className());
+        map.put("class", result.className());
         if (result.methodName() != null) {
-            map.put("methodName", result.methodName());
+            map.put("method", result.methodName());
         }
         map.put("file", result.file().toString());
-        map.put("startLine", result.startLine());
-        map.put("endLine", result.endLine());
+        map.put("line", result.startLine());
         map.put("content", result.content());
         out.println(JsonWriter.toJson(FieldsFilter.filter(map, fields)));
     }
@@ -148,7 +147,7 @@ public class JsonFormatter implements OutputFormatter {
     @Override
     public void printDependencies(DependencyResult result) {
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("className", result.className());
+        map.put("class", result.className());
         map.put("imports", result.imports());
         map.put("fieldDependencies", result.fieldDependencies().stream()
                 .map(d -> {
@@ -185,7 +184,7 @@ public class JsonFormatter implements OutputFormatter {
                     Map<String, Object> map = new LinkedHashMap<>();
                     map.put("type", m.type());
                     map.put("name", m.name());
-                    map.put("className", m.className());
+                    map.put("class", m.className());
                     map.put("file", m.file().toString());
                     map.put("line", m.line());
                     map.put("annotation", annotationToMap(m.annotation()));
@@ -199,10 +198,8 @@ public class JsonFormatter implements OutputFormatter {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("name", ci.name());
         map.put("packageName", ci.packageName());
-        map.put("qualifiedName", ci.qualifiedName());
         map.put("file", file.toString());
-        map.put("startLine", ci.startLine());
-        map.put("endLine", ci.endLine());
+        map.put("line", ci.startLine());
         map.put("modifiers", ci.modifiers());
         map.put("isInterface", ci.isInterface());
         map.put("isAbstract", ci.isAbstract());
@@ -221,8 +218,7 @@ public class JsonFormatter implements OutputFormatter {
                     Map<String, Object> mmap = new LinkedHashMap<>();
                     mmap.put("name", m.name());
                     mmap.put("signature", m.signature());
-                    mmap.put("startLine", m.startLine());
-                    mmap.put("endLine", m.endLine());
+                    mmap.put("line", m.startLine());
                     mmap.put("returnType", m.returnType());
                     return mmap;
                 }).toList();
@@ -265,9 +261,7 @@ public class JsonFormatter implements OutputFormatter {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("name", ci.name());
         map.put("packageName", ci.packageName());
-        map.put("qualifiedName", ci.qualifiedName());
-        map.put("startLine", ci.startLine());
-        map.put("endLine", ci.endLine());
+        map.put("line", ci.startLine());
         map.put("modifiers", ci.modifiers());
         map.put("isInterface", ci.isInterface());
         map.put("isAbstract", ci.isAbstract());
@@ -288,10 +282,9 @@ public class JsonFormatter implements OutputFormatter {
     private Map<String, Object> methodToMap(MethodInfo m, Path file) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("name", m.name());
-        map.put("className", m.className());
+        map.put("class", m.className());
         map.put("file", file.toString());
-        map.put("startLine", m.startLine());
-        map.put("endLine", m.endLine());
+        map.put("line", m.startLine());
         map.put("signature", m.signature());
 
         if (!signatureOnly) {
@@ -335,8 +328,8 @@ public class JsonFormatter implements OutputFormatter {
         map.put("severity", s.severity().name());
         map.put("message", s.message());
         map.put("line", s.line());
-        map.put("methodName", s.methodName());
-        map.put("className", s.className());
+        map.put("method", s.methodName());
+        map.put("class", s.className());
         return map;
     }
 
@@ -360,8 +353,8 @@ public class JsonFormatter implements OutputFormatter {
 
     private Map<String, Object> refToMap(MethodReference ref) {
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("className", ref.className());
-        map.put("methodName", ref.methodName());
+        map.put("class", ref.className());
+        map.put("method", ref.methodName());
         String key = ref.className() + "." + ref.methodName();
         String params = null;
         if (ref.parameterCount() >= 0) {

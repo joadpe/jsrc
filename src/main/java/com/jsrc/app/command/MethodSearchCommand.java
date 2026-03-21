@@ -102,10 +102,10 @@ public class MethodSearchCommand implements Command {
     private Map<String, Object> methodToMap(MethodInfo m, Path file) {
         var map = new LinkedHashMap<String, Object>();
         map.put("name", m.name());
-        map.put("className", m.className());
+        map.put("class", m.className());
         map.put("signature", m.signature());
         map.put("file", file.toString());
-        map.put("startLine", m.startLine());
+        map.put("line", m.startLine());
         return map;
     }
 

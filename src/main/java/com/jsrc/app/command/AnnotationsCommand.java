@@ -68,7 +68,7 @@ public class AnnotationsCommand implements Command {
                     .map(m -> {
                         var map = new java.util.LinkedHashMap<String, Object>();
                         map.put("type", m.type());
-                        map.put("className", m.className());
+                        map.put("class", m.className());
                         map.put("name", m.name());
                         return map;
                     }).toList());

@@ -64,7 +64,7 @@ class OutputFormatterTest {
         });
         assertTrue(out.startsWith("["), "JSON formatter should produce array");
         assertTrue(out.contains("\"name\":\"greet\""));
-        assertTrue(out.contains("\"className\":\"Hello\""));
+        assertTrue(out.contains("\"class\":\"Hello\""));
         assertTrue(out.contains("\"signature\":"));
         assertFalse(out.contains("\"content\":"), "Should omit content by default");
     }

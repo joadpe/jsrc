@@ -62,7 +62,7 @@ public class SimilarCommand implements Command {
 
             if (score >= 0.3) { // 30% similarity threshold
                 Map<String, Object> entry = new LinkedHashMap<>();
-                entry.put("className", ci.qualifiedName());
+                entry.put("class", ci.qualifiedName());
                 entry.put("similarity", Math.round(score * 100));
                 entry.put("commonMethods", List.copyOf(commonMethods));
                 if (!commonInterfaces.isEmpty()) {

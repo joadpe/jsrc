@@ -75,7 +75,7 @@ public class ExplainCommand implements Command {
         if (smellCount > 0) summary.append(smellCount).append(" code smell(s). ");
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("className", ci.qualifiedName());
+        result.put("class", ci.qualifiedName());
         result.put("summary", summary.toString().trim());
 
         ctx.formatter().printResult(result);

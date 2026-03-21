@@ -37,8 +37,10 @@ public class ReadCommand implements Command {
         if (result != null) {
             // Compact mode: if content is large and it's a full-class read, truncate
             boolean isClassRead = !ref.hasClassName() && !target.contains("(");
+            // Only truncate truly large classes (>750 LOC / ~25000 chars)
+            // Smaller classes are shown in full — agents need source for reasoning
             if (!ctx.fullOutput() && isClassRead && result.content() != null
-                    && result.content().length() > 5000) {
+                    && result.content().length() > 25000) {
                 var compact = new java.util.LinkedHashMap<String, Object>();
                 compact.put("class", result.className());
                 compact.put("file", result.file().toString());

@@ -29,6 +29,9 @@ public class LintAllCommand implements Command {
         List<Map<String, Object>> highParamMethods = new ArrayList<>();
         List<Map<String, Object>> primitiveObsession = new ArrayList<>();
 
+        // Lazy: only build call graph if we have findings to enrich
+        com.jsrc.app.analysis.CallGraph graph = null;
+
         for (var entry : ctx.indexed().getEntries()) {
             for (var ic : entry.classes()) {
                 // Skip test classes
@@ -97,6 +100,44 @@ public class LintAllCommand implements Command {
                         }
                     }
                 }
+            }
+        }
+
+        // Enrich findings with caller counts for prioritization
+        if (!godClasses.isEmpty() || !highParamMethods.isEmpty() || !mutableStatics.isEmpty()) {
+            graph = ctx.callGraph();
+            // God classes + mutable statics: callers by class
+            for (var findings : List.of(godClasses, mutableStatics)) {
+                for (var f : findings) {
+                    String className = ((String) f.get("class"));
+                    if (className.contains(".")) className = className.substring(className.lastIndexOf('.') + 1);
+                    long callers = 0;
+                    for (var ref : graph.findMethodsByName(className)) {
+                        callers += graph.getCallersOf(ref).size();
+                    }
+                    // Also count all method callers for the class
+                    String cn = className;
+                    for (var ref : graph.getAllMethods()) {
+                        if (ref.className().equals(cn)) {
+                            callers += graph.getCallersOf(ref).size();
+                        }
+                    }
+                    f.put("callers", callers);
+                }
+            }
+            // High-param methods: callers by specific method
+            for (var f : highParamMethods) {
+                String methodName = (String) f.get("method");
+                String className = ((String) f.get("class"));
+                if (className.contains(".")) className = className.substring(className.lastIndexOf('.') + 1);
+                long callers = 0;
+                String cn = className;
+                for (var ref : graph.findMethodsByName(methodName)) {
+                    if (ref.className().equals(cn)) {
+                        callers += graph.getCallersOf(ref).size();
+                    }
+                }
+                f.put("callers", callers);
             }
         }
 

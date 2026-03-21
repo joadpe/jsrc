@@ -72,6 +72,34 @@ public class AnnotationsCommand implements Command {
                         map.put("name", m.name());
                         return map;
                     }).toList());
+            // Co-annotations: what other annotations appear on classes with this annotation
+            var coAnns = new java.util.LinkedHashMap<String, Integer>();
+            if (ctx.indexed() != null) {
+                for (var m : matches) {
+                    if ("class".equals(m.type())) {
+                        for (var entry : ctx.indexed().getEntries()) {
+                            for (var ic : entry.classes()) {
+                                if (ic.name().equals(m.className()) || ic.qualifiedName().equals(m.className())) {
+                                    for (String ann : ic.annotations()) {
+                                        if (!ann.equals(annotationName)) {
+                                            coAnns.merge(ann, 1, Integer::sum);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (!coAnns.isEmpty()) {
+                // Sort by count descending, top 10
+                compact.put("coAnnotations", coAnns.entrySet().stream()
+                        .sorted(java.util.Map.Entry.<String, Integer>comparingByValue().reversed())
+                        .limit(10)
+                        .collect(java.util.LinkedHashMap::new,
+                                (map, e) -> map.put(e.getKey(), e.getValue()),
+                                java.util.LinkedHashMap::putAll));
+            }
             compact.put("truncated", true);
             compact.put("hint", "Use --full to see all " + matches.size() + " matches. "
                     + "Use --summary <ClassName> to see methods within a class.");

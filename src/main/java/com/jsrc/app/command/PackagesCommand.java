@@ -64,6 +64,36 @@ public class PackagesCommand implements Command {
             result.add(pkgInfo);
         }
 
+        // Detect circular dependencies (A→B AND B→A)
+        List<Map<String, Object>> circularDeps = new ArrayList<>();
+        Map<String, java.util.Set<String>> depGraph = new java.util.LinkedHashMap<>();
+        for (var pkg : result) {
+            String name = (String) pkg.get("name");
+            var deps = pkg.get("dependsOn");
+            if (deps instanceof List<?> depList) {
+                java.util.Set<String> depNames = new java.util.LinkedHashSet<>();
+                for (var d : depList) {
+                    if (d instanceof Map<?, ?> dm) depNames.add((String) ((Map<String, Object>) dm).get("pkg"));
+                    else if (d instanceof String s) depNames.add(s);
+                }
+                depGraph.put(name, depNames);
+            }
+        }
+        // Find length-2 cycles (A↔B)
+        java.util.Set<String> seenCycles = new java.util.LinkedHashSet<>();
+        for (var entry : depGraph.entrySet()) {
+            String a = entry.getKey();
+            for (String b : entry.getValue()) {
+                var bDeps = depGraph.get(b);
+                if (bDeps != null && bDeps.contains(a)) {
+                    String cycleKey = a.compareTo(b) < 0 ? a + "↔" + b : b + "↔" + a;
+                    if (seenCycles.add(cycleKey)) {
+                        circularDeps.add(Map.of("packageA", a, "packageB", b, "type", "bidirectional"));
+                    }
+                }
+            }
+        }
+
         if (!ctx.fullOutput() && result.size() > 30) {
             // Compact: top 30 packages by class count + summary
             // Strip import details — only name + class count
@@ -87,9 +117,18 @@ public class PackagesCommand implements Command {
             compact.put("packages", sorted);
             compact.put("truncated", true);
             compact.put("hint", "Use --full to see all " + result.size() + " packages");
+            if (!circularDeps.isEmpty()) {
+                compact.put("circularDeps", circularDeps);
+            }
             ctx.formatter().printResult(compact);
         } else {
-            ctx.formatter().printResult(result);
+            var fullResult = new java.util.LinkedHashMap<String, Object>();
+            fullResult.put("totalPackages", result.size());
+            fullResult.put("packages", result);
+            if (!circularDeps.isEmpty()) {
+                fullResult.put("circularDeps", circularDeps);
+            }
+            ctx.formatter().printResult(fullResult);
         }
         return result.size();
     }

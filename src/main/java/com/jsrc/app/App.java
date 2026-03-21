@@ -279,7 +279,7 @@ public class App {
 
                 ── Discovery ──────────────────────────────────────────────
                   --overview                Codebase stats: files, classes, methods, packages
-                  --classes                 List all classes, interfaces, enums, records
+                  --classes [package]        List all classes (filter by package name)
                   --packages                Package map with inter-package dependencies
                   --search <pattern>        Structured text search with class/method context
                   --find <description>      Semantic search using Java concept synonyms

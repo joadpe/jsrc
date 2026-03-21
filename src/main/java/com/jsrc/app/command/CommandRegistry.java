@@ -51,7 +51,7 @@ public final class CommandRegistry {
                     List.of(), List.of("--metrics"), "none (stderr only)"),
             new CommandDef("--overview", "Codebase overview: files, classes, methods, packages",
                     List.of(), List.of("--json", "--metrics"), "object"),
-            new CommandDef("--classes", "List all classes, interfaces, enums, records",
+            new CommandDef("--classes", "List all classes (optional: filter by package name)",
                     List.of(), List.of("--json", "--fields", "--metrics"), "array"),
             new CommandDef("--summary", "Compact class summary with method signatures",
                     List.of("<className>"), List.of("--json", "--fields", "--metrics"), "object"),

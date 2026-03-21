@@ -20,7 +20,7 @@ public final class CommandFactory {
         return switch (command) {
             case "--index" -> new IndexCommand();
             case "--overview" -> new OverviewCommand();
-            case "--classes" -> new ClassesCommand();
+            case "--classes" -> new ClassesCommand(arg);
             case "--smells" -> new SmellsCommand(arg);
             case "--summary" -> arg != null ? new SummaryCommand(arg) : null;
             case "--hierarchy" -> arg != null ? new HierarchyCommand(arg) : null;

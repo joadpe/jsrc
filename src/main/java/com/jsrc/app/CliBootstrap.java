@@ -32,6 +32,7 @@ public final class CliBootstrap {
         boolean signatureOnly = argList.remove("--signature-only");
         boolean showMetrics = argList.remove("--metrics");
         boolean fullOutput = argList.remove("--full");
+        boolean noTest = argList.remove("--no-test");
 
         Set<String> fields = extractFields(argList);
         String configPath = extractOption(argList, "--config");
@@ -39,11 +40,11 @@ public final class CliBootstrap {
 
         // --help and --describe are handled before root/command resolution
         if (argList.contains("--help") || argList.isEmpty()) {
-            return new ParsedArgs(jsonOutput, mdOutput, signatureOnly, showMetrics, fullOutput,
+            return new ParsedArgs(jsonOutput, mdOutput, signatureOnly, showMetrics, fullOutput, noTest,
                     fields, configPath, outDir, null, "--help", argList);
         }
         if (argList.contains("--describe")) {
-            return new ParsedArgs(jsonOutput, mdOutput, signatureOnly, showMetrics, fullOutput,
+            return new ParsedArgs(jsonOutput, mdOutput, signatureOnly, showMetrics, fullOutput, noTest,
                     fields, configPath, outDir, null, "--describe", argList);
         }
 
@@ -77,7 +78,7 @@ public final class CliBootstrap {
             throw new BadUsageException(cmdError);
         }
 
-        return new ParsedArgs(jsonOutput, mdOutput, signatureOnly, showMetrics, fullOutput,
+        return new ParsedArgs(jsonOutput, mdOutput, signatureOnly, showMetrics, fullOutput, noTest,
                 fields, configPath, outDir, rootPath, command, argList);
     }
 

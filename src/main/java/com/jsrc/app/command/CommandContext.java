@@ -30,6 +30,7 @@ public final class CommandContext {
     private final boolean mdOutput;
     private final String outDir;
     private final boolean fullOutput;
+    private final boolean noTest;
 
     private CallGraph callGraphCache;
     private DependencyAnalyzer dependencyAnalyzerCache;
@@ -37,18 +38,24 @@ public final class CommandContext {
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser) {
-        this(javaFiles, rootPath, config, formatter, indexed, parser, false, null, false);
+        this(javaFiles, rootPath, config, formatter, indexed, parser, false, null, false, false);
     }
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
                           boolean mdOutput, String outDir) {
-        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, false);
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, false, false);
     }
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
                           boolean mdOutput, String outDir, boolean fullOutput) {
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, fullOutput, false);
+    }
+
+    public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
+                          OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
+                          boolean mdOutput, String outDir, boolean fullOutput, boolean noTest) {
         this.javaFiles = javaFiles;
         this.rootPath = rootPath;
         this.config = config;
@@ -58,6 +65,7 @@ public final class CommandContext {
         this.mdOutput = mdOutput;
         this.outDir = outDir;
         this.fullOutput = fullOutput;
+        this.noTest = noTest;
     }
 
     public List<Path> javaFiles() { return javaFiles; }
@@ -69,6 +77,7 @@ public final class CommandContext {
     public boolean mdOutput() { return mdOutput; }
     public String outDir() { return outDir; }
     public boolean fullOutput() { return fullOutput; }
+    public boolean noTest() { return noTest; }
 
     private java.util.Map<String, String> qualifiedNameCache;
 
@@ -89,12 +98,47 @@ public final class CommandContext {
 
     /**
      * Returns all classes, using index if available, parsing on-the-fly otherwise.
+     * When noTest is true, filters out classes from test paths.
      */
     public List<ClassInfo> getAllClasses() {
-        if (indexed != null) return indexed.getAllClasses();
-        List<ClassInfo> all = new ArrayList<>();
-        for (Path file : javaFiles) all.addAll(parser.parseClasses(file));
+        List<ClassInfo> all;
+        if (indexed != null) {
+            all = indexed.getAllClasses();
+        } else {
+            all = new ArrayList<>();
+            for (Path file : javaFiles) all.addAll(parser.parseClasses(file));
+        }
+        if (noTest) {
+            all = all.stream().filter(ci -> !isTestClass(ci)).toList();
+        }
         return all;
+    }
+
+    /**
+     * Checks if a class is from a test path based on its qualified name or source file.
+     */
+    private boolean isTestClass(ClassInfo ci) {
+        // Check by file path in index
+        if (indexed != null) {
+            var filePath = indexed.findFileForClass(ci.name());
+            if (filePath.isPresent()) {
+                return isTestPath(filePath.get());
+            }
+        }
+        // Fallback: check by file in javaFiles
+        for (Path f : javaFiles) {
+            if (f.getFileName().toString().equals(ci.name() + ".java")) {
+                return isTestPath(f.toString());
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if the file path indicates a test source.
+     */
+    public static boolean isTestPath(String path) {
+        return path.contains("/test/") || path.contains("/testFixtures/");
     }
 
     /**

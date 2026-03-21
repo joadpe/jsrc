@@ -94,7 +94,7 @@ public class App {
         IndexedCodebase indexed = "--diff".equals(parsed.command()) ? null
                 : IndexedCodebase.tryLoad(Paths.get(parsed.rootPath()), javaFiles);
         var ctx = new CommandContext(javaFiles, parsed.rootPath(), config, formatter, indexed, parser,
-                parsed.mdOutput(), parsed.outDir(), parsed.fullOutput());
+                parsed.mdOutput(), parsed.outDir(), parsed.fullOutput(), parsed.noTest());
 
         // Dispatch
         var timer = StopWatch.start();
@@ -364,6 +364,7 @@ public class App {
                   --md                      Markdown output (--context)
                   --fields <f1,f2>          Filter output fields (saves tokens)
                   --full                    Full output (default is compact/token-efficient)
+                  --no-test                 Exclude test classes from results
                   --signature-only          Method signatures only
                   --metrics                 Execution metrics on stderr
                   --config <path>           Use specific .jsrc.yaml

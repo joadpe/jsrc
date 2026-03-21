@@ -29,7 +29,7 @@ public class IndexedCodebase {
 
     private static final Logger logger = LoggerFactory.getLogger(IndexedCodebase.class);
 
-    private final List<IndexEntry> entries;
+    private final List<IndexEntry> entries; // mutable for setCachedSmells
     private List<ClassInfo> allClasses;
 
     private IndexedCodebase(List<IndexEntry> entries) {
@@ -332,6 +332,43 @@ public class IndexedCodebase {
      */
     public boolean hasCallEdges() {
         return entries.stream().anyMatch(e -> !e.callEdges().isEmpty());
+    }
+
+    /** Returns true if the index has precomputed code smells. */
+    public boolean hasCachedSmells() {
+        return entries.stream().anyMatch(e -> !e.smells().isEmpty());
+    }
+
+    /** Returns cached smells for a given file path, or empty list. */
+    public List<CachedSmell> getCachedSmells(String path) {
+        for (var entry : entries) {
+            if (entry.path().equals(path)) {
+                return entry.smells();
+            }
+        }
+        return List.of();
+    }
+
+    /** Updates cached smells for a given file path. */
+    public void setCachedSmells(String path, List<CachedSmell> smells) {
+        for (int i = 0; i < entries.size(); i++) {
+            var entry = entries.get(i);
+            if (entry.path().equals(path)) {
+                entries.set(i, new IndexEntry(entry.path(), entry.contentHash(),
+                        entry.lastModified(), entry.classes(), entry.callEdges(), smells));
+                return;
+            }
+        }
+    }
+
+    /** Persists the index (with cached smells) to disk. */
+    public void save(java.nio.file.Path projectRoot) {
+        try {
+            var index = new CodebaseIndex();
+            index.saveEntries(projectRoot, entries);
+        } catch (Exception e) {
+            logger.warn("Failed to persist cached smells: {}", e.getMessage());
+        }
     }
 
     /**

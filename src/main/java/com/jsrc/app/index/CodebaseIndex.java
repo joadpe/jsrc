@@ -136,6 +136,13 @@ public class CodebaseIndex {
         logger.info("Index saved: {} entries to {}", entries.size(), indexFile);
     }
 
+    /** Saves a list of entries to disk (used by IndexedCodebase for smell cache persistence). */
+    public void saveEntries(Path projectRoot, List<IndexEntry> entriesToSave) throws IOException {
+        entries.clear();
+        entries.addAll(entriesToSave);
+        save(projectRoot);
+    }
+
     /**
      * Loads an existing index from disk.
      *
@@ -206,7 +213,22 @@ public class CodebaseIndex {
                 }
             }
         }
-        return new IndexEntry(path, hash, lastModified, classes, callEdges);
+        // Deserialize cached smells
+        List<CachedSmell> smells = new ArrayList<>();
+        Object smellsRaw = map.get("smells");
+        if (smellsRaw instanceof List<?> smellList) {
+            for (Object s : smellList) {
+                if (s instanceof Map<?, ?> sm) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> smellMap = (Map<String, Object>) sm;
+                    smells.add(new CachedSmell(
+                            str(smellMap, "r"), str(smellMap, "s"),
+                            intVal(smellMap, "l"), str(smellMap, "m"),
+                            str(smellMap, "c"), str(smellMap, "msg")));
+                }
+            }
+        }
+        return new IndexEntry(path, hash, lastModified, classes, callEdges, smells);
     }
 
     @SuppressWarnings("unchecked")
@@ -254,7 +276,8 @@ public class CodebaseIndex {
         return new IndexedMethod(
                 str(map, "name"), str(map, "signature"),
                 intVal(map, "startLine"), intVal(map, "endLine"),
-                str(map, "returnType"), strList(map.get("annotations")));
+                str(map, "returnType"), strList(map.get("annotations")),
+                intVal(map, "complexity"), intVal(map, "paramCount"));
     }
 
     private static String str(Map<String, Object> map, String key) {
@@ -336,6 +359,20 @@ public class CodebaseIndex {
         if (!entry.callEdges().isEmpty()) {
             map.put("callEdges", entry.callEdges().stream().map(this::edgeToMap).toList());
         }
+        if (!entry.smells().isEmpty()) {
+            map.put("smells", entry.smells().stream().map(this::smellToMap).toList());
+        }
+        return map;
+    }
+
+    private Map<String, Object> smellToMap(CachedSmell s) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("r", s.ruleId());
+        map.put("s", s.severity());
+        map.put("l", s.line());
+        map.put("m", s.method());
+        map.put("c", s.className());
+        map.put("msg", s.message());
         return map;
     }
 
@@ -392,6 +429,8 @@ public class CodebaseIndex {
         map.put("endLine", im.endLine());
         map.put("returnType", im.returnType());
         map.put("annotations", im.annotations());
+        if (im.complexity() > 0) map.put("complexity", im.complexity());
+        if (im.paramCount() > 0) map.put("paramCount", im.paramCount());
         return map;
     }
 }

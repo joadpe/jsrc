@@ -21,19 +21,40 @@ public class ComplexityAllCommand implements Command {
     public int execute(CommandContext ctx) {
         List<Map<String, Object>> allMethods = new ArrayList<>();
 
-        for (ClassInfo ci : ctx.getAllClasses()) {
-            for (MethodInfo m : ci.methods()) {
-                int loc = m.endLine() - m.startLine() + 1;
-                if (loc <= 0) continue;
-                int complexity = Math.max(1, loc / 5);
+        // Use indexed data when available (precomputed complexity + paramCount)
+        if (ctx.indexed() != null) {
+            for (var indexEntry : ctx.indexed().getEntries()) {
+                for (var ic : indexEntry.classes()) {
+                    for (var im : ic.methods()) {
+                        int complexity = im.complexity() > 0 ? im.complexity()
+                                : Math.max(1, (im.endLine() - im.startLine() + 1) / 5);
+                        if (complexity <= 0) continue;
 
-                Map<String, Object> entry = new LinkedHashMap<>();
-                entry.put("class", ci.qualifiedName());
-                entry.put("method", m.name());
-                entry.put("loc", loc);
-                entry.put("complexity", complexity);
-                entry.put("signature", m.signature());
-                allMethods.add(entry);
+                        Map<String, Object> entry = new LinkedHashMap<>();
+                        entry.put("class", ic.qualifiedName());
+                        entry.put("method", im.name());
+                        entry.put("loc", im.endLine() - im.startLine() + 1);
+                        entry.put("complexity", complexity);
+                        entry.put("signature", im.signature());
+                        allMethods.add(entry);
+                    }
+                }
+            }
+        } else {
+            for (ClassInfo ci : ctx.getAllClasses()) {
+                for (MethodInfo m : ci.methods()) {
+                    int loc = m.endLine() - m.startLine() + 1;
+                    if (loc <= 0) continue;
+                    int complexity = Math.max(1, loc / 5);
+
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("class", ci.qualifiedName());
+                    entry.put("method", m.name());
+                    entry.put("loc", loc);
+                    entry.put("complexity", complexity);
+                    entry.put("signature", m.signature());
+                    allMethods.add(entry);
+                }
             }
         }
 

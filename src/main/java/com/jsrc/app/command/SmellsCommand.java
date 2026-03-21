@@ -47,11 +47,58 @@ public class SmellsCommand implements Command {
     }
 
     private int scanAll(CommandContext ctx) {
+        // Use cached smells from index when available (instant vs re-parsing all files)
+        if (ctx.indexed() != null && ctx.indexed().hasCachedSmells()) {
+            return scanAllFromIndex(ctx);
+        }
+
+        // No cache — detect smells and cache them in the index for next time
         int totalSmells = 0;
+        boolean shouldPersist = ctx.indexed() != null;
         for (Path file : ctx.javaFiles()) {
             var smells = ctx.parser().detectSmells(file);
             totalSmells += smells.size();
             ctx.formatter().printSmells(smells, file);
+
+            // Cache smells in index entry for future instant access
+            if (shouldPersist && !smells.isEmpty()) {
+                String relativePath = java.nio.file.Path.of(ctx.rootPath()).relativize(file).toString();
+                var cached = smells.stream()
+                        .map(s -> new com.jsrc.app.index.CachedSmell(
+                                s.ruleId(), s.severity().name().substring(0, 1),
+                                s.line(), s.methodName(), s.className(), s.message()))
+                        .toList();
+                ctx.indexed().setCachedSmells(relativePath, cached);
+            }
+        }
+
+        // Persist updated index with cached smells
+        if (shouldPersist) {
+            ctx.indexed().save(java.nio.file.Path.of(ctx.rootPath()));
+        }
+
+        return totalSmells;
+    }
+
+    private int scanAllFromIndex(CommandContext ctx) {
+        int totalSmells = 0;
+        for (var entry : ctx.indexed().getEntries()) {
+            var cachedSmells = ctx.indexed().getCachedSmells(entry.path());
+            if (cachedSmells.isEmpty()) continue;
+            // Convert CachedSmell to CodeSmell for formatter
+            var smells = cachedSmells.stream()
+                    .map(cs -> new com.jsrc.app.parser.model.CodeSmell(
+                            cs.ruleId(),
+                            com.jsrc.app.parser.model.CodeSmell.Severity.valueOf(
+                                    switch (cs.severity()) {
+                                        case "W" -> "WARNING";
+                                        case "E" -> "ERROR";
+                                        default -> "INFO";
+                                    }),
+                            cs.message(), cs.line(), cs.method(), cs.className()))
+                    .toList();
+            totalSmells += smells.size();
+            ctx.formatter().printSmells(smells, java.nio.file.Path.of(entry.path()));
         }
         return totalSmells;
     }

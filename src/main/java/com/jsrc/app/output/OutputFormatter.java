@@ -113,6 +113,12 @@ public interface OutputFormatter {
      */
     void printClassSummary(ClassInfo classInfo, Path file);
 
+    /** Summary with visibility breakdown. Default delegates to base method. */
+    default void printClassSummary(ClassInfo classInfo, Path file,
+                                   long publicMethods, long protectedMethods, long privateMethods) {
+        printClassSummary(classInfo, file);
+    }
+
     /**
      * Prints call chain analysis results.
      *

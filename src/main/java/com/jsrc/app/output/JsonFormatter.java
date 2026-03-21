@@ -228,6 +228,38 @@ public class JsonFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printClassSummary(ClassInfo ci, Path file,
+                                   long publicMethods, long protectedMethods, long privateMethods) {
+        // Delegate to base, then we'll add visibility in the same output
+        // Actually, rebuild the map with visibility info
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("name", ci.name());
+        map.put("packageName", ci.packageName());
+        map.put("file", file.toString());
+        map.put("line", ci.startLine());
+        map.put("modifiers", ci.modifiers());
+        map.put("isInterface", ci.isInterface());
+        map.put("isAbstract", ci.isAbstract());
+        if (!ci.superClass().isEmpty()) map.put("superClass", ci.superClass());
+        if (!ci.interfaces().isEmpty()) map.put("interfaces", ci.interfaces());
+        if (!ci.annotations().isEmpty()) {
+            map.put("annotations", ci.annotations().stream().map(this::annotationToMap).toList());
+        }
+        map.put("visibility", Map.of("public", publicMethods, "protected", protectedMethods, "private", privateMethods));
+        List<Map<String, Object>> methods = ci.methods().stream()
+                .map(m -> {
+                    Map<String, Object> mmap = new LinkedHashMap<>();
+                    mmap.put("name", m.name());
+                    mmap.put("signature", m.signature());
+                    mmap.put("line", m.startLine());
+                    mmap.put("returnType", m.returnType());
+                    return mmap;
+                }).toList();
+        map.put("methods", methods);
+        out.println(JsonWriter.toJson(map));
+    }
+
+    @Override
     public void printClasses(List<ClassInfo> classes, Path sourceRoot) {
         List<Map<String, Object>> items = classes.stream()
                 .map(ci -> FieldsFilter.filter(classToCompactMap(ci), fields))

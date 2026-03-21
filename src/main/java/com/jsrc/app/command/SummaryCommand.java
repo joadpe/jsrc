@@ -22,26 +22,44 @@ public class SummaryCommand implements Command {
         ClassInfo ci = resolveOrExit(allClasses, className);
         if (ci == null) return 0;
 
-        // Compact mode (default): limit to top 20 methods sorted by caller count
+        // Compact mode (default): prioritize public methods, limit to top 20
         if (!ctx.fullOutput() && ci.methods().size() > 20) {
             var graph = ctx.callGraph();
             String cn = ci.name();
             List<MethodInfo> trimmed = ci.methods().stream()
-                    .sorted(Comparator.<MethodInfo, Integer>comparing(m ->
-                            graph.findMethodsByName(m.name()).stream()
-                                    .filter(r -> r.className().equals(cn))
-                                    .mapToInt(r -> graph.getCallersOf(r).size())
-                                    .sum())
-                            .reversed()
+                    .sorted(Comparator
+                            // Public first, then protected, then private
+                            .<MethodInfo, Integer>comparing(m -> {
+                                String sig = m.signature() != null ? m.signature() : "";
+                                if (sig.contains("public")) return 0;
+                                if (sig.contains("protected")) return 1;
+                                return 2;
+                            })
+                            // Within same visibility, sort by caller count
+                            .thenComparing(Comparator.<MethodInfo, Integer>comparing(m ->
+                                    graph.findMethodsByName(m.name()).stream()
+                                            .filter(r -> r.className().equals(cn))
+                                            .mapToInt(r -> graph.getCallersOf(r).size())
+                                            .sum())
+                                    .reversed())
                             .thenComparing(MethodInfo::name))
                     .limit(20)
                     .toList();
             ci = ci.withMethods(trimmed);
         }
 
+        // Add visibility breakdown
+        long publicCount = ci.methods().stream()
+                .filter(m -> m.signature() != null && m.signature().contains("public")).count();
+        long protectedCount = ci.methods().stream()
+                .filter(m -> m.signature() != null && m.signature().contains("protected")).count();
+        long privateCount = ci.methods().stream()
+                .filter(m -> m.signature() != null && m.signature().contains("private")).count();
+
         String filePath = ctx.indexed() != null
                 ? ctx.indexed().findFileForClass(ci.name()).orElse("") : "";
-        ctx.formatter().printClassSummary(ci, Path.of(filePath));
+        ctx.formatter().printClassSummary(ci, Path.of(filePath),
+                publicCount, protectedCount, privateCount);
         return 1;
     }
 

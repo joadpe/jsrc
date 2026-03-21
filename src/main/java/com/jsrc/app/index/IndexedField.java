@@ -6,4 +6,11 @@ package com.jsrc.app.index;
  * @param name field name
  * @param type field type (simple name, generics stripped)
  */
-public record IndexedField(String name, String type) {}
+import java.util.List;
+
+public record IndexedField(String name, String type, List<String> modifiers) {
+    /** Backward-compatible constructor without modifiers. */
+    public IndexedField(String name, String type) {
+        this(name, type, List.of());
+    }
+}

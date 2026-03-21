@@ -392,7 +392,7 @@ public class IndexedCodebase {
         String superClass = ic.superClass().isEmpty() ? "" : ic.superClass().getFirst();
 
         List<com.jsrc.app.parser.model.FieldInfo> fields = ic.fields().stream()
-                .map(f -> new com.jsrc.app.parser.model.FieldInfo(f.name(), f.type()))
+                .map(f -> new com.jsrc.app.parser.model.FieldInfo(f.name(), f.type(), f.modifiers()))
                 .toList();
 
         return new ClassInfo(

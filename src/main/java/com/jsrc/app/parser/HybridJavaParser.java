@@ -205,8 +205,10 @@ public class HybridJavaParser implements CodeParser {
                     int genIdx = fieldType.indexOf('<');
                     if (genIdx > 0) fieldType = fieldType.substring(0, genIdx);
                     final String ft = fieldType;
+                    List<String> fieldMods = fd.getModifiers().stream()
+                            .map(m -> m.getKeyword().asString()).toList();
                     return fd.getVariables().stream()
-                            .map(v -> new com.jsrc.app.parser.model.FieldInfo(v.getNameAsString(), ft));
+                            .map(v -> new com.jsrc.app.parser.model.FieldInfo(v.getNameAsString(), ft, fieldMods));
                 }).toList();
 
         return new ClassInfo(name, packageName, startLine, endLine,
@@ -331,8 +333,10 @@ public class HybridJavaParser implements CodeParser {
                     int genIdx = fieldType.indexOf('<');
                     if (genIdx > 0) fieldType = fieldType.substring(0, genIdx);
                     final String ft = fieldType;
+                    List<String> fieldMods = fd.getModifiers().stream()
+                            .map(m -> m.getKeyword().asString()).toList();
                     return fd.getVariables().stream()
-                            .map(v -> new com.jsrc.app.parser.model.FieldInfo(v.getNameAsString(), ft));
+                            .map(v -> new com.jsrc.app.parser.model.FieldInfo(v.getNameAsString(), ft, fieldMods));
                 })
                 .toList();
 

@@ -248,7 +248,13 @@ public class JsonFormatter implements OutputFormatter {
         map.put("visibility", Map.of("public", publicMethods, "protected", protectedMethods, "private", privateMethods));
         if (!ci.fields().isEmpty()) {
             map.put("fields", ci.fields().stream()
-                    .map(f -> Map.of("name", (Object) f.name(), "type", (Object) f.type()))
+                    .map(f -> {
+                        Map<String, Object> fm = new java.util.LinkedHashMap<>();
+                        fm.put("name", f.name());
+                        fm.put("type", f.type());
+                        if (!f.modifiers().isEmpty()) fm.put("modifiers", f.modifiers());
+                        return fm;
+                    })
                     .toList());
         }
         List<Map<String, Object>> methods = ci.methods().stream()

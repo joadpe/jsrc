@@ -261,7 +261,8 @@ public class CodebaseIndex {
                 if (f instanceof Map<?, ?> fm) {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> fieldMap = (Map<String, Object>) fm;
-                    fields.add(new IndexedField(str(fieldMap, "name"), str(fieldMap, "type")));
+                    fields.add(new IndexedField(str(fieldMap, "name"), str(fieldMap, "type"),
+                            strList(fieldMap.get("modifiers"))));
                 }
             }
         }
@@ -320,7 +321,7 @@ public class CodebaseIndex {
                 .map(a -> a.name()).toList();
 
         List<IndexedField> fields = ci.fields().stream()
-                .map(f -> new IndexedField(f.name(), f.type()))
+                .map(f -> new IndexedField(f.name(), f.type(), f.modifiers()))
                 .toList();
 
         return new IndexedClass(
@@ -418,6 +419,7 @@ public class CodebaseIndex {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("name", f.name());
         map.put("type", f.type());
+        if (!f.modifiers().isEmpty()) map.put("modifiers", f.modifiers());
         return map;
     }
 

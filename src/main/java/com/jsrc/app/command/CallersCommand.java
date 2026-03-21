@@ -47,8 +47,14 @@ public class CallersCommand implements Command {
         for (var target : targets) {
             for (var call : graph.getCallersOf(target)) {
                 Map<String, Object> entry = new LinkedHashMap<>();
-                entry.put("class", ctx.qualify(call.caller().className()));
-                entry.put("method", call.caller().methodName());
+                String callerClass = ctx.qualify(call.caller().className());
+                String callerMethod = call.caller().methodName();
+                entry.put("class", callerClass);
+                entry.put("method", callerMethod);
+                // Include caller signature from index when available
+                String sigKey = call.caller().className() + "." + callerMethod;
+                String sig = signatures.get(sigKey);
+                if (sig != null) entry.put("signature", sig);
 
                 entry.put("line", call.line());
                 entry.put("type", "direct");

@@ -137,6 +137,17 @@ public class StyleCommand implements Command {
         // Classes count for context
         result.put("classes", totalClasses);
 
+        // Quantitative counts for deeper analysis
+        Map<String, Object> counts = new LinkedHashMap<>();
+        counts.put("slf4j", slf4j);
+        counts.put("commonsLogging", commonsLogging);
+        counts.put("log4j", log4j);
+        counts.put("jul", jul);
+        counts.put("ctorInjection", ctorInjection);
+        counts.put("fieldInjection", fieldInjection);
+        counts.put("optionalReturns", optionalReturns);
+        result.put("counts", counts);
+
         ctx.formatter().printResult(result);
         return 1;
     }

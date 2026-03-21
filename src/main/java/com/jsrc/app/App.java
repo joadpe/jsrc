@@ -302,6 +302,7 @@ public class App {
                   --explain <class>         Concise actionable summary
                   --similar <class>         Structurally similar classes
                   --unused                  Dead code detection
+                  --hotspots                Top classes by caller count (coupling hotspots)
 
                 ── Call Graph ─────────────────────────────────────────────
                   --callers <method>        Who calls this method?

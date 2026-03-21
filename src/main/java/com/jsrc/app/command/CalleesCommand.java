@@ -46,8 +46,13 @@ public class CalleesCommand implements Command {
         for (var source : sources) {
             for (var call : graph.getCalleesOf(source)) {
                 Map<String, Object> entry = new LinkedHashMap<>();
-                entry.put("class", ctx.qualify(call.callee().className()));
-                entry.put("method", call.callee().methodName());
+                String calleeClass = ctx.qualify(call.callee().className());
+                String calleeMethod = call.callee().methodName();
+                entry.put("class", calleeClass);
+                entry.put("method", calleeMethod);
+                String sigKey = call.callee().className() + "." + calleeMethod;
+                String sig = signatures.get(sigKey);
+                if (sig != null) entry.put("signature", sig);
 
                 entry.put("line", call.line());
                 entry.put("type", "direct");

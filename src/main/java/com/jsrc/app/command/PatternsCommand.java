@@ -144,6 +144,21 @@ public class PatternsCommand implements Command {
 
         result.put("totalClasses", totalClasses);
 
+        // Add example class for the most common suffix pattern
+        if (!classSuffixes.isEmpty()) {
+            String topSuffix = classSuffixes.entrySet().stream()
+                    .max(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey).orElse(null);
+            if (topSuffix != null) {
+                allClasses.stream()
+                        .filter(ci -> ci.name().endsWith(topSuffix))
+                        .findFirst()
+                        .ifPresent(ci -> result.put("exampleClass",
+                                Map.of("name", ci.qualifiedName(),
+                                       "hint", "Use --snippet " + topSuffix.toLowerCase() + " for a code template")));
+            }
+        }
+
         ctx.formatter().printResult(result);
         return 1;
     }

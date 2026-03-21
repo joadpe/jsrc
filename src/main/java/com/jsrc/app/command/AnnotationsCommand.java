@@ -73,7 +73,8 @@ public class AnnotationsCommand implements Command {
                         return map;
                     }).toList());
             compact.put("truncated", true);
-            compact.put("hint", "Use --full to see all " + matches.size() + " matches");
+            compact.put("hint", "Use --full to see all " + matches.size() + " matches. "
+                    + "Use --summary <ClassName> to see methods within a class.");
             ctx.formatter().printResult(compact);
         } else {
             ctx.formatter().printAnnotationMatches(matches);

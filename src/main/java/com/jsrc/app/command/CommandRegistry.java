@@ -75,6 +75,8 @@ public final class CommandRegistry {
                     List.of(), List.of("--json", "--metrics"), "array"),
             new CommandDef("--explain", "Concise actionable summary of a class",
                     List.of("<className>"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--hotspots", "Top classes ranked by caller count (coupling hotspots)",
+                    List.of(), List.of("--json", "--metrics"), "array"),
             new CommandDef("--unused", "Detect dead code: uncalled methods, unimported classes",
                     List.of(), List.of("--json", "--metrics"), "object"),
             new CommandDef("--stats", "Code metrics: LOC, complexity, coupling, inheritance",

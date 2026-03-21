@@ -31,7 +31,7 @@ public class PackagesCommand implements Command {
         for (var entry : byPackage.entrySet()) {
             String pkg = entry.getKey();
             List<ClassInfo> classes = entry.getValue();
-            Set<String> dependsOn = new LinkedHashSet<>();
+            Map<String, Integer> dependsOnCount = new LinkedHashMap<>();
 
             for (ClassInfo ci : classes) {
                 var deps = ctx.indexed() != null
@@ -43,7 +43,7 @@ public class PackagesCommand implements Command {
                     if (lastDot > 0) {
                         String importPkg = imp.substring(0, lastDot);
                         if (!importPkg.equals(pkg) && byPackage.containsKey(importPkg)) {
-                            dependsOn.add(importPkg);
+                            dependsOnCount.merge(importPkg, 1, Integer::sum);
                         }
                     }
                 }
@@ -53,7 +53,14 @@ public class PackagesCommand implements Command {
             pkgInfo.put("name", pkg);
             pkgInfo.put("classes", classes.size());
             pkgInfo.put("methods", classes.stream().mapToInt(c -> c.methods().size()).sum());
-            if (!dependsOn.isEmpty()) pkgInfo.put("dependsOn", List.copyOf(dependsOn));
+            if (!dependsOnCount.isEmpty()) {
+                // Sort by import count descending
+                var sorted = dependsOnCount.entrySet().stream()
+                        .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                        .map(e -> Map.of("pkg", (Object) e.getKey(), "imports", (Object) e.getValue()))
+                        .toList();
+                pkgInfo.put("dependsOn", sorted);
+            }
             result.add(pkgInfo);
         }
 

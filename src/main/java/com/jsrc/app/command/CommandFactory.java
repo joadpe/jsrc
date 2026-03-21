@@ -46,6 +46,7 @@ public final class CommandFactory {
             case "--explain" -> arg != null ? new ExplainCommand(arg) : null;
             case "--batch" -> new BatchCommand();
             case "--unused" -> new UnusedCommand();
+            case "--hotspots" -> new HotspotsCommand();
             case "--similar" -> arg != null ? new SimilarCommand(arg) : null;
             case "--watch" -> new WatchCommand();
             case "--stats" -> arg != null ? new MetricsCommand(arg) : null;

@@ -58,11 +58,11 @@ public class ComplexityAllCommand implements Command {
             }
         }
 
-        // Sort by complexity descending, then by LOC descending
+        // Sort by LOC descending (real method length), then by complexity
         allMethods.sort(Comparator.<Map<String, Object>, Integer>comparing(
-                m -> ((Number) m.get("complexity")).intValue()).reversed()
+                m -> ((Number) m.get("loc")).intValue()).reversed()
                 .thenComparing(Comparator.<Map<String, Object>, Integer>comparing(
-                        m -> ((Number) m.get("loc")).intValue()).reversed()));
+                        m -> ((Number) m.get("complexity")).intValue()).reversed()));
 
         List<Map<String, Object>> top = allMethods.subList(0, Math.min(TOP_N, allMethods.size()));
 

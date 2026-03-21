@@ -49,10 +49,37 @@ public class HotspotsCommand implements Command {
 
         List<Map<String, Object>> top = hotspots.subList(0, Math.min(TOP_N, hotspots.size()));
 
+        // Most imported types (from index imports)
+        Map<String, Integer> importCounts = new LinkedHashMap<>();
+        if (ctx.indexed() != null) {
+            for (var entry : ctx.indexed().getEntries()) {
+                for (var ic : entry.classes()) {
+                    for (String imp : ic.imports()) {
+                        int lastDot = imp.lastIndexOf('.');
+                        String simpleName = lastDot >= 0 ? imp.substring(lastDot + 1) : imp;
+                        if (!simpleName.equals("*")) {
+                            importCounts.merge(simpleName, 1, Integer::sum);
+                        }
+                    }
+                }
+            }
+        }
+        List<Map<String, Object>> topImported = importCounts.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .limit(TOP_N)
+                .map(e -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("type", e.getKey());
+                    m.put("importedBy", e.getValue());
+                    return m;
+                })
+                .toList();
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("totalClasses", allClasses.size());
         result.put("classesWithCallers", hotspots.size());
-        result.put("top", top);
+        result.put("byCallers", top);
+        result.put("byImports", topImported);
         ctx.formatter().printResult(result);
         return top.size();
     }

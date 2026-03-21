@@ -246,6 +246,11 @@ public class JsonFormatter implements OutputFormatter {
             map.put("annotations", ci.annotations().stream().map(this::annotationToMap).toList());
         }
         map.put("visibility", Map.of("public", publicMethods, "protected", protectedMethods, "private", privateMethods));
+        if (!ci.fields().isEmpty()) {
+            map.put("fields", ci.fields().stream()
+                    .map(f -> Map.of("name", (Object) f.name(), "type", (Object) f.type()))
+                    .toList());
+        }
         List<Map<String, Object>> methods = ci.methods().stream()
                 .map(m -> {
                     Map<String, Object> mmap = new LinkedHashMap<>();

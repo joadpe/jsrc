@@ -155,7 +155,8 @@ public class PatternsCommand implements Command {
                         .findFirst()
                         .ifPresent(ci -> result.put("exampleClass",
                                 Map.of("name", ci.qualifiedName(),
-                                       "hint", "Use --snippet " + topSuffix.toLowerCase() + " for a code template")));
+                                       "hint", "Use --snippet " + topSuffix.toLowerCase() + " for a code template, "
+                                               + "or --implements Interface + --read Class.method for real examples")));
             }
         }
 

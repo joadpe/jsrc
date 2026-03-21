@@ -67,6 +67,13 @@ public class ValidateCommand implements Command {
                     if (!paramMatch.isEmpty()) {
                         return reportValid(ctx, paramMatch.iterator().next(), signatures);
                     }
+                    // Call graph parameterCount may be wrong — fall back to index signatures
+                    if (ctx.indexed() != null) {
+                        var indexMatch = matchByIndexSignature(ctx, ref);
+                        if (indexMatch != null) {
+                            return reportValid(ctx, classMatch.iterator().next(), signatures);
+                        }
+                    }
                     // Wrong param count — suggest overloads
                     return reportInvalid(ctx, ref, "Parameter count mismatch",
                             suggestOverloads(classMatch, signatures));
@@ -74,12 +81,28 @@ public class ValidateCommand implements Command {
                 return reportValid(ctx, classMatch.iterator().next(), signatures);
             }
 
+            // Method not found in call graph for this class — try index
+            if (ctx.indexed() != null) {
+                var indexMatch = matchByIndexSignature(ctx, ref);
+                if (indexMatch != null) {
+                    return reportValidFromIndex(ctx, ref.className(), ref.methodName(), indexMatch);
+                }
+            }
+
             // Method not in this class — fuzzy search
             return reportInvalid(ctx, ref, "Method not found in " + ref.className(),
                     findClosest(ref, graph.getAllMethods(), signatures));
         }
 
-        // No class specified
+        // No class specified — also try index
+        if (byName.isEmpty() && ctx.indexed() != null) {
+            var indexMatch = matchByIndexSignature(ctx, ref);
+            if (indexMatch != null) {
+                return reportValidFromIndex(ctx,
+                        ref.hasClassName() ? ref.className() : ref.methodName(),
+                        ref.methodName(), indexMatch);
+            }
+        }
         if (byName.size() == 1) {
             return reportValid(ctx, byName.iterator().next(), signatures);
         }
@@ -192,6 +215,55 @@ public class ValidateCommand implements Command {
                 .distinct()
                 .limit(5)
                 .toList();
+    }
+
+    /**
+     * Matches a method reference against index signatures (real parsed signatures).
+     * Returns the matching signature or null if not found.
+     */
+    private String matchByIndexSignature(CommandContext ctx, MethodResolver.MethodRef ref) {
+        if (ctx.indexed() == null) return null;
+        var methods = ctx.indexed().findMethodsByName(ref.methodName());
+        for (var m : methods) {
+            if (ref.hasClassName() && !m.className().equals(ref.className())) continue;
+            if (ref.hasParamTypes() && m.signature() != null) {
+                int sigParams = countParamsInSignature(m.signature());
+                if (sigParams == ref.paramTypes().size()) {
+                    return m.signature();
+                }
+            } else if (!ref.hasParamTypes()) {
+                return m.signature();
+            }
+        }
+        return null;
+    }
+
+    private int reportValidFromIndex(CommandContext ctx, String className, String methodName,
+                                      String signature) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("valid", true);
+        result.put("className", ctx.qualify(className));
+        result.put("methodName", methodName);
+        result.put("signature", signature);
+        ctx.formatter().printResult(result);
+        return 1;
+    }
+
+    private static int countParamsInSignature(String signature) {
+        int parenOpen = signature.indexOf('(');
+        int parenClose = signature.lastIndexOf(')');
+        if (parenOpen < 0 || parenClose < 0 || parenClose <= parenOpen + 1) return 0;
+        String params = signature.substring(parenOpen + 1, parenClose).trim();
+        if (params.isEmpty()) return 0;
+        // Count commas outside of generics
+        int count = 1;
+        int depth = 0;
+        for (char c : params.toCharArray()) {
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ',' && depth == 0) count++;
+        }
+        return count;
     }
 
     private record ScoredMatch(String display, int score) {}

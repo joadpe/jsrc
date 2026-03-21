@@ -181,7 +181,7 @@ public class App {
         // Validate arg for commands that need identifiers
         // Skip validation for flag-style args (e.g. --all for --smells)
         if (arg != null && command.startsWith("--") && !arg.startsWith("--")) {
-            if (List.of("--callers", "--callees", "--read", "--search", "--call-chain", "--smells").contains(command)) {
+            if (List.of("--callers", "--callees", "--read", "--search", "--call-chain", "--smells", "--validate", "--type-check", "--impact", "--checklist", "--test-for").contains(command)) {
                 String err = InputValidator.validateMethodRef(arg, "argument");
                 if (err != null) { throw new BadUsageException(err); }
             } else {

@@ -94,7 +94,8 @@ import com.jsrc.app.parser.HybridJavaParser;
         com.jsrc.app.cli.commands.BreakingChangesSubcommand.class,
         com.jsrc.app.cli.commands.DiffImpactSubcommand.class,
         com.jsrc.app.cli.commands.DumpSubcommand.class,
-        com.jsrc.app.cli.commands.PerfSubcommand.class
+        com.jsrc.app.cli.commands.PerfSubcommand.class,
+        com.jsrc.app.cli.commands.SecuritySubcommand.class
     }
 )
 public class JsrcCommand implements Runnable {

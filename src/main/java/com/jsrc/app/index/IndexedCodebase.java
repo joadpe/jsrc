@@ -123,7 +123,7 @@ public class IndexedCodebase {
                 }
             }
 
-            // New or modified file — re-parse
+            // New or modified file — re-parse classes AND edges
             if (parser == null) parser = new HybridJavaParser();
             staleCount++;
             try {
@@ -134,7 +134,11 @@ public class IndexedCodebase {
                 List<IndexedClass> indexed = classes.stream()
                         .map(ci -> classInfoToIndexed(ci))
                         .toList();
-                refreshed.add(new IndexEntry(relativePath, hash, lastModified, indexed));
+                // Re-extract call edges for this file
+                var edgeResolver = new EdgeResolver();
+                var edgeParser = new com.github.javaparser.JavaParser();
+                List<CallEdge> edges = edgeResolver.extractCallEdges(file, edgeParser);
+                refreshed.add(new IndexEntry(relativePath, hash, lastModified, indexed, edges));
             } catch (IOException e) {
                 logger.error("Error refreshing {}: {}", file, e.getMessage());
                 if (prev != null) refreshed.add(prev); // keep stale rather than lose
@@ -145,10 +149,13 @@ public class IndexedCodebase {
 
         if (staleCount > 0) {
             logger.info("Auto-refreshed {} stale/new file(s), {} cached", staleCount, refreshed.size() - staleCount);
-            // Persist updated index
+            // Rebuild call graph with updated edges and save V2 binary
             var updatedIndex = new CodebaseIndex(refreshed);
             try {
-                updatedIndex.save(sourceRoot);
+                var builder = new com.jsrc.app.analysis.CallGraphBuilder();
+                builder.loadFromIndex(refreshed);
+                preBuiltGraph = builder.toCallGraph();
+                updatedIndex.saveWithGraph(sourceRoot, preBuiltGraph);
             } catch (IOException e) {
                 logger.warn("Could not save refreshed index: {}", e.getMessage());
             }
@@ -161,12 +168,9 @@ public class IndexedCodebase {
         // If loaded from V2 binary, edges and graph are already present
         indexed.edgesLoaded = refreshed.stream().anyMatch(e -> !e.callEdges().isEmpty());
         indexed.smellsLoaded = refreshed.stream().anyMatch(e -> !e.smells().isEmpty());
-        if (staleCount > 0) {
-            // Edges stale — pre-built graph is invalid, force rebuild
-            indexed.preBuiltCallGraph = null;
-        } else {
-            indexed.preBuiltCallGraph = preBuiltGraph;
-        }
+        // preBuiltGraph is either loaded from V2 binary (no changes)
+        // or rebuilt from updated edges (stale files re-extracted)
+        indexed.preBuiltCallGraph = preBuiltGraph;
         return indexed;
     }
 

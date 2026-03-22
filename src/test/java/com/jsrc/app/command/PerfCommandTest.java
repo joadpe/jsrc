@@ -190,6 +190,55 @@ class PerfCommandTest {
     }
 
     @Test
+    void detectsEdtBlocking() {
+        String json = capture(new PerfCommand("LegacySwingPanel", 1));
+        assertTrue(json.contains("EDT_BLOCKING"),
+                "Should detect DB query in Swing listener. Got: " + json);
+    }
+
+    @Test
+    void detectsCursorLeak() {
+        String json = capture(new PerfCommand("LegacySwingPanel", 1));
+        assertTrue(json.contains("CURSOR_LEAK"),
+                "Should detect PreparedStatement without close. Got: " + json);
+    }
+
+    @Test
+    void detectsFinalizeMethod() {
+        String json = capture(new PerfCommand("LegacySwingPanel", 1));
+        assertTrue(json.contains("FINALIZE_METHOD"),
+                "Should detect finalize() override. Got: " + json);
+    }
+
+    @Test
+    void detectsThreadLocalLeak() {
+        String json = capture(new PerfCommand("LegacySwingPanel", 1));
+        assertTrue(json.contains("THREADLOCAL_LEAK"),
+                "Should detect ThreadLocal without remove(). Got: " + json);
+    }
+
+    @Test
+    void detectsStaticMutableCollection() {
+        String json = capture(new PerfCommand("LegacySwingPanel", 1));
+        assertTrue(json.contains("STATIC_MUTABLE") || json.contains("UNBOUNDED"),
+                "Should detect static mutable collection. Got: " + json);
+    }
+
+    @Test
+    void detectsSqlConcat() {
+        String json = capture(new PerfCommand("LegacySwingPanel", 1));
+        assertTrue(json.contains("SQL_CONCAT"),
+                "Should detect SQL string concatenation. Got: " + json);
+    }
+
+    @Test
+    void detectsTableFireInLoop() {
+        String json = capture(new PerfCommand("LegacySwingPanel.updateTable", 1));
+        assertTrue(json.contains("TABLE_FIRE"),
+                "Should detect fireTableDataChanged in loop. Got: " + json);
+    }
+
+    @Test
     void outputHasCorrectStructure() {
         String json = capture(new PerfCommand("SlowService.processAll", 1));
         assertTrue(json.contains("\"method\""), "Should have method field");

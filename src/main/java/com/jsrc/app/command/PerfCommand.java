@@ -109,7 +109,41 @@ public class PerfCommand implements Command {
                     "CONNECTION_IN_LOOP", "LOOP_WITH_DEEP_CONNECTION",
                     "Connection/stream opened in loop — use connection pool or batch operation",
                     "Connection in call chain",
-                    PerfCommand::hasConnection)
+                    PerfCommand::hasConnection),
+            // Java 8 patterns
+            new PatternDef("BOXING", "INFO",
+                    "BOXING_IN_LOOP", "LOOP_WITH_DEEP_BOXING",
+                    "Autoboxing in loop — GC pressure from temporary wrapper objects",
+                    "Boxing in call chain",
+                    PerfCommand::hasBoxing),
+            new PatternDef("VECTOR_HASHTABLE", "WARNING",
+                    "VECTOR_HASHTABLE_IN_LOOP", "LOOP_WITH_DEEP_VECTOR_HASHTABLE",
+                    "Vector/Hashtable in loop — synchronized on every operation, use ArrayList/HashMap",
+                    "Vector/Hashtable in call chain",
+                    PerfCommand::hasVectorHashtable),
+            // Swing patterns
+            new PatternDef("TABLE_FIRE", "CRITICAL",
+                    "TABLE_FIRE_IN_LOOP", "LOOP_WITH_DEEP_TABLE_FIRE",
+                    "fireTableDataChanged/fireTableRowsInserted in loop — repaints table N times",
+                    "Table fire in call chain",
+                    PerfCommand::hasTableFire),
+            // JBoss / Java EE patterns
+            new PatternDef("JNDI_LOOKUP", "CRITICAL",
+                    "JNDI_IN_LOOP", "LOOP_WITH_DEEP_JNDI",
+                    "JNDI lookup in loop — each lookup is a server-side search, cache the result",
+                    "JNDI lookup in call chain",
+                    PerfCommand::hasJndiLookup),
+            // Oracle JDBC patterns
+            new PatternDef("SELECT_STAR", "WARNING",
+                    "SELECT_STAR_IN_LOOP", "LOOP_WITH_DEEP_SELECT_STAR",
+                    "SELECT * in loop — fetches unnecessary columns, especially bad with LOB/CLOB",
+                    "SELECT * in call chain",
+                    PerfCommand::hasSelectStar),
+            new PatternDef("SQL_CONCAT", "CRITICAL",
+                    "SQL_CONCAT_IN_LOOP", "LOOP_WITH_DEEP_SQL_CONCAT",
+                    "SQL string concatenation — prevents cursor reuse in Oracle + SQL injection risk",
+                    "SQL concat in call chain",
+                    PerfCommand::hasSqlConcat)
     );
 
     private final String target;
@@ -215,10 +249,17 @@ public class PerfCommand implements Command {
             }
         }
 
+        // Structural analysis (class-level, outside loops)
+        List<Map<String, Object>> structuralFindings = detectStructuralIssues(ci, sourceCode);
+        totalFindings += structuralFindings.size();
+
         result.put("methods", ci.methods().size());
         result.put("totalFindings", totalFindings);
         if (worstMethod != null) result.put("worstMethod", worstMethod);
         result.put("perMethod", perMethod);
+        if (!structuralFindings.isEmpty()) {
+            result.put("structuralIssues", structuralFindings);
+        }
         return result;
     }
 
@@ -428,6 +469,153 @@ public class PerfCommand implements Command {
         return line.contains("getConnection(") || line.contains("openConnection(")
                 || line.contains("openStream(") || line.contains("new Socket(")
                 || line.contains("new URL(") || line.contains("DriverManager.getConnection(");
+    }
+
+    /**
+     * Detects structural performance issues at class level (not loop-specific).
+     */
+    private List<Map<String, Object>> detectStructuralIssues(ClassInfo ci, String sourceCode) {
+        List<Map<String, Object>> findings = new ArrayList<>();
+
+        if (sourceCode == null) return findings;
+        String[] lines = sourceCode.split("\n");
+
+        boolean hasThreadLocal = false;
+        boolean hasThreadLocalRemove = false;
+        boolean hasFinalize = false;
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            int lineNum = i + 1;
+
+            // Static mutable collection — memory leak risk
+            if ((line.contains("static") && !line.contains("final"))
+                    && (line.contains("List<") || line.contains("Map<") || line.contains("Set<")
+                    || line.contains("ArrayList") || line.contains("HashMap") || line.contains("HashSet"))
+                    && (line.contains("new ") || line.contains("= new"))) {
+                findings.add(finding("STATIC_MUTABLE_COLLECTION", "CRITICAL", lineNum,
+                        "Static mutable collection without bound — potential memory leak"));
+            }
+
+            // Unbounded cache — static Map as cache without eviction
+            if (line.contains("static") && line.contains("Map")
+                    && (line.contains("new HashMap") || line.contains("new ConcurrentHashMap")
+                    || line.contains("new LinkedHashMap"))
+                    && !line.contains("final")) {
+                findings.add(finding("UNBOUNDED_CACHE", "WARNING", lineNum,
+                        "Static Map as cache without eviction — memory grows unbounded"));
+            }
+
+            // ThreadLocal without remove
+            if (line.contains("ThreadLocal")) hasThreadLocal = true;
+            if (line.contains(".remove()")) hasThreadLocalRemove = true;
+
+            // finalize() method — delays GC
+            if (line.contains("void finalize()") || line.contains("void finalize ()")) {
+                findings.add(finding("FINALIZE_METHOD", "CRITICAL", lineNum,
+                        "finalize() overridden — delays GC, deprecated since Java 9, use Cleaner or try-with-resources"));
+                hasFinalize = true;
+            }
+
+            // StringBuffer in single-thread context
+            if (line.contains("new StringBuffer")) {
+                findings.add(finding("STRINGBUFFER_SINGLE", "INFO", lineNum,
+                        "StringBuffer used — prefer StringBuilder (not synchronized, faster) unless shared across threads"));
+            }
+
+            // Vector/Hashtable usage
+            if (line.contains("new Vector") || line.contains("new Hashtable")) {
+                findings.add(finding("VECTOR_HASHTABLE", "WARNING", lineNum,
+                        "Vector/Hashtable — synchronized on every operation, use ArrayList/HashMap"));
+            }
+
+            // Swing: EDT blocking — DB/IO in listener methods
+            if (line.contains("actionPerformed") || line.contains("mouseClicked")
+                    || line.contains("keyPressed") || line.contains("keyReleased")
+                    || line.contains("windowOpened") || line.contains("stateChanged")) {
+                // Scan rest of method for blocking calls
+                for (int j = i + 1; j < Math.min(i + 50, lines.length); j++) {
+                    String innerLine = lines[j].trim();
+                    if (innerLine.contains("}") && !innerLine.contains("{")) break;
+                    if (hasDbQuery(innerLine) || hasDirectIO(innerLine)
+                            || innerLine.contains("Thread.sleep")) {
+                        findings.add(finding("EDT_BLOCKING", "CRITICAL", j + 1,
+                                "Blocking operation in Swing listener — freezes UI. Use SwingWorker or background thread"));
+                        break;
+                    }
+                }
+            }
+
+            // Oracle: cursor leak — PreparedStatement/ResultSet without close
+            if (line.contains("prepareStatement(") || line.contains("createStatement(")) {
+                boolean hasTryWithResources = false;
+                boolean hasClose = false;
+                // Check if it's in a try-with-resources
+                for (int j = Math.max(0, i - 3); j <= i; j++) {
+                    if (lines[j].trim().contains("try (")) hasTryWithResources = true;
+                }
+                // Check if close is called later
+                for (int j = i + 1; j < Math.min(i + 30, lines.length); j++) {
+                    if (lines[j].trim().contains(".close()")) { hasClose = true; break; }
+                    if (lines[j].trim().contains("} finally")) { hasClose = true; break; }
+                }
+                if (!hasTryWithResources && !hasClose) {
+                    findings.add(finding("CURSOR_LEAK", "CRITICAL", lineNum,
+                            "PreparedStatement/ResultSet without close or try-with-resources — Oracle ORA-01000 cursor leak"));
+                }
+            }
+
+            // SQL string concatenation (outside loops too — SQL injection + no cursor reuse)
+            if (hasSqlConcat(line)) {
+                findings.add(finding("SQL_CONCAT", "CRITICAL", lineNum,
+                        "SQL string concatenation — prevents cursor reuse in Oracle shared pool + SQL injection risk. Use PreparedStatement bind variables"));
+            }
+        }
+
+        // ThreadLocal without remove — classloader leak
+        if (hasThreadLocal && !hasThreadLocalRemove) {
+            findings.add(finding("THREADLOCAL_LEAK", "CRITICAL", 0,
+                    "ThreadLocal without remove() — classloader leak in JBoss/Tomcat. Call remove() in finally block"));
+        }
+
+        return findings;
+    }
+
+    private static boolean hasBoxing(String line) {
+        return line.contains("Integer.valueOf(") || line.contains("Integer.parseInt(")
+                || line.contains("Long.parseLong(") || line.contains("Long.valueOf(")
+                || line.contains("Double.parseDouble(") || line.contains("Double.valueOf(")
+                || line.contains("Float.parseFloat(") || line.contains("Boolean.valueOf(");
+    }
+
+    private static boolean hasVectorHashtable(String line) {
+        return line.contains("new Vector") || line.contains("new Hashtable")
+                || line.contains("Vector<") || line.contains("Hashtable<");
+    }
+
+    private static boolean hasTableFire(String line) {
+        return line.contains("fireTableDataChanged") || line.contains("fireTableRowsInserted")
+                || line.contains("fireTableRowsDeleted") || line.contains("fireTableCellUpdated")
+                || line.contains("fireTableStructureChanged");
+    }
+
+    private static boolean hasJndiLookup(String line) {
+        return line.contains("InitialContext(") || line.contains(".lookup(")
+                || line.contains("new InitialContext");
+    }
+
+    private static boolean hasSelectStar(String line) {
+        return (line.contains("\"SELECT *") || line.contains("\"select *")
+                || line.contains("'SELECT *") || line.contains("'select *"));
+    }
+
+    private static boolean hasSqlConcat(String line) {
+        // SQL string built with concatenation — "SELECT ... " + variable
+        return (line.contains("\"SELECT ") || line.contains("\"INSERT ")
+                || line.contains("\"UPDATE ") || line.contains("\"DELETE ")
+                || line.contains("\"select ") || line.contains("\"insert ")
+                || line.contains("\"update ") || line.contains("\"delete "))
+                && line.contains("\" +");
     }
 
     private static boolean hasDirectIO(String line) {

@@ -367,8 +367,9 @@ public class PerfCommand implements Command {
 
     /**
      * Recursively search callee chain for ALL performance anti-patterns up to maxDepth.
-     * Returns list of findings with type + path (e.g., [{type: "IO", path: "processItem → writeResult → I/O"}]).
-     * Each pattern type is reported at most once (shortest path).
+     * Uses the pre-resolved CallGraph for navigation (fast), reads source only for pattern detection.
+     * Returns list of findings with type + path.
+     * Each pattern type is reported at most once per chain (shortest path wins).
      */
     private List<Map<String, String>> findDeepPatterns(String callName, ClassInfo ci, CommandContext ctx,
                                                         String currentClassSource, int currentDepth, int maxDepth,
@@ -381,62 +382,64 @@ public class PerfCommand implements Command {
         String calleeMethod = callName.contains(".") ? callName.substring(callName.lastIndexOf('.') + 1) : callName;
         String calleeClass = callName.contains(".") ? callName.substring(0, callName.lastIndexOf('.')) : null;
 
-        // Get the callee source
+        // Resolve actual class name
+        String resolvedClass = null;
+        if ("this".equals(calleeClass)) {
+            resolvedClass = ci.name();
+        } else if (calleeClass != null) {
+            resolvedClass = resolveFieldType(calleeClass, ci);
+        }
+
+        // Get callee source for pattern detection
         String calleeSource = null;
         if ("this".equals(calleeClass) && currentClassSource != null) {
             calleeSource = extractMethodByName(currentClassSource, calleeMethod);
-        } else if (calleeClass != null) {
-            String resolvedClass = resolveFieldType(calleeClass, ci);
+        } else if (resolvedClass != null) {
             calleeSource = loadMethodSource(resolvedClass, calleeMethod, ctx);
         }
 
-        if (calleeSource == null) return results;
-
         Set<String> foundTypes = new HashSet<>();
 
-        // Check callee for all registered patterns
-        for (String line : calleeSource.split("\n")) {
-            String trimmed = line.trim();
-            for (PatternDef pattern : PATTERNS) {
-                if (pattern.detector().test(trimmed) && !foundTypes.contains(pattern.id())) {
-                    results.add(Map.of("type", pattern.id(), "path", calleeMethod + " → " + pattern.id().toLowerCase()));
-                    foundTypes.add(pattern.id());
+        // Detect patterns in callee source
+        if (calleeSource != null) {
+            for (String line : calleeSource.split("\n")) {
+                String trimmed = line.trim();
+                for (PatternDef pattern : PATTERNS) {
+                    if (pattern.detector().test(trimmed) && !foundTypes.contains(pattern.id())) {
+                        results.add(Map.of("type", pattern.id(), "path",
+                                calleeMethod + " → " + pattern.id().toLowerCase()));
+                        foundTypes.add(pattern.id());
+                    }
                 }
             }
-        }
 
-        // Check if callee is a linear scan
-        if (checkSourceForLoop(calleeSource != null ? wrapAsClass(calleeSource, calleeMethod) : "", calleeMethod)) {
-            // Actually check using the full method source we already have
-        }
-        // Simpler: check for linear scan pattern directly
-        boolean hasLoopWithReturn = false;
-        boolean inCalleeLoop = false;
-        for (String line : calleeSource.split("\n")) {
-            String trimmed = line.trim();
-            if (isLoopStart(trimmed) && !trimmed.contains("\"")) inCalleeLoop = true;
-            if (inCalleeLoop && (trimmed.startsWith("return ") || trimmed.equals("break;"))) {
-                hasLoopWithReturn = true;
-                break;
+            // Check linear scan pattern (loop with return/break)
+            if (!foundTypes.contains("LINEAR_SCAN") && hasLinearScanPattern(calleeSource)) {
+                results.add(Map.of("type", "LINEAR_SCAN", "path", calleeMethod + " → linear scan"));
+                foundTypes.add("LINEAR_SCAN");
             }
         }
-        if (hasLoopWithReturn && !foundTypes.contains("LINEAR_SCAN")) {
-            results.add(Map.of("type", "LINEAR_SCAN", "path", calleeMethod + " → linear scan"));
-            foundTypes.add("LINEAR_SCAN");
-        }
 
-        // Recurse into callee's callees for patterns not yet found
-        for (String line : calleeSource.split("\n")) {
-            String trimmed = line.trim();
-            for (String subCall : extractMethodCalls(trimmed)) {
-                var deepResults = findDeepPatterns(subCall, ci, ctx, currentClassSource,
-                        currentDepth + 1, maxDepth, visited);
-                for (var dr : deepResults) {
-                    String type = dr.get("type");
-                    if (!foundTypes.contains(type)) {
-                        results.add(Map.of("type", type, "path", calleeMethod + " → " + dr.get("path")));
-                        foundTypes.add(type);
+        // Navigate to next level using CallGraph (fast, pre-resolved)
+        CallGraph graph = ctx.callGraph();
+        if (resolvedClass != null) {
+            Set<MethodReference> refs = graph.findMethodsByName(calleeMethod);
+            for (MethodReference ref : refs) {
+                if (ref.className().equals(resolvedClass) || ref.className().equals(ci.name())) {
+                    // Use CallGraph to get callees — no regex parsing needed
+                    for (var call : graph.getCalleesOf(ref)) {
+                        String nextCall = call.callee().className() + "." + call.callee().methodName();
+                        var deepResults = findDeepPatterns(nextCall, ci, ctx, currentClassSource,
+                                currentDepth + 1, maxDepth, visited);
+                        for (var dr : deepResults) {
+                            if (!foundTypes.contains(dr.get("type"))) {
+                                results.add(Map.of("type", dr.get("type"),
+                                        "path", calleeMethod + " → " + dr.get("path")));
+                                foundTypes.add(dr.get("type"));
+                            }
+                        }
                     }
+                    break; // found the right method, no need to check other refs
                 }
             }
         }
@@ -444,8 +447,28 @@ public class PerfCommand implements Command {
         return results;
     }
 
-    private static String wrapAsClass(String methodBody, String methodName) {
-        return "class X { void " + methodName + "() " + methodBody + " }";
+    private static boolean hasLinearScanPattern(String methodSource) {
+        boolean inLoop = false;
+        int braceDepth = 0;
+        for (String line : methodSource.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("//") || trimmed.startsWith("*")) continue;
+            if (!inLoop && isLoopStart(trimmed) && !trimmed.contains("\"")) {
+                inLoop = true;
+                braceDepth = 0;
+            }
+            if (inLoop) {
+                for (char c : trimmed.toCharArray()) {
+                    if (c == '{') braceDepth++;
+                    else if (c == '}') braceDepth--;
+                }
+                if (braceDepth > 0 && (trimmed.startsWith("return ") || trimmed.equals("break;"))) {
+                    return true;
+                }
+                if (braceDepth <= 0) inLoop = false;
+            }
+        }
+        return false;
     }
 
     private String loadMethodSource(String className, String methodName, CommandContext ctx) {

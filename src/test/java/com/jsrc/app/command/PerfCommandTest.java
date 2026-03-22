@@ -97,6 +97,22 @@ class PerfCommandTest {
     }
 
     @Test
+    void detectsDeepIOAtDepth2() {
+        // processAll → processItem → writeResult → new File (3 levels deep)
+        String json = capture(new PerfCommand("DeepIOService.processAll", 3));
+        assertTrue(json.contains("LOOP_WITH_DEEP_IO") || json.contains("DEEP_IO"),
+                "Should detect I/O 3 levels deep in call chain. Got: " + json);
+    }
+
+    @Test
+    void noDeepIOAtDepth0() {
+        // At depth 0, should NOT follow callees
+        String json = capture(new PerfCommand("DeepIOService.processAll", 0));
+        assertFalse(json.contains("DEEP_IO"),
+                "Depth 0 should not find deep I/O. Got: " + json);
+    }
+
+    @Test
     void detectsSameClassLinearCallee() {
         String json = capture(new PerfCommand("NestedCallService.processAll", 1));
         assertTrue(json.contains("LOOP_WITH_LINEAR_CALLEE") || json.contains("LINEAR_SCAN"),

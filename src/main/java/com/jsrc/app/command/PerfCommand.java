@@ -207,33 +207,39 @@ public class PerfCommand implements Command {
                             "Object allocation inside loop — consider pre-allocating or reusing"));
                 }
 
-                // Detect I/O in loop
-                if (line.contains("Files.read") || line.contains("Files.write")
-                        || line.contains("new File(") || line.contains("io.File(")
-                        || line.contains("FileInputStream") || line.contains("FileOutputStream")
-                        || line.contains("Files.readString") || line.contains("Files.readAllBytes")
-                        || line.contains("Files.writeString") || line.contains("Files.newOutputStream")
-                        || line.contains("writeToFile") || line.contains("readFromFile")) {
+                // Detect I/O directly in loop body
+                if (hasDirectIO(line)) {
                     findings.add(finding("LOOP_WITH_IO", "CRITICAL", lineNum,
                             "I/O operation inside loop — moves bottleneck from CPU to disk"));
                 }
 
-                // Detect method calls in loop — check if callee has loops (depth 1)
+                // Detect method calls in loop — check callees for linear scan AND deep I/O
                 if (currentDepth < maxDepth) {
                     for (String callName : extractMethodCalls(line)) {
                         Map<String, Object> callNode = new LinkedHashMap<>();
                         callNode.put("method", callName);
                         callNode.put("line", lineNum);
 
-                        // Check callee complexity via index
+                        List<String> flags = new ArrayList<>();
+
+                        // Check if callee is a linear scan
                         boolean isLinearScan = isLinearScanCallee(callName, ci, graph, ctx, fullClassSource);
                         if (isLinearScan) {
-                            callNode.put("flags", List.of("🔴 LINEAR_SCAN in loop → O(N²)"));
+                            flags.add("🔴 LINEAR_SCAN in loop → O(N²)");
                             findings.add(finding("LOOP_WITH_LINEAR_CALLEE", "CRITICAL", lineNum,
                                     "O(N²): loop calls " + callName + " which does linear scan"));
-                        } else {
-                            callNode.put("flags", List.of());
                         }
+
+                        // Check if callee has I/O (deep search up to maxDepth)
+                        String ioPath = findDeepIO(callName, ci, ctx, fullClassSource,
+                                currentDepth + 1, maxDepth, new HashSet<>());
+                        if (ioPath != null) {
+                            flags.add("🔴 DEEP_IO: " + ioPath);
+                            findings.add(finding("LOOP_WITH_DEEP_IO", "CRITICAL", lineNum,
+                                    "I/O in call chain inside loop: " + callName + " → " + ioPath));
+                        }
+
+                        callNode.put("flags", flags);
                         if (loopCalls != null) loopCalls.add(callNode);
                     }
                 }
@@ -297,6 +303,86 @@ public class PerfCommand implements Command {
             }
         }
         return false;
+    }
+
+    private static boolean hasDirectIO(String line) {
+        return line.contains("Files.read") || line.contains("Files.write")
+                || line.contains("new File(") || line.contains("io.File(")
+                || line.contains("FileInputStream") || line.contains("FileOutputStream")
+                || line.contains("Files.readString") || line.contains("Files.readAllBytes")
+                || line.contains("Files.writeString") || line.contains("Files.newOutputStream")
+                || line.contains("writeToFile") || line.contains("readFromFile");
+    }
+
+    /**
+     * Recursively search callee chain for I/O operations up to maxDepth.
+     * Returns the path to I/O (e.g., "processItem → transform → Files.read") or null.
+     */
+    private String findDeepIO(String callName, ClassInfo ci, CommandContext ctx,
+                               String currentClassSource, int currentDepth, int maxDepth,
+                               Set<String> visited) {
+        if (currentDepth > maxDepth) return null;
+        if (visited.contains(callName)) return null;
+        visited.add(callName);
+
+        String calleeMethod = callName.contains(".") ? callName.substring(callName.lastIndexOf('.') + 1) : callName;
+        String calleeClass = callName.contains(".") ? callName.substring(0, callName.lastIndexOf('.')) : null;
+
+        // Get the callee source
+        String calleeSource = null;
+        if ("this".equals(calleeClass) && currentClassSource != null) {
+            calleeSource = extractMethodByName(currentClassSource, calleeMethod);
+        } else if (calleeClass != null) {
+            String resolvedClass = resolveFieldType(calleeClass, ci);
+            calleeSource = loadMethodSource(resolvedClass, calleeMethod, ctx);
+        }
+
+        if (calleeSource == null) return null;
+
+        // Check if callee directly has I/O
+        for (String line : calleeSource.split("\n")) {
+            String trimmed = line.trim();
+            if (hasDirectIO(trimmed)) {
+                return calleeMethod + " → I/O";
+            }
+        }
+
+        // Recurse into callee's callees
+        for (String line : calleeSource.split("\n")) {
+            String trimmed = line.trim();
+            for (String subCall : extractMethodCalls(trimmed)) {
+                String ioPath = findDeepIO(subCall, ci, ctx, currentClassSource,
+                        currentDepth + 1, maxDepth, visited);
+                if (ioPath != null) {
+                    return calleeMethod + " → " + ioPath;
+                }
+            }
+        }
+        return null;
+    }
+
+    private String loadMethodSource(String className, String methodName, CommandContext ctx) {
+        // Try index
+        if (ctx.indexed() != null) {
+            var filePath = ctx.indexed().findFileForClass(className);
+            if (filePath.isPresent()) {
+                try {
+                    String source = java.nio.file.Files.readString(
+                            Path.of(ctx.rootPath()).resolve(filePath.get()));
+                    return extractMethodByName(source, methodName);
+                } catch (Exception e) { /* ignore */ }
+            }
+        }
+        // Try file scan
+        for (Path file : ctx.javaFiles()) {
+            if (file.getFileName().toString().equals(className + ".java")) {
+                try {
+                    String source = java.nio.file.Files.readString(file);
+                    return extractMethodByName(source, methodName);
+                } catch (Exception e) { /* ignore */ }
+            }
+        }
+        return null;
     }
 
     private boolean checkCalleeForLoop(Path file, String methodName) {
@@ -453,13 +539,32 @@ public class PerfCommand implements Command {
     }
 
     private static String extractMethodByName(String source, String methodName) {
-        // Find method signature and extract body
-        int idx = source.indexOf(" " + methodName + "(");
-        if (idx < 0) idx = source.indexOf("\t" + methodName + "(");
-        if (idx < 0) return null;
+        // Search for method DECLARATION (preceded by access modifier or return type on same/prev line)
+        // Pattern: type methodName( on a line that looks like a declaration
+        String[] lines = source.split("\n");
+        int declLine = -1;
+        for (int i = 0; i < lines.length; i++) {
+            String trimmed = lines[i].trim();
+            // Match declaration patterns: "void methodName(", "Type methodName(", etc.
+            // Must have return type or modifier before the name
+            if (trimmed.contains(" " + methodName + "(") || trimmed.contains("\t" + methodName + "(")) {
+                // Verify it's a declaration: line should start with modifier/type, not be inside a method body
+                if (trimmed.startsWith("public ") || trimmed.startsWith("private ")
+                        || trimmed.startsWith("protected ") || trimmed.startsWith("static ")
+                        || trimmed.startsWith("void ") || trimmed.startsWith("abstract ")
+                        || trimmed.startsWith("final ") || trimmed.startsWith("synchronized ")
+                        || trimmed.matches("^\\w[\\w<>\\[\\],\\s]*\\s+" + methodName + "\\s*\\(.*")) {
+                    declLine = i;
+                    break;
+                }
+            }
+        }
+        if (declLine < 0) return null;
 
-        // Find the opening brace
-        int braceStart = source.indexOf('{', idx);
+        // Find the opening brace from declaration line
+        int declIdx = 0;
+        for (int i = 0; i < declLine; i++) declIdx += lines[i].length() + 1;
+        int braceStart = source.indexOf('{', declIdx);
         if (braceStart < 0) return null;
 
         // Count braces to find the end

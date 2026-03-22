@@ -42,7 +42,10 @@ public class IndexedCodebase {
         this.entries = entries;
     }
 
-    /** Lazily load call edges from split file when first needed. */
+    /**
+     * Lazily load call edges from split JSON file (legacy format).
+     * Not needed when loaded from V2 binary index.
+     */
     public void ensureEdgesLoaded() {
         if (!edgesLoaded && sourceRoot != null) {
             CodebaseIndex.loadEdgesInto(sourceRoot, entries);
@@ -50,7 +53,10 @@ public class IndexedCodebase {
         }
     }
 
-    /** Lazily load cached smells from split file when first needed. */
+    /**
+     * Lazily load cached smells from split JSON file (legacy format).
+     * Not needed when loaded from V2 binary index.
+     */
     public void ensureSmellsLoaded() {
         if (!smellsLoaded && sourceRoot != null) {
             CodebaseIndex.loadSmellsInto(sourceRoot, entries);

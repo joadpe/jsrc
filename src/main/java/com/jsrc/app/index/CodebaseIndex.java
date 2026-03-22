@@ -136,14 +136,28 @@ public class CodebaseIndex {
         Path indexDir = projectRoot.resolve(INDEX_DIR);
         Files.createDirectories(indexDir);
 
-        // Write unified binary
+        // Write unified V2 binary (primary format)
         BinaryIndexV2Writer.write(indexDir.resolve(INDEX_BIN), entries, callGraph);
+
+        // Clean up legacy files if they exist
+        deleteLegacyFiles(indexDir);
 
         logger.info("V2 binary index saved: {} entries, graph={}",
                 entries.size(), callGraph != null);
+    }
 
-        // Also save legacy formats for backward compat
-        save(projectRoot);
+    private void deleteLegacyFiles(Path indexDir) {
+        for (String legacy : List.of(INDEX_FILE, CLASSES_FILE, CLASSES_BIN, EDGES_FILE, SMELLS_FILE)) {
+            try {
+                Path f = indexDir.resolve(legacy);
+                if (Files.exists(f)) {
+                    Files.delete(f);
+                    logger.info("Removed legacy index file: {}", legacy);
+                }
+            } catch (IOException e) {
+                logger.debug("Could not remove legacy file {}: {}", legacy, e.getMessage());
+            }
+        }
     }
 
     public void save(Path projectRoot) throws IOException {

@@ -102,7 +102,7 @@ public class JsrcCommand implements Runnable {
 
     @Option(names = {"-d", "--dir"}, paramLabel = "<source-root>",
             description = "Source root directory (defaults to current directory)",
-            defaultValue = ".")
+            defaultValue = ".", scope = CommandLine.ScopeType.INHERIT)
     String sourceRoot;
 
     @Override

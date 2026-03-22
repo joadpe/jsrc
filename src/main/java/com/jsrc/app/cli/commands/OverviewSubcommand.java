@@ -3,7 +3,7 @@ package com.jsrc.app.cli.commands;
 import picocli.CommandLine.Command;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.OverviewCommand;
+import com.jsrc.app.command.navigate.OverviewCommand;
 
 /**
  * Subcommand: jsrc overview

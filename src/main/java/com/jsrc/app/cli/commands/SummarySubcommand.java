@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.SummaryCommand;
+import com.jsrc.app.command.navigate.SummaryCommand;
 
 @Command(name = "summary", description = "Class metadata + method signatures")
 public class SummarySubcommand extends JsrcSubcommand {

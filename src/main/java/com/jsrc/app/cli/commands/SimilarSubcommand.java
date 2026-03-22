@@ -2,7 +2,7 @@ package com.jsrc.app.cli.commands;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.SimilarCommand;
+import com.jsrc.app.command.navigate.SimilarCommand;
 @Command(name = "similar", description = "Find similar classes")
 public class SimilarSubcommand extends JsrcSubcommand {
     @Parameters(index = "0", paramLabel = "<className>", description = "Class to find similar to")

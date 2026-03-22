@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.ReadCommand;
+import com.jsrc.app.command.navigate.ReadCommand;
 
 @Command(name = "read", description = "Source code of a class or method")
 public class ReadSubcommand extends JsrcSubcommand {

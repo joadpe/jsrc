@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.ClassesCommand;
+import com.jsrc.app.command.navigate.ClassesCommand;
 
 /**
  * Subcommand: jsrc classes [filter]

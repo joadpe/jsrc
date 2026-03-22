@@ -2,7 +2,7 @@ package com.jsrc.app.cli.commands;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.ExplainCommand;
+import com.jsrc.app.command.navigate.ExplainCommand;
 @Command(name = "explain", description = "Detailed explanation of a class")
 public class ExplainSubcommand extends JsrcSubcommand {
     @Parameters(index = "0", paramLabel = "<className>", description = "Class to explain")

@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.HierarchyCommand;
+import com.jsrc.app.command.navigate.HierarchyCommand;
 
 @Command(name = "hierarchy", description = "Inheritance tree: extends, implements, subclasses")
 public class HierarchySubcommand extends JsrcSubcommand {

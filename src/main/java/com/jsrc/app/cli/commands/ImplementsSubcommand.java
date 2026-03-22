@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.ImplementsCommand;
+import com.jsrc.app.command.navigate.ImplementsCommand;
 
 @Command(name = "implements", description = "Find all implementors of an interface")
 public class ImplementsSubcommand extends JsrcSubcommand {

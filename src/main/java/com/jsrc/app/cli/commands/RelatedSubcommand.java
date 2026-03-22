@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.RelatedCommand;
+import com.jsrc.app.command.navigate.RelatedCommand;
 
 @Command(name = "related", description = "Related classes by coupling (shared imports/callers)")
 public class RelatedSubcommand extends JsrcSubcommand {

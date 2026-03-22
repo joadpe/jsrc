@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.MiniCommand;
+import com.jsrc.app.command.navigate.MiniCommand;
 
 @Command(name = "mini", description = "Quick class overview (~120 tokens)")
 public class MiniSubcommand extends JsrcSubcommand {

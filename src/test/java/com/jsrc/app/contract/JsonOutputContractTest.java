@@ -1,5 +1,21 @@
 package com.jsrc.app.contract;
 
+import com.jsrc.app.command.navigate.AnnotationsCommand;
+
+import com.jsrc.app.command.navigate.DepsCommand;
+
+import com.jsrc.app.command.navigate.HierarchyCommand;
+
+import com.jsrc.app.command.navigate.ReadCommand;
+
+import com.jsrc.app.command.navigate.MiniCommand;
+
+import com.jsrc.app.command.navigate.SummaryCommand;
+
+import com.jsrc.app.command.navigate.ClassesCommand;
+
+import com.jsrc.app.command.navigate.OverviewCommand;
+
 import com.jsrc.app.command.*;
 import com.jsrc.app.config.ProjectConfig;
 import com.jsrc.app.index.IndexedCodebase;

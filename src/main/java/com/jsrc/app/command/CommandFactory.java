@@ -1,5 +1,21 @@
 package com.jsrc.app.command;
 
+import com.jsrc.app.command.navigate.OverviewCommand;
+import com.jsrc.app.command.navigate.ClassesCommand;
+import com.jsrc.app.command.navigate.SummaryCommand;
+import com.jsrc.app.command.navigate.MiniCommand;
+import com.jsrc.app.command.navigate.ReadCommand;
+import com.jsrc.app.command.navigate.HierarchyCommand;
+import com.jsrc.app.command.navigate.ImplementsCommand;
+import com.jsrc.app.command.navigate.DepsCommand;
+import com.jsrc.app.command.navigate.AnnotationsCommand;
+import com.jsrc.app.command.navigate.RelatedCommand;
+import com.jsrc.app.command.navigate.ImportsCommand;
+import com.jsrc.app.command.navigate.MapCommand;
+import com.jsrc.app.command.navigate.ExplainCommand;
+import com.jsrc.app.command.navigate.SimilarCommand;
+import com.jsrc.app.command.navigate.ResolveCommand;
+
 /**
  * Single source of truth for command resolution.
  * Used by App.java, BatchCommand, and WatchCommand.

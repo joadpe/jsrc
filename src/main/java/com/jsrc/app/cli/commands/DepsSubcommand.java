@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.DepsCommand;
+import com.jsrc.app.command.navigate.DepsCommand;
 
 @Command(name = "deps", description = "Dependencies: imports, fields, constructor params")
 public class DepsSubcommand extends JsrcSubcommand {

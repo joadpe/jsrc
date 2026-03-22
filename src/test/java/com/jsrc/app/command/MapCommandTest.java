@@ -1,5 +1,7 @@
 package com.jsrc.app.command;
 
+import com.jsrc.app.command.navigate.MapCommand;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.ByteArrayOutputStream;

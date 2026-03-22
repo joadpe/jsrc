@@ -1,5 +1,11 @@
 package com.jsrc.app.command;
 
+import com.jsrc.app.command.navigate.SummaryCommand;
+
+import com.jsrc.app.command.navigate.ClassesCommand;
+
+import com.jsrc.app.command.navigate.OverviewCommand;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.ByteArrayOutputStream;

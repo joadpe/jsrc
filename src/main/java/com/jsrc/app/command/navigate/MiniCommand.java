@@ -1,4 +1,7 @@
-package com.jsrc.app.command;
+package com.jsrc.app.command.navigate;
+
+import com.jsrc.app.command.Command;
+import com.jsrc.app.command.CommandContext;
 
 import java.util.Comparator;
 import java.util.LinkedHashMap;

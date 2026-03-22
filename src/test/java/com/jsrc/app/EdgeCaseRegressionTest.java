@@ -17,8 +17,8 @@ import com.jsrc.app.output.JsonFormatter;
 import com.jsrc.app.output.JsonReader;
 import com.jsrc.app.parser.HybridJavaParser;
 import com.jsrc.app.command.CommandContext;
-import com.jsrc.app.command.DepsCommand;
-import com.jsrc.app.command.ReadCommand;
+import com.jsrc.app.command.navigate.DepsCommand;
+import com.jsrc.app.command.navigate.ReadCommand;
 
 /**
  * Edge case tests identified by Rune during benchmark review.

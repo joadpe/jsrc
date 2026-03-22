@@ -42,7 +42,12 @@ import com.jsrc.app.parser.HybridJavaParser;
         com.jsrc.app.cli.commands.ImplementsSubcommand.class,
         com.jsrc.app.cli.commands.DepsSubcommand.class,
         com.jsrc.app.cli.commands.AnnotationsSubcommand.class,
-        com.jsrc.app.cli.commands.RelatedSubcommand.class
+        com.jsrc.app.cli.commands.RelatedSubcommand.class,
+        com.jsrc.app.cli.commands.CallersSubcommand.class,
+        com.jsrc.app.cli.commands.CalleesSubcommand.class,
+        com.jsrc.app.cli.commands.CallChainSubcommand.class,
+        com.jsrc.app.cli.commands.ImpactSubcommand.class,
+        com.jsrc.app.cli.commands.TestForSubcommand.class
     }
 )
 public class JsrcCommand implements Runnable {

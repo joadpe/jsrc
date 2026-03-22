@@ -163,53 +163,55 @@ if [ -z "$CLASS" ]; then
 fi
 echo "  ℹ️  Using class: $CLASS"
 
-test_cmd "summary"       30 "name"          summary "$CLASS" --json
-test_cmd "mini"          30 "name"          mini "$CLASS" --json
-test_cmd "read"          30 "content"       read "$CLASS" --json
-test_cmd "hierarchy"     30 "target"        hierarchy "$CLASS" --json
-test_cmd "deps"          30 "class"         deps "$CLASS" --json
-test_cmd "annotations"   30 "total"         annotations Override --json
-test_cmd "related"       45 "target"        related "$CLASS" --json
+# Navigation: verify output references the class we asked about
+test_cmd "summary"       30 "$CLASS"        summary "$CLASS" --json
+test_cmd "mini"          30 "$CLASS"        mini "$CLASS" --json
+test_cmd "read"          30 "$CLASS"        read "$CLASS" --json
+test_cmd "hierarchy"     30 "$CLASS"        hierarchy "$CLASS" --json
+test_cmd "deps"          30 "$CLASS"        deps "$CLASS" --json
+test_cmd "annotations"   30 "Override"      annotations Override --json
+test_cmd "related"       45 "$CLASS"        related "$CLASS" --json
 
 echo ""
 echo "── Call graph (requires full graph build ~20s on large codebases) ──"
-test_cmd "callers"       45 ""              callers "$CLASS.main" --json
-test_cmd "callees"       45 ""              callees "$CLASS.main" --json
-test_cmd "impact"        45 ""              impact "$CLASS.main" --json
-test_cmd "test-for"      45 ""              test-for "$CLASS.main" --json
+# Call graph may return [] for classes with no callers — verify valid JSON output
+test_cmd "callers"       45 ""              callers "$CLASS" --json
+test_cmd "callees"       45 ""              callees "$CLASS" --json
+test_cmd "impact"        45 "$CLASS"        impact "$CLASS" --json
+test_cmd "test-for"      45 ""              test-for "$CLASS" --json
 
 echo ""
 echo "── Search ──"
-test_cmd "search"        30 "file"          search "TODO" --json
-test_cmd "find"          30 ""              find "parse" --json
-test_cmd "scope"         30 ""              scope "configuration" --json
-test_cmd "unused"        60 ""              unused --json
+test_cmd "search"        30 "TODO"          search "TODO" --json
+test_cmd "find"          30 "parse"         find "parse" --json
+test_cmd "scope"         30 "configuration" scope "configuration" --json
+test_cmd "unused"        60 "unused\|Method\|class" unused --json
 
 echo ""
 echo "── Analysis ──"
-test_cmd "smells"        30 ""              smells "$CLASS" --json
-test_cmd "smells --all"  60 ""              smells --all --json
-test_cmd "complexity"    30 ""              complexity "$CLASS" --json
-test_cmd "complexity --all" 60 ""           complexity --all --json
-test_cmd "lint"          30 ""              lint "$CLASS" --json
-test_cmd "lint --all"    60 ""              lint --all --json
+# Verify smells/lint/complexity output references the class
+test_cmd "smells"        30 "$CLASS"        smells "$CLASS" --json
+test_cmd "smells --all"  60 "totalFindings\|findings\|total" smells --all --json
+test_cmd "complexity"    30 "$CLASS"        complexity "$CLASS" --json
+test_cmd "complexity --all" 60 "complexity\|total" complexity --all --json
+test_cmd "lint"          30 "$CLASS"        lint "$CLASS" --json
+test_cmd "lint --all"    60 "mutableStatics\|godClasses\|highParamMethods" lint --all --json
 test_cmd "hotspots"      45 "byCallers"     hotspots --json
 test_cmd "packages"      60 "totalPackages" packages --json
 test_cmd "style"         15 "java"          style --json
-test_cmd "patterns"      15 ""              patterns --json
-test_cmd "snippet"       30 ""              snippet service --json
+test_cmd "patterns"      15 "naming\|logging\|injection" patterns --json
+test_cmd "snippet"       30 "service\|Service" snippet service --json
 
 echo ""
 echo "── Architecture ──"
-test_cmd "check"         30 ""              check --json
-test_cmd "endpoints"     30 ""              endpoints --json
-test_cmd "entry-points"  30 ""              entry-points --json
-test_cmd "validate"      30 ""              validate "$CLASS.main" --json
-test_cmd "imports"       30 ""              imports "$CLASS" --json
+test_cmd "check"         30 "violations\|ruleId\|pass" check --json
+test_cmd "endpoints"     30 "path\|httpMethod" endpoints --json
+test_cmd "entry-points"  30 "main\|total"   entry-points --json
+test_cmd "validate"      30 "$CLASS"        validate "$CLASS.main" --json
+test_cmd "imports"       30 "class\|import\|relationship" imports "$CLASS" --json
 # layer needs .jsrc.yaml with architecture.layers configured
-# exit 2 (BAD_USAGE) is acceptable if no layers are defined
 if cd "$CODEBASE" && [ -f ".jsrc.yaml" ] && grep -q "layers:" .jsrc.yaml 2>/dev/null; then
-    test_cmd "layer"     15 ""              layer controller --json
+    test_cmd "layer"     15 "controller"    layer controller --json
 else
     printf "  ⏭  %-25s SKIPPED (no .jsrc.yaml layers)\n" "layer"
     SKIP=$((SKIP + 1))
@@ -217,25 +219,25 @@ fi
 
 echo ""
 echo "── Reverse engineering ──"
-test_cmd "context"       45 ""              context "$CLASS" --json
-test_cmd "context-for"   30 ""              context-for "fix bug" --json
-test_cmd "contract"      30 ""              contract "$CLASS" --json
-test_cmd "drift"         30 ""              drift --json
-test_cmd "diff"          15 ""              diff --json
-test_cmd "changed"       15 ""              changed --json
+test_cmd "context"       45 "$CLASS"        context "$CLASS" --json
+test_cmd "context-for"   30 "fix bug\|relevant\|score" context-for "fix bug" --json
+test_cmd "contract"      30 "$CLASS"        contract "$CLASS" --json
+test_cmd "drift"         30 "Violations\|violations\|Issues\|totalIssues" drift --json
+test_cmd "diff"          15 "changed\|total\|files" diff --json
+test_cmd "changed"       15 "changed\|total\|files" changed --json
 
 echo ""
 echo "── Meta/Special ──"
-test_cmd "map"           30 ""              map --json
+test_cmd "map"           30 "class\|pkg"    map --json
 test_cmd "resolve"       15 ""              resolve "$CLASS" --json
 test_cmd "similar"       45 ""              similar "$CLASS" --json
-test_cmd "explain"       60 ""              explain "$CLASS" --json
-test_cmd "breaking-changes" 45 ""           breaking-changes "$CLASS" --json
+test_cmd "explain"       60 "$CLASS"        explain "$CLASS" --json
+test_cmd "breaking-changes" 45 "$CLASS"     breaking-changes "$CLASS" --json
 test_cmd "diff-impact"   30 ""              diff-impact --json
-test_cmd "stats"         30 ""              stats "$CLASS" --json
-test_cmd "type-check"    30 ""              type-check "$CLASS" --json
-test_cmd "checklist"     45 ""              checklist "$CLASS" --json
-test_cmd "history"       30 ""              history "$CLASS" --json
+test_cmd "stats"         30 "$CLASS"        stats "$CLASS" --json
+test_cmd "type-check"    30 "$CLASS"        type-check "$CLASS" --json
+test_cmd "checklist"     45 "$CLASS"        checklist "$CLASS" --json
+test_cmd "history"       30 "$CLASS"        history "$CLASS" --json
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

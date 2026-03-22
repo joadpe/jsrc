@@ -183,6 +183,7 @@ public class PerfCommand implements Command {
         int loopDepth = 0;
         List<Map<String, Object>> loopCalls = null;
         int loopLine = 0;
+        Set<String> loopReported = new HashSet<>(); // dedup per loop
 
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].trim();
@@ -194,68 +195,62 @@ public class PerfCommand implements Command {
                     inLoop = true;
                     loopLine = lineNum;
                     loopCalls = new ArrayList<>();
+                    loopReported = new HashSet<>();
                 }
                 loopDepth++;
             }
 
             if (inLoop) {
-                // Detect allocation in loop
-                if (line.contains("new HashMap") || line.contains("new ArrayList")
-                        || line.contains("new LinkedHashMap") || line.contains("new HashSet")
-                        || line.contains("new LinkedList")) {
+                // Track what patterns have been reported for this loop to avoid duplicates
+                // (initialized per loop via loopReported, reset when loop starts)
+
+                // 1. Detect patterns directly in this line
+                if (hasAllocation(line) && !loopReported.contains("ALLOCATION")) {
                     findings.add(finding("ALLOCATION_IN_LOOP", "WARNING", lineNum,
                             "Object allocation inside loop — consider pre-allocating or reusing"));
+                    loopReported.add("ALLOCATION");
                 }
 
-                // Detect I/O directly in loop body
-                boolean directIO = hasDirectIO(line);
-                if (directIO) {
+                if (hasDirectIO(line) && !loopReported.contains("IO")) {
                     findings.add(finding("LOOP_WITH_IO", "CRITICAL", lineNum,
                             "I/O operation inside loop — moves bottleneck from CPU to disk"));
+                    loopReported.add("IO");
                 }
 
-                // Detect method calls in loop — check callees for linear scan AND deep I/O
-                if (currentDepth < maxDepth) {
-                    // Track already-reported I/O to avoid duplicates across callees
-                    boolean ioAlreadyReported = directIO;
+                if (hasNestedIteration(line) && !loopReported.contains("NESTED")) {
+                    findings.add(finding("NESTED_ITERATION", "WARNING", lineNum,
+                            "Nested iteration — consider using a Set for O(1) lookup"));
+                    loopReported.add("NESTED");
+                }
 
+                // 2. Deep search into callees (up to maxDepth)
+                if (currentDepth < maxDepth) {
                     for (String callName : extractMethodCalls(line)) {
                         Map<String, Object> callNode = new LinkedHashMap<>();
                         callNode.put("method", callName);
                         callNode.put("line", lineNum);
 
                         List<String> flags = new ArrayList<>();
+                        Set<String> visited = new HashSet<>();
 
-                        // Check if callee is a linear scan
-                        boolean isLinearScan = isLinearScanCallee(callName, ci, graph, ctx, fullClassSource);
-                        if (isLinearScan) {
-                            flags.add("🔴 LINEAR_SCAN in loop → O(N²)");
-                            findings.add(finding("LOOP_WITH_LINEAR_CALLEE", "CRITICAL", lineNum,
-                                    "O(N²): loop calls " + callName + " which does linear scan"));
-                        }
+                        // Deep search for ALL patterns in callee chain
+                        var deepFindings = findDeepPatterns(callName, ci, ctx, fullClassSource,
+                                currentDepth + 1, maxDepth, visited);
 
-                        // Check if callee has I/O (deep search) — only if no I/O reported yet for this loop
-                        if (!ioAlreadyReported) {
-                            String ioPath = findDeepIO(callName, ci, ctx, fullClassSource,
-                                    currentDepth + 1, maxDepth, new HashSet<>());
-                            if (ioPath != null) {
-                                flags.add("🔴 DEEP_IO: " + ioPath);
-                                findings.add(finding("LOOP_WITH_DEEP_IO", "CRITICAL", lineNum,
-                                        "I/O in call chain inside loop: " + callName + " → " + ioPath));
-                                ioAlreadyReported = true; // one I/O finding per loop is enough
+                        for (var df : deepFindings) {
+                            String type = df.get("type").toString();
+                            // Only report if this pattern type hasn't been reported for this loop
+                            if (!loopReported.contains(type)) {
+                                flags.add("🔴 DEEP " + type + ": " + df.get("path"));
+                                findings.add(finding("LOOP_WITH_DEEP_" + type, "CRITICAL", lineNum,
+                                        type + " in call chain: " + callName + " → " + df.get("path")));
+                                loopReported.add(type);
                             }
                         }
 
                         callNode.put("flags", flags);
                         if (loopCalls != null) loopCalls.add(callNode);
                     }
-                }
-
-                // Detect nested iteration
-                if (line.contains(".stream()") && (line.contains("noneMatch") || line.contains("anyMatch")
-                        || line.contains("allMatch") || line.contains("filter"))) {
-                    findings.add(finding("NESTED_ITERATION", "WARNING", lineNum,
-                            "Nested iteration — consider using a Set for O(1) lookup"));
                 }
             }
 
@@ -312,6 +307,17 @@ public class PerfCommand implements Command {
         return false;
     }
 
+    private static boolean hasAllocation(String line) {
+        return line.contains("new HashMap") || line.contains("new ArrayList")
+                || line.contains("new LinkedHashMap") || line.contains("new HashSet")
+                || line.contains("new LinkedList");
+    }
+
+    private static boolean hasNestedIteration(String line) {
+        return line.contains(".stream()") && (line.contains("noneMatch") || line.contains("anyMatch")
+                || line.contains("allMatch") || line.contains("filter"));
+    }
+
     private static boolean hasDirectIO(String line) {
         return line.contains("Files.read") || line.contains("Files.write")
                 || line.contains("new File(") || line.contains("io.File(")
@@ -322,14 +328,16 @@ public class PerfCommand implements Command {
     }
 
     /**
-     * Recursively search callee chain for I/O operations up to maxDepth.
-     * Returns the path to I/O (e.g., "processItem → transform → Files.read") or null.
+     * Recursively search callee chain for ALL performance anti-patterns up to maxDepth.
+     * Returns list of findings with type + path (e.g., [{type: "IO", path: "processItem → writeResult → I/O"}]).
+     * Each pattern type is reported at most once (shortest path).
      */
-    private String findDeepIO(String callName, ClassInfo ci, CommandContext ctx,
-                               String currentClassSource, int currentDepth, int maxDepth,
-                               Set<String> visited) {
-        if (currentDepth > maxDepth) return null;
-        if (visited.contains(callName)) return null;
+    private List<Map<String, String>> findDeepPatterns(String callName, ClassInfo ci, CommandContext ctx,
+                                                        String currentClassSource, int currentDepth, int maxDepth,
+                                                        Set<String> visited) {
+        List<Map<String, String>> results = new ArrayList<>();
+        if (currentDepth > maxDepth) return results;
+        if (visited.contains(callName)) return results;
         visited.add(callName);
 
         String calleeMethod = callName.contains(".") ? callName.substring(callName.lastIndexOf('.') + 1) : callName;
@@ -344,28 +352,68 @@ public class PerfCommand implements Command {
             calleeSource = loadMethodSource(resolvedClass, calleeMethod, ctx);
         }
 
-        if (calleeSource == null) return null;
+        if (calleeSource == null) return results;
 
-        // Check if callee directly has I/O
+        Set<String> foundTypes = new HashSet<>();
+
+        // Check callee for direct patterns
         for (String line : calleeSource.split("\n")) {
             String trimmed = line.trim();
-            if (hasDirectIO(trimmed)) {
-                return calleeMethod + " → I/O";
+            if (hasDirectIO(trimmed) && !foundTypes.contains("IO")) {
+                results.add(Map.of("type", "IO", "path", calleeMethod + " → I/O"));
+                foundTypes.add("IO");
+            }
+            if (hasAllocation(trimmed) && !foundTypes.contains("ALLOCATION")) {
+                results.add(Map.of("type", "ALLOCATION", "path", calleeMethod + " → allocation"));
+                foundTypes.add("ALLOCATION");
+            }
+            if (hasNestedIteration(trimmed) && !foundTypes.contains("NESTED")) {
+                results.add(Map.of("type", "NESTED", "path", calleeMethod + " → nested iteration"));
+                foundTypes.add("NESTED");
             }
         }
 
-        // Recurse into callee's callees
+        // Check if callee is a linear scan
+        if (checkSourceForLoop(calleeSource != null ? wrapAsClass(calleeSource, calleeMethod) : "", calleeMethod)) {
+            // Actually check using the full method source we already have
+        }
+        // Simpler: check for linear scan pattern directly
+        boolean hasLoopWithReturn = false;
+        boolean inCalleeLoop = false;
+        for (String line : calleeSource.split("\n")) {
+            String trimmed = line.trim();
+            if (isLoopStart(trimmed) && !trimmed.contains("\"")) inCalleeLoop = true;
+            if (inCalleeLoop && (trimmed.startsWith("return ") || trimmed.equals("break;"))) {
+                hasLoopWithReturn = true;
+                break;
+            }
+        }
+        if (hasLoopWithReturn && !foundTypes.contains("LINEAR_SCAN")) {
+            results.add(Map.of("type", "LINEAR_SCAN", "path", calleeMethod + " → linear scan"));
+            foundTypes.add("LINEAR_SCAN");
+        }
+
+        // Recurse into callee's callees for patterns not yet found
         for (String line : calleeSource.split("\n")) {
             String trimmed = line.trim();
             for (String subCall : extractMethodCalls(trimmed)) {
-                String ioPath = findDeepIO(subCall, ci, ctx, currentClassSource,
+                var deepResults = findDeepPatterns(subCall, ci, ctx, currentClassSource,
                         currentDepth + 1, maxDepth, visited);
-                if (ioPath != null) {
-                    return calleeMethod + " → " + ioPath;
+                for (var dr : deepResults) {
+                    String type = dr.get("type");
+                    if (!foundTypes.contains(type)) {
+                        results.add(Map.of("type", type, "path", calleeMethod + " → " + dr.get("path")));
+                        foundTypes.add(type);
+                    }
                 }
             }
         }
-        return null;
+
+        return results;
+    }
+
+    private static String wrapAsClass(String methodBody, String methodName) {
+        return "class X { void " + methodName + "() " + methodBody + " }";
     }
 
     private String loadMethodSource(String className, String methodName, CommandContext ctx) {

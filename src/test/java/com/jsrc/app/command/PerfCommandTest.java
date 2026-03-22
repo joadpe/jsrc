@@ -120,6 +120,62 @@ class PerfCommandTest {
     }
 
     @Test
+    void detectsStringConcatInLoop() {
+        String json = capture(new PerfCommand("JavaAntiPatterns.joinAll", 1));
+        assertTrue(json.contains("STRING_CONCAT"),
+                "Should detect string concatenation in loop. Got: " + json);
+    }
+
+    @Test
+    void detectsStringFormatInLoop() {
+        String json = capture(new PerfCommand("JavaAntiPatterns.logAll", 1));
+        assertTrue(json.contains("STRING_FORMAT"),
+                "Should detect String.format in loop. Got: " + json);
+    }
+
+    @Test
+    void detectsDateFormatInLoop() {
+        String json = capture(new PerfCommand("JavaAntiPatterns.formatDates", 1));
+        assertTrue(json.contains("DATE_FORMAT"),
+                "Should detect SimpleDateFormat in loop. Got: " + json);
+    }
+
+    @Test
+    void detectsRegexCompileInLoop() {
+        String json = capture(new PerfCommand("JavaAntiPatterns.countMatches", 1));
+        assertTrue(json.contains("REGEX_COMPILE"),
+                "Should detect Pattern.compile in loop. Got: " + json);
+    }
+
+    @Test
+    void detectsReflectionInLoop() {
+        String json = capture(new PerfCommand("JavaAntiPatterns.processReflective", 1));
+        assertTrue(json.contains("REFLECTION"),
+                "Should detect reflection in loop. Got: " + json);
+    }
+
+    @Test
+    void detectsStreamInLoop() {
+        String json = capture(new PerfCommand("JavaAntiPatterns.filterEach", 1));
+        assertTrue(json.contains("STREAM"),
+                "Should detect stream creation in loop. Got: " + json);
+    }
+
+    @Test
+    void detectsListRemoveInLoop() {
+        String json = capture(new PerfCommand("JavaAntiPatterns.removeOdds", 1));
+        assertTrue(json.contains("LIST_REMOVE"),
+                "Should detect list.remove in loop. Got: " + json);
+    }
+
+    @Test
+    void detectsConnectionInLoop() {
+        String json = capture(new PerfCommand("JavaAntiPatterns.fetchAll", 1));
+        assertTrue(json.contains("CONNECTION"),
+                "Should detect connection/URL in loop. Got: " + json);
+    }
+
+    @Test
     void outputHasCorrectStructure() {
         String json = capture(new PerfCommand("SlowService.processAll", 1));
         assertTrue(json.contains("\"method\""), "Should have method field");

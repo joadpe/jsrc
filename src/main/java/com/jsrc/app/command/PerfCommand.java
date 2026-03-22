@@ -64,7 +64,47 @@ public class PerfCommand implements Command {
                     "NESTED_ITERATION", "LOOP_WITH_DEEP_NESTED",
                     "Nested iteration — consider using a Set for O(1) lookup",
                     "Nested iteration in call chain",
-                    PerfCommand::hasNestedIteration)
+                    PerfCommand::hasNestedIteration),
+            new PatternDef("STRING_CONCAT", "WARNING",
+                    "STRING_CONCAT_IN_LOOP", "LOOP_WITH_DEEP_STRING_CONCAT",
+                    "String concatenation in loop — O(N²) due to String immutability, use StringBuilder",
+                    "String concat in call chain",
+                    PerfCommand::hasStringConcat),
+            new PatternDef("STRING_FORMAT", "INFO",
+                    "STRING_FORMAT_IN_LOOP", "LOOP_WITH_DEEP_STRING_FORMAT",
+                    "String.format() in loop — parses format string on every call, use StringBuilder",
+                    "String.format in call chain",
+                    PerfCommand::hasStringFormat),
+            new PatternDef("DATE_FORMAT", "WARNING",
+                    "DATE_FORMAT_IN_LOOP", "LOOP_WITH_DEEP_DATE_FORMAT",
+                    "DateFormat/SimpleDateFormat created in loop — heavy object, reuse or use DateTimeFormatter",
+                    "DateFormat in call chain",
+                    PerfCommand::hasDateFormat),
+            new PatternDef("REGEX_COMPILE", "WARNING",
+                    "REGEX_COMPILE_IN_LOOP", "LOOP_WITH_DEEP_REGEX_COMPILE",
+                    "Pattern.compile() in loop — compile once as static final, reuse",
+                    "Regex compile in call chain",
+                    PerfCommand::hasRegexCompile),
+            new PatternDef("REFLECTION", "CRITICAL",
+                    "REFLECTION_IN_LOOP", "LOOP_WITH_DEEP_REFLECTION",
+                    "Reflection in loop — Class.forName/getMethod/invoke are slow, cache results",
+                    "Reflection in call chain",
+                    PerfCommand::hasReflection),
+            new PatternDef("STREAM_CREATE", "WARNING",
+                    "STREAM_IN_LOOP", "LOOP_WITH_DEEP_STREAM",
+                    "Stream created in loop — creates N streams + N iterators, consider traditional loop",
+                    "Stream in call chain",
+                    PerfCommand::hasStreamCreate),
+            new PatternDef("LIST_REMOVE", "WARNING",
+                    "LIST_REMOVE_IN_LOOP", "LOOP_WITH_DEEP_LIST_REMOVE",
+                    "List.remove() in loop — O(N²) due to element shift, use Iterator.remove() or removeIf()",
+                    "List.remove in call chain",
+                    PerfCommand::hasListRemove),
+            new PatternDef("CONNECTION", "CRITICAL",
+                    "CONNECTION_IN_LOOP", "LOOP_WITH_DEEP_CONNECTION",
+                    "Connection/stream opened in loop — use connection pool or batch operation",
+                    "Connection in call chain",
+                    PerfCommand::hasConnection)
     );
 
     private final String target;
@@ -319,6 +359,47 @@ public class PerfCommand implements Command {
     private static boolean hasNestedIteration(String line) {
         return line.contains(".stream()") && (line.contains("noneMatch") || line.contains("anyMatch")
                 || line.contains("allMatch") || line.contains("filter"));
+    }
+
+    private static boolean hasStringConcat(String line) {
+        // Detect: str += "x" or str = str + "x" (but not StringBuilder.append)
+        return (line.contains("+=") && !line.contains("++") && !line.contains("+=\\s*\\d")
+                && (line.contains("\"") || line.contains("String")))
+                || (line.matches(".*\\w+\\s*=\\s*\\w+\\s*\\+\\s*\".*"));
+    }
+
+    private static boolean hasStringFormat(String line) {
+        return line.contains("String.format(") || line.contains("String.format (");
+    }
+
+    private static boolean hasDateFormat(String line) {
+        return line.contains("new SimpleDateFormat") || line.contains("new DateFormat")
+                || line.contains("DateTimeFormatter.ofPattern(");
+    }
+
+    private static boolean hasRegexCompile(String line) {
+        return line.contains("Pattern.compile(") || line.contains("Pattern.compile (");
+    }
+
+    private static boolean hasReflection(String line) {
+        return line.contains("Class.forName(") || line.contains(".getMethod(")
+                || line.contains(".getDeclaredMethod(") || line.contains(".invoke(")
+                || line.contains(".newInstance(") || line.contains(".getField(")
+                || line.contains(".getDeclaredField(");
+    }
+
+    private static boolean hasStreamCreate(String line) {
+        return line.contains(".stream()") || line.contains(".parallelStream()");
+    }
+
+    private static boolean hasListRemove(String line) {
+        return line.contains(".remove(") && !line.contains("Iterator");
+    }
+
+    private static boolean hasConnection(String line) {
+        return line.contains("getConnection(") || line.contains("openConnection(")
+                || line.contains("openStream(") || line.contains("new Socket(")
+                || line.contains("new URL(") || line.contains("DriverManager.getConnection(");
     }
 
     private static boolean hasDirectIO(String line) {

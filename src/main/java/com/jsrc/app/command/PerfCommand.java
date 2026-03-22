@@ -208,13 +208,17 @@ public class PerfCommand implements Command {
                 }
 
                 // Detect I/O directly in loop body
-                if (hasDirectIO(line)) {
+                boolean directIO = hasDirectIO(line);
+                if (directIO) {
                     findings.add(finding("LOOP_WITH_IO", "CRITICAL", lineNum,
                             "I/O operation inside loop — moves bottleneck from CPU to disk"));
                 }
 
                 // Detect method calls in loop — check callees for linear scan AND deep I/O
                 if (currentDepth < maxDepth) {
+                    // Track already-reported I/O to avoid duplicates across callees
+                    boolean ioAlreadyReported = directIO;
+
                     for (String callName : extractMethodCalls(line)) {
                         Map<String, Object> callNode = new LinkedHashMap<>();
                         callNode.put("method", callName);
@@ -230,13 +234,16 @@ public class PerfCommand implements Command {
                                     "O(N²): loop calls " + callName + " which does linear scan"));
                         }
 
-                        // Check if callee has I/O (deep search up to maxDepth)
-                        String ioPath = findDeepIO(callName, ci, ctx, fullClassSource,
-                                currentDepth + 1, maxDepth, new HashSet<>());
-                        if (ioPath != null) {
-                            flags.add("🔴 DEEP_IO: " + ioPath);
-                            findings.add(finding("LOOP_WITH_DEEP_IO", "CRITICAL", lineNum,
-                                    "I/O in call chain inside loop: " + callName + " → " + ioPath));
+                        // Check if callee has I/O (deep search) — only if no I/O reported yet for this loop
+                        if (!ioAlreadyReported) {
+                            String ioPath = findDeepIO(callName, ci, ctx, fullClassSource,
+                                    currentDepth + 1, maxDepth, new HashSet<>());
+                            if (ioPath != null) {
+                                flags.add("🔴 DEEP_IO: " + ioPath);
+                                findings.add(finding("LOOP_WITH_DEEP_IO", "CRITICAL", lineNum,
+                                        "I/O in call chain inside loop: " + callName + " → " + ioPath));
+                                ioAlreadyReported = true; // one I/O finding per loop is enough
+                            }
                         }
 
                         callNode.put("flags", flags);

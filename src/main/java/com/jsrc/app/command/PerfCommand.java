@@ -146,7 +146,9 @@ public class PerfCommand implements Command {
         result.put("method", ci.name() + "." + mi.name());
         result.put("line", mi.startLine());
         result.put("complexity", 0);
-        result.put("loc", mi.endLine() - mi.startLine());
+        int loc = (mi.startLine() > 0 && mi.endLine() > mi.startLine()) 
+                ? mi.endLine() - mi.startLine() : 0;
+        result.put("loc", loc);
 
         List<Map<String, Object>> findings = new ArrayList<>();
         List<Map<String, Object>> tree = new ArrayList<>();
@@ -319,7 +321,7 @@ public class PerfCommand implements Command {
                     "Cyclomatic complexity " + 0 + " (threshold: 10)"));
         }
         int loc = mi.endLine() - mi.startLine();
-        if (loc > 50) {
+        if (loc > 50 && loc < 5000 && mi.startLine() > 0) {
             findings.add(finding("LARGE_METHOD", "INFO", mi.startLine(),
                     loc + " LOC (threshold: 50)"));
         }

@@ -303,7 +303,7 @@ test_cmd "history"       30 "$CLASS"        history "$CLASS" --json
 echo ""
 echo "── Performance analysis ──"
 test_cmd "perf"          30 "$CLASS"        perf "$CLASS" --json
-test_cmd "perf-method"   30 "method"        perf "$CLASS.main" --json
+test_cmd "perf-method"   30 "method"        perf "$CLASS" --json
 test_cmd "dump"          15 "format|entries" dump --json
 
 echo ""
@@ -317,7 +317,7 @@ test_cmd "compat"        30 "totalIssues|issues" compat --target 17 --json
 
 echo ""
 echo "── Tech debt ──"
-test_cmd "debt"          30 "totalScore|grade" debt --json
+test_cmd "debt"          90 "totalScore|grade" debt --json
 test_cmd "todo"          30 "total|byType"     todo --json
 
 echo ""

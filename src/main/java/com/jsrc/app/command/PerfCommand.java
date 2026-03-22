@@ -310,41 +310,6 @@ public class PerfCommand implements Command {
         }
     }
 
-    private boolean isLinearScanCallee(String callName, ClassInfo ci, CallGraph graph,
-                                       CommandContext ctx, String currentSource) {
-        String calleeMethod = callName.contains(".") ? callName.substring(callName.lastIndexOf('.') + 1) : callName;
-        String calleeClass = callName.contains(".") ? callName.substring(0, callName.lastIndexOf('.')) : null;
-
-        // Same-class call (this.method)
-        if ("this".equals(calleeClass)) {
-            if (currentSource != null) {
-                return checkSourceForLoop(currentSource, calleeMethod);
-            }
-            return false;
-        }
-
-        if (calleeClass != null) {
-            // Resolve field type to class name
-            String resolvedClass = resolveFieldType(calleeClass, ci);
-
-            // Strategy 1: use index
-            if (ctx.indexed() != null) {
-                var filePath = ctx.indexed().findFileForClass(resolvedClass);
-                if (filePath.isPresent()) {
-                    return checkCalleeForLoop(Path.of(ctx.rootPath()).resolve(filePath.get()), calleeMethod);
-                }
-            }
-
-            // Strategy 2: search javaFiles for the class
-            for (Path file : ctx.javaFiles()) {
-                if (file.getFileName().toString().equals(resolvedClass + ".java")) {
-                    return checkCalleeForLoop(file, calleeMethod);
-                }
-            }
-        }
-        return false;
-    }
-
     private static boolean hasAllocation(String line) {
         return line.contains("new HashMap") || line.contains("new ArrayList")
                 || line.contains("new LinkedHashMap") || line.contains("new HashSet")
@@ -495,57 +460,7 @@ public class PerfCommand implements Command {
         return null;
     }
 
-    private boolean checkCalleeForLoop(Path file, String methodName) {
-        try {
-            String source = java.nio.file.Files.readString(file);
-            return checkSourceForLoop(source, methodName);
-        } catch (Exception e) {
-            // ignore
-        }
-        return false;
-    }
 
-    /**
-     * Checks if a method contains a linear scan pattern:
-     * a loop with a conditional return/break inside (searching for something).
-     * A loop that just iterates and processes all items is NOT a linear scan.
-     */
-    /**
-     * Checks if a method contains a linear scan pattern:
-     * a loop with a conditional return/break inside (searching for something).
-     * Uses brace counting to track loop boundaries.
-     */
-    private static boolean checkSourceForLoop(String source, String methodName) {
-        String methodSrc = extractMethodByName(source, methodName);
-        if (methodSrc == null) return false;
-
-        int loopBraceDepth = 0;
-        boolean inLoop = false;
-        for (String line : methodSrc.split("\n")) {
-            String trimmed = line.trim();
-            if (trimmed.startsWith("//") || trimmed.startsWith("*")) continue;
-
-            if (!inLoop && isLoopStart(trimmed) && !trimmed.contains("\"")) {
-                inLoop = true;
-                loopBraceDepth = 0;
-            }
-
-            if (inLoop) {
-                for (char c : trimmed.toCharArray()) {
-                    if (c == '{') loopBraceDepth++;
-                    else if (c == '}') loopBraceDepth--;
-                }
-                // return/break INSIDE the loop body = linear scan
-                if (loopBraceDepth > 0 && (trimmed.startsWith("return ") || trimmed.equals("break;"))) {
-                    return true;
-                }
-                if (loopBraceDepth <= 0) {
-                    inLoop = false;
-                }
-            }
-        }
-        return false;
-    }
 
     private String resolveFieldType(String fieldOrVar, ClassInfo ci) {
         // Check if it's a field name → resolve to type

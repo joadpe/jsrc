@@ -44,7 +44,7 @@ public class DebtCommand implements Command {
                     + avgComplexity * 1
                     + perfIssues * 5
                     + Math.min(coupling, 50) * 1
-                    + (hasCoverage ? 0 : 30)
+                    + (hasCoverage ? 0 : 15)
                     + Math.max(0, (loc - 500)) / 10;
 
             if (score > 0) {

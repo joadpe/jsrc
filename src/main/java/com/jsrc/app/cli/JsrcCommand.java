@@ -3,6 +3,7 @@ package com.jsrc.app.cli;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 import java.nio.file.Files;
@@ -32,7 +33,16 @@ import com.jsrc.app.parser.HybridJavaParser;
     mixinStandardHelpOptions = true,
     subcommands = {
         CommandLine.HelpCommand.class,
-        com.jsrc.app.cli.commands.OverviewSubcommand.class
+        com.jsrc.app.cli.commands.OverviewSubcommand.class,
+        com.jsrc.app.cli.commands.ClassesSubcommand.class,
+        com.jsrc.app.cli.commands.SummarySubcommand.class,
+        com.jsrc.app.cli.commands.MiniSubcommand.class,
+        com.jsrc.app.cli.commands.ReadSubcommand.class,
+        com.jsrc.app.cli.commands.HierarchySubcommand.class,
+        com.jsrc.app.cli.commands.ImplementsSubcommand.class,
+        com.jsrc.app.cli.commands.DepsSubcommand.class,
+        com.jsrc.app.cli.commands.AnnotationsSubcommand.class,
+        com.jsrc.app.cli.commands.RelatedSubcommand.class
     }
 )
 public class JsrcCommand implements Runnable {
@@ -40,9 +50,9 @@ public class JsrcCommand implements Runnable {
     @Mixin
     GlobalOptions globalOptions = new GlobalOptions();
 
-    @Parameters(index = "0", paramLabel = "<source-root>",
-                description = "Source root directory (defaults to current directory)",
-                defaultValue = ".")
+    @Option(names = {"-d", "--dir"}, paramLabel = "<source-root>",
+            description = "Source root directory (defaults to current directory)",
+            defaultValue = ".")
     String sourceRoot;
 
     @Override

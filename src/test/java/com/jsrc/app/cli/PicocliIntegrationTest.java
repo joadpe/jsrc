@@ -55,7 +55,7 @@ class PicocliIntegrationTest {
         System.setOut(new PrintStream(captured));
         try {
             var cmd = new CommandLine(new JsrcCommand());
-            int exitCode = cmd.execute(tempDir.toString(), "--json", "overview");
+            int exitCode = cmd.execute("--dir", tempDir.toString(), "--json", "overview");
             String output = captured.toString();
             assertTrue(output.contains("totalFiles") || output.contains("totalClasses"),
                     "Overview should produce JSON output, got: " + output);

@@ -223,7 +223,7 @@ All commands on Spring Boot (8,323 files, 52K methods, native binary):
 
 | Metric | grep | jsrc |
 |--------|------|------|
-| Tasks completed | 14/30 | **25/30** |
+| Tasks completed | 14/30 | **26/30** |
 | Time | 4m49s | **3m24s** |
 | Tool calls | 78 | **59** |
 
@@ -245,7 +245,7 @@ All commands on Spring Boot (8,323 files, 52K methods, native binary):
 | Q2 | Hierarchy | Superclass chain of a class | ✅ | ✅ |
 | Q3 | Search | Classes in config package | ✅ | ✅ |
 | Q4 | Annotation | @AutoConfiguration with dependencies | ❌ | ✅ |
-| Q5 | Search | Classes in configuration package | ✅ | ❌ |
+| Q5 | Search | Classes in configuration package | ✅ | ✅ |
 | Q6 | Aggregate | Top 5 classes by method count | ✅ | ✅ |
 | Q7 | Search | ConditionMessage source location | ❌ | ✅ |
 | Q8 | Code smell | Mutable static fields | ✅ | ✅ |

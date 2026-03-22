@@ -73,11 +73,18 @@ jobs:
             -H:+UnlockExperimentalVMOptions \
             -H:+SharedArenaSupport \
             --no-fallback
-      - name: Smoke test
+      - name: Smoke test (basic)
         run: |
           ./jsrc-linux-x64 --help > /dev/null
           ./jsrc-linux-x64 --version
-          echo "✓ Native binary works"
+          echo "✓ Native binary starts"
+      - name: Smoke test (full)
+        run: |
+          # Index jsrc's own codebase as test target
+          ./jsrc-linux-x64 -d . index 2>&1 || true
+          # Run full smoke test with performance gates
+          chmod +x scripts/smoke-test.sh
+          ./scripts/smoke-test.sh ./jsrc-linux-x64 .
       - name: Upload native artifact
         uses: actions/upload-artifact@v4
         with:

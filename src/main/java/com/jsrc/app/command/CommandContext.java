@@ -169,6 +169,13 @@ public final class CommandContext {
     public CallGraph callGraph() {
         if (callGraphCache != null) return callGraphCache;
 
+        // Use pre-built call graph from V2 binary index (instant)
+        if (indexed != null && indexed.preBuiltCallGraph() != null) {
+            callGraphCache = indexed.preBuiltCallGraph();
+            return callGraphCache;
+        }
+
+        // Fallback: build from edges or parse files
         var builder = new CallGraphBuilder();
         if (indexed != null && indexed.hasCallEdges()) {
             builder.loadFromIndex(indexed.getEntries());

@@ -34,6 +34,7 @@ public class IndexedCodebase {
     private java.nio.file.Path sourceRoot;
     private boolean edgesLoaded = false;
     private boolean smellsLoaded = false;
+    private com.jsrc.app.analysis.CallGraph preBuiltCallGraph; // loaded from V2 binary
     private java.util.Map<String, IndexedClass> classLookup; // lazy O(1) class lookup
     private java.util.Map<String, String> classToPath; // lazy O(1) class→file path
 
@@ -67,8 +68,26 @@ public class IndexedCodebase {
      * @return IndexedCodebase if index exists, null otherwise
      */
     public static IndexedCodebase tryLoad(Path sourceRoot, List<Path> currentFiles) {
-        // Load classes only (fast) — edges and smells loaded lazily when needed
-        List<IndexEntry> existing = CodebaseIndex.loadClassesOnly(sourceRoot);
+        // Try V2 binary index first (contains pre-resolved call graph)
+        Path v2File = sourceRoot.resolve(".jsrc/index.bin");
+        com.jsrc.app.analysis.CallGraph preBuiltGraph = null;
+        List<IndexEntry> existing;
+
+        if (Files.exists(v2File)) {
+            try {
+                var v2Data = BinaryIndexV2Reader.read(v2File);
+                existing = v2Data.entries();
+                preBuiltGraph = v2Data.callGraph();
+                logger.info("Loaded V2 binary index: {} entries, graph={}",
+                        existing.size(), preBuiltGraph != null);
+            } catch (IOException e) {
+                logger.warn("V2 binary index corrupt, falling back to JSON: {}", e.getMessage());
+                existing = CodebaseIndex.loadClassesOnly(sourceRoot);
+            }
+        } else {
+            // Fallback to legacy JSON
+            existing = CodebaseIndex.loadClassesOnly(sourceRoot);
+        }
         if (existing.isEmpty()) {
             return null;
         }
@@ -139,9 +158,15 @@ public class IndexedCodebase {
 
         var indexed = new IndexedCodebase(refreshed);
         indexed.sourceRoot = sourceRoot;
-        // If loaded from split file, edges need lazy loading
+        // If loaded from V2 binary, edges and graph are already present
         indexed.edgesLoaded = refreshed.stream().anyMatch(e -> !e.callEdges().isEmpty());
         indexed.smellsLoaded = refreshed.stream().anyMatch(e -> !e.smells().isEmpty());
+        if (staleCount > 0) {
+            // Edges stale — pre-built graph is invalid, force rebuild
+            indexed.preBuiltCallGraph = null;
+        } else {
+            indexed.preBuiltCallGraph = preBuiltGraph;
+        }
         return indexed;
     }
 
@@ -368,6 +393,13 @@ public class IndexedCodebase {
     /**
      * Returns true if any entry has call edges indexed.
      */
+    /**
+     * Returns the pre-built call graph loaded from V2 binary index, or null.
+     */
+    public com.jsrc.app.analysis.CallGraph preBuiltCallGraph() {
+        return preBuiltCallGraph;
+    }
+
     public boolean hasCallEdges() {
         ensureEdgesLoaded();
         return entries.stream().anyMatch(e -> !e.callEdges().isEmpty());

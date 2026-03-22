@@ -27,7 +27,11 @@ public class IndexCommand implements Command {
         int reindexed = index.build(ctx.parser(), ctx.javaFiles(), root, existing, invokers);
 
         try {
-            index.save(root);
+            // Build call graph and save V2 binary with pre-resolved graph
+            var builder = new com.jsrc.app.analysis.CallGraphBuilder();
+            builder.loadFromIndex(index.getEntries());
+            var callGraph = builder.toCallGraph();
+            index.saveWithGraph(root, callGraph);
             System.err.printf("Done. Indexed %d files (%d re-indexed, %d cached).%n",
                     ctx.javaFiles().size(), reindexed, ctx.javaFiles().size() - reindexed);
         } catch (IOException ex) {

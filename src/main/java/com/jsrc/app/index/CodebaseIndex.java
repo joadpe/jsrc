@@ -126,6 +126,26 @@ public class CodebaseIndex {
     /**
      * Persists the index to {@code .jsrc/index.json} under the given root.
      */
+    private static final String INDEX_BIN = "index.bin";
+
+    /**
+     * Saves the unified V2 binary index with pre-resolved call graph.
+     * This is the primary save method — JSON files are also written for backward compat.
+     */
+    public void saveWithGraph(Path projectRoot, com.jsrc.app.analysis.CallGraph callGraph) throws IOException {
+        Path indexDir = projectRoot.resolve(INDEX_DIR);
+        Files.createDirectories(indexDir);
+
+        // Write unified binary
+        BinaryIndexV2Writer.write(indexDir.resolve(INDEX_BIN), entries, callGraph);
+
+        logger.info("V2 binary index saved: {} entries, graph={}",
+                entries.size(), callGraph != null);
+
+        // Also save legacy formats for backward compat
+        save(projectRoot);
+    }
+
     public void save(Path projectRoot) throws IOException {
         Path indexDir = projectRoot.resolve(INDEX_DIR);
         Files.createDirectories(indexDir);

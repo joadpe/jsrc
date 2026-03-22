@@ -30,4 +30,14 @@ public record IndexEntry(
                       List<IndexedClass> classes, List<CallEdge> callEdges) {
         this(path, contentHash, lastModified, classes, callEdges, List.of());
     }
+
+    /** Returns a copy with different call edges. */
+    public IndexEntry withEdges(List<CallEdge> newEdges) {
+        return new IndexEntry(path, contentHash, lastModified, classes, newEdges, smells);
+    }
+
+    /** Returns a copy with different smells. */
+    public IndexEntry withSmells(List<CachedSmell> newSmells) {
+        return new IndexEntry(path, contentHash, lastModified, classes, callEdges, newSmells);
+    }
 }

@@ -71,6 +71,7 @@ public final class CommandFactory {
             case "--breaking-changes" -> arg != null ? new BreakingChangesCommand(arg) : null;
             case "--complexity" -> arg != null ? ("--all".equals(arg) ? new ComplexityAllCommand() : new ComplexityCommand(arg)) : null;
             case "--entry-points" -> new EntryPointsCommand(arg);
+            case "--perf" -> arg != null ? new PerfCommand(arg, 1) : null;
             default -> null;
         };
     }

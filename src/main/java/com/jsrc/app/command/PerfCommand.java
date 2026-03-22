@@ -100,6 +100,11 @@ public class PerfCommand implements Command {
                     "List.remove() in loop — O(N²) due to element shift, use Iterator.remove() or removeIf()",
                     "List.remove in call chain",
                     PerfCommand::hasListRemove),
+            new PatternDef("DB_QUERY", "CRITICAL",
+                    "DB_QUERY_IN_LOOP", "LOOP_WITH_DEEP_DB_QUERY",
+                    "Database query in loop — N+1 problem, use batch query or JOIN",
+                    "DB query in call chain",
+                    PerfCommand::hasDbQuery),
             new PatternDef("CONNECTION", "CRITICAL",
                     "CONNECTION_IN_LOOP", "LOOP_WITH_DEEP_CONNECTION",
                     "Connection/stream opened in loop — use connection pool or batch operation",
@@ -394,6 +399,28 @@ public class PerfCommand implements Command {
 
     private static boolean hasListRemove(String line) {
         return line.contains(".remove(") && !line.contains("Iterator");
+    }
+
+    private static boolean hasDbQuery(String line) {
+        // JDBC — very specific, zero false positives
+        if (line.contains("prepareStatement(") || line.contains("executeQuery(")
+                || line.contains("executeUpdate(") || line.contains("createStatement(")
+                || line.contains("executeBatch(")) return true;
+        // JPA / Hibernate — entityManager is unambiguous
+        if (line.contains("entityManager.find(") || line.contains("entityManager.persist(")
+                || line.contains("entityManager.merge(") || line.contains("entityManager.remove(")
+                || line.contains("entityManager.createQuery(") || line.contains("entityManager.createNativeQuery(")
+                || line.contains(".createNamedQuery(")) return true;
+        // Spring Data — match repository-style method names with common patterns
+        if (line.contains("repository.find") || line.contains("repository.save")
+                || line.contains("repository.delete") || line.contains("Repository.find")
+                || line.contains("Repo.find") || line.contains("repo.find")
+                || line.contains("dao.find") || line.contains("Dao.find")) return true;
+        // MyBatis / JOOQ
+        if (line.contains(".selectFrom(") || line.contains(".insertInto(")
+                || line.contains("sqlSession.select") || line.contains("sqlSession.insert")
+                || line.contains("jdbcTemplate.query") || line.contains("jdbcTemplate.update")) return true;
+        return false;
     }
 
     private static boolean hasConnection(String line) {

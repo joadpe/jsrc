@@ -169,6 +169,13 @@ class PerfCommandTest {
     }
 
     @Test
+    void detectsDbQueryInLoop() {
+        String json = capture(new PerfCommand("JavaAntiPatterns.loadDetails", 1));
+        assertTrue(json.contains("DB_QUERY"),
+                "Should detect database query in loop. Got: " + json);
+    }
+
+    @Test
     void detectsConnectionInLoop() {
         String json = capture(new PerfCommand("JavaAntiPatterns.fetchAll", 1));
         assertTrue(json.contains("CONNECTION"),

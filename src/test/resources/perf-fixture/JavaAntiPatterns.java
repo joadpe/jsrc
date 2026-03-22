@@ -71,6 +71,15 @@ public class JavaAntiPatterns {
         }
     }
 
+    // N+1 query problem
+    public void loadDetails(List<Long> ids, Object repository) throws Exception {
+        for (Long id : ids) {
+            java.sql.Connection conn = null;
+            java.sql.PreparedStatement ps = conn.prepareStatement("SELECT * FROM orders WHERE id = ?");
+            ps.executeQuery();
+        }
+    }
+
     // List.remove in loop — O(N²)
     public void removeOdds(List<Integer> numbers) {
         for (int i = 0; i < numbers.size(); i++) {

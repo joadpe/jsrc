@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.DocCommand;
+import com.jsrc.app.command.quality.DocCommand;
 
 @Command(name = "doc", description = "Generate Javadoc drafts for undocumented methods")
 public class DocSubcommand extends JsrcSubcommand {

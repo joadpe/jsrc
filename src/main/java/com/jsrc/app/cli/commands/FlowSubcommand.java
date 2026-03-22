@@ -5,7 +5,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.FlowCommand;
+import com.jsrc.app.command.callgraph.FlowCommand;
 
 @Command(name = "flow", description = "Trace execution flow downward (happy path)")
 public class FlowSubcommand extends JsrcSubcommand {

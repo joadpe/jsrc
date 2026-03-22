@@ -5,7 +5,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.TestForCommand;
+import com.jsrc.app.command.callgraph.TestForCommand;
 
 @Command(name = "test-for", description = "Find tests that cover a method")
 public class TestForSubcommand extends JsrcSubcommand {

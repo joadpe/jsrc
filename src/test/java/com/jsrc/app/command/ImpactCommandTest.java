@@ -17,6 +17,7 @@ import com.jsrc.app.index.IndexedCodebase;
 import com.jsrc.app.output.JsonFormatter;
 import com.jsrc.app.output.JsonReader;
 import com.jsrc.app.parser.HybridJavaParser;
+import com.jsrc.app.command.callgraph.ImpactCommand;
 
 class ImpactCommandTest {
 

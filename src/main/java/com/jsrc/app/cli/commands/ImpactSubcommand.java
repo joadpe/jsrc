@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.ImpactCommand;
+import com.jsrc.app.command.callgraph.ImpactCommand;
 
 @Command(name = "impact", description = "Change risk: callers + transitive callers + depth")
 public class ImpactSubcommand extends JsrcSubcommand {

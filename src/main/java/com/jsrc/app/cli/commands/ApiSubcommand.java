@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.ApiCommand;
+import com.jsrc.app.command.quality.ApiCommand;
 
 @Command(name = "api", description = "List public API: classes + methods grouped by package")
 public class ApiSubcommand extends JsrcSubcommand {

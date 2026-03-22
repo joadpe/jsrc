@@ -31,6 +31,12 @@ import java.nio.file.*;
 import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.jsrc.app.command.search.SearchCommand;
+import com.jsrc.app.command.analysis.SmellsCommand;
+import com.jsrc.app.command.analysis.ComplexityCommand;
+import com.jsrc.app.command.analysis.LintCommand;
+import com.jsrc.app.command.analysis.StyleCommand;
+import com.jsrc.app.command.architecture.ValidateCommand;
 
 /**
  * Contract tests: verify JSON output structure (keys + types) is stable.

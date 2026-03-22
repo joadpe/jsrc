@@ -16,6 +16,11 @@ import org.junit.jupiter.api.io.TempDir;
 import com.jsrc.app.index.IndexedCodebase;
 import com.jsrc.app.output.OutputFormatter;
 import com.jsrc.app.parser.HybridJavaParser;
+import com.jsrc.app.command.callgraph.CallersCommand;
+import com.jsrc.app.command.callgraph.CalleesCommand;
+import com.jsrc.app.command.search.SearchCommand;
+import com.jsrc.app.command.analysis.SmellsCommand;
+import com.jsrc.app.command.analysis.ComplexityAllCommand;
 
 /**
  * Regression tests for bugs fixed on 2026-03-21.

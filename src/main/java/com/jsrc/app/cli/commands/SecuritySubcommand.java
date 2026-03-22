@@ -5,7 +5,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.SecurityCommand;
+import com.jsrc.app.command.quality.SecurityCommand;
 
 @Command(name = "security", description = "Static security analysis — SQL injection, path traversal, XXE, secrets")
 public class SecuritySubcommand extends JsrcSubcommand {

@@ -12,6 +12,7 @@ import java.nio.file.*;
 import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
+import com.jsrc.app.command.quality.MigrateCommand;
 
 class MigrateCommandTest {
 

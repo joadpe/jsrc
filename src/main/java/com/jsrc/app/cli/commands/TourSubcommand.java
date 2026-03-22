@@ -3,7 +3,7 @@ package com.jsrc.app.cli.commands;
 import picocli.CommandLine.Command;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.TourCommand;
+import com.jsrc.app.command.quality.TourCommand;
 
 @Command(name = "tour", description = "Guided tour of the codebase for onboarding")
 public class TourSubcommand extends JsrcSubcommand {

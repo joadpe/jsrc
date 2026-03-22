@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.CalleesCommand;
+import com.jsrc.app.command.callgraph.CalleesCommand;
 
 @Command(name = "callees", description = "Find all methods called by a given method")
 public class CalleesSubcommand extends JsrcSubcommand {

@@ -3,7 +3,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.VerifyCommand;
+import com.jsrc.app.command.reverse.VerifyCommand;
 @Command(name = "verify", description = "Compare implementation against Markdown spec")
 public class VerifySubcommand extends JsrcSubcommand {
     @Parameters(index = "0", paramLabel = "<className>", description = "Class to verify")

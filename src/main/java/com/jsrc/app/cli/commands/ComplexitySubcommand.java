@@ -3,8 +3,8 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.ComplexityCommand;
-import com.jsrc.app.command.ComplexityAllCommand;
+import com.jsrc.app.command.analysis.ComplexityCommand;
+import com.jsrc.app.command.analysis.ComplexityAllCommand;
 @Command(name = "complexity", description = "Cyclomatic complexity per method")
 public class ComplexitySubcommand extends JsrcSubcommand {
     @Parameters(index = "0", paramLabel = "<className>", description = "Class to analyze", defaultValue = "")

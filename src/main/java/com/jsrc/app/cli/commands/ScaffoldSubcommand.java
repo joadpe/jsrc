@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.ScaffoldCommand;
+import com.jsrc.app.command.quality.ScaffoldCommand;
 
 @Command(name = "scaffold", description = "Generate code following project conventions")
 public class ScaffoldSubcommand extends JsrcSubcommand {

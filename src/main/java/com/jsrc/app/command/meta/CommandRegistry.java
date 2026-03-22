@@ -1,0 +1,212 @@
+package com.jsrc.app.command.meta;
+
+import com.jsrc.app.command.Command;
+import com.jsrc.app.command.CommandContext;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import com.jsrc.app.output.JsonWriter;
+
+/**
+ * Registry of all jsrc commands with their metadata.
+ * Used by --describe for runtime introspection.
+ */
+public final class CommandRegistry {
+
+    private CommandRegistry() {}
+
+    private record CommandDef(
+            String name,
+            String description,
+            List<String> args,
+            List<String> flags,
+            String outputType
+    ) {}
+
+    private static final List<CommandDef> COMMANDS = List.of(
+            new CommandDef("--drift", "Combined architecture check + spec verification",
+                    List.of(), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--verify", "Verify implementation against Markdown spec",
+                    List.of("<className>", "--spec", "<path.md>"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--contract", "Extract formal contract of an interface/class",
+                    List.of("<className>"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--changed", "Java files changed in git (vs HEAD)",
+                    List.of(), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--context", "Full context package for a class (reverse engineering)",
+                    List.of("<className>"), List.of("--json", "--md", "--metrics"), "object"),
+            new CommandDef("--endpoints", "List REST endpoints (path, method, controller)",
+                    List.of(), List.of("--json", "--metrics"), "array"),
+            new CommandDef("--check", "Check architecture rules, report violations",
+                    List.of("[ruleId]"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--layer", "List classes in an architectural layer",
+                    List.of("<layerName>"), List.of("--json", "--fields", "--metrics"), "array"),
+            new CommandDef("--diff", "Show files changed since last index",
+                    List.of(), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--callers", "Find all methods that call a given method",
+                    List.of("<methodName>"), List.of("--json", "--metrics"), "array"),
+            new CommandDef("--callees", "Find all methods called by a given method",
+                    List.of("<methodName>"), List.of("--json", "--metrics"), "array"),
+            new CommandDef("--read", "Read source code of a class or method",
+                    List.of("<Class> or <Class.method>"), List.of("--json", "--fields", "--metrics"), "object"),
+            new CommandDef("--index", "Build or update the persistent codebase index",
+                    List.of(), List.of("--metrics"), "none (stderr only)"),
+            new CommandDef("--overview", "Codebase overview: files, classes, methods, packages",
+                    List.of(), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--classes", "List all classes (optional: filter by package name)",
+                    List.of(), List.of("--json", "--fields", "--metrics"), "array"),
+            new CommandDef("--summary", "Compact class summary with method signatures",
+                    List.of("<className>"), List.of("--json", "--fields", "--metrics"), "object"),
+            new CommandDef("--hierarchy", "Class hierarchy: extends, implements, subclasses",
+                    List.of("<className>"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--implements", "Find all implementors of an interface",
+                    List.of("<interfaceName>"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--deps", "Class dependencies: imports, fields, constructor params",
+                    List.of("<className>"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--annotations", "Find classes and methods with a specific annotation",
+                    List.of("<annotationName>"), List.of("--json", "--fields", "--metrics"), "array"),
+            new CommandDef("--smells", "Detect code smells across the codebase",
+                    List.of(), List.of("--json", "--metrics"), "object per file"),
+            new CommandDef("--call-chain", "Trace call chains to a method, generate Mermaid diagrams",
+                    List.of("<methodName>", "[outputDir]"), List.of("--json", "--metrics"), "array"),
+            new CommandDef("--search", "Structured text search with class/method context",
+                    List.of("<pattern>"), List.of("--json", "--metrics"), "array"),
+            new CommandDef("--imports", "Find all classes that import/depend on a class",
+                    List.of("<className>"), List.of("--json", "--metrics"), "array"),
+            new CommandDef("--packages", "Package map with inter-package dependencies",
+                    List.of(), List.of("--json", "--metrics"), "array"),
+            new CommandDef("--explain", "Concise actionable summary of a class",
+                    List.of("<className>"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--hotspots", "Top classes ranked by caller count (coupling hotspots)",
+                    List.of(), List.of("--json", "--metrics"), "array"),
+            new CommandDef("--unused", "Detect dead code: uncalled methods, unimported classes",
+                    List.of(), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--stats", "Code metrics: LOC, complexity, coupling, inheritance",
+                    List.of("<className>"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--history", "Git history for a class: commits, authors, activity",
+                    List.of("<className>"), List.of("--json", "--metrics"), "object"),
+            new CommandDef("--similar", "Find classes with similar structure",
+                    List.of("<className>"), List.of("--json", "--metrics"), "array"),
+            new CommandDef("--watch", "Daemon mode: serve queries via stdin JSON protocol",
+                    List.of(), List.of(), "streaming"),
+            new CommandDef("--batch", "Execute multiple queries from stdin (JSON array)",
+                    List.of(), List.of("--json"), "array"),
+            new CommandDef("<methodName>", "Search for methods by name",
+                    List.of(), List.of("--json", "--signature-only", "--fields", "--metrics"), "array"),
+            new CommandDef("--describe", "List available commands and their metadata",
+                    List.of("[commandName]"), List.of("--json"), "array or object"),
+            new CommandDef("--validate", "Verify if a method exists, suggest closest if not (anti-hallucination)",
+                    List.of("<Class.method>"), List.of("--json"), "object"),
+            new CommandDef("--mini", "Ultra-compact class summary (<500 chars) for small context windows",
+                    List.of("<className>"), List.of("--json"), "object"),
+            new CommandDef("--related", "Classes related by coupling, ranked by score",
+                    List.of("<className>"), List.of("--json"), "object"),
+            new CommandDef("--impact", "Change impact analysis: callers, transitive affected, risk level",
+                    List.of("<Class.method>"), List.of("--json"), "object"),
+            new CommandDef("--scope", "Find relevant classes for a task by keyword matching",
+                    List.of("<keywords>"), List.of("--json"), "object"),
+            new CommandDef("--checklist", "Step-by-step change guide for a method modification",
+                    List.of("<Class.method>"), List.of("--json"), "object"),
+            new CommandDef("--type-check", "Verify method exists and check return type",
+                    List.of("<Class.method>"), List.of("--json"), "object"),
+            new CommandDef("--style", "Ultra-compact code style guide (<300 chars)",
+                    List.of(), List.of("--json"), "object"),
+            new CommandDef("--patterns", "Deep analysis of codebase conventions and patterns",
+                    List.of(), List.of("--json"), "object"),
+            new CommandDef("--snippet", "Extract code template from real codebase class",
+                    List.of("<pattern>"), List.of("--json"), "object"),
+            new CommandDef("--map", "Token-budget-aware repo map ranked by class importance",
+                    List.of(), List.of("--json", "--budget"), "object"),
+            new CommandDef("--context-for", "Auto-plan: what jsrc commands to run for a task",
+                    List.of("<task description>"), List.of("--json", "--budget"), "object"),
+            new CommandDef("--find", "Semantic search using Java concept synonyms",
+                    List.of("<description>"), List.of("--json"), "object"),
+            new CommandDef("--resolve", "Resolve receiver type for a method call expression",
+                    List.of("<expression>"), List.of("--json", "--context"), "object"),
+            new CommandDef("--lint", "Pre-compile diagnostics from index (types, dead code, style)",
+                    List.of("<className>"), List.of("--json"), "array"),
+            new CommandDef("--diff-impact", "Git changes → consolidated impact analysis + suggested tests",
+                    List.of("[ref]"), List.of("--json", "--md"), "object"),
+            new CommandDef("--test-for", "Find tests related to a method with confidence level",
+                    List.of("<Class.method>", "[--depth N|full]"), List.of("--json"), "object"),
+            new CommandDef("--breaking-changes", "Impact via inheritance, interfaces, reflection",
+                    List.of("<className>"), List.of("--json"), "object"),
+            new CommandDef("--complexity", "Cyclomatic complexity + fan-out + effort estimate",
+                    List.of("<Class[.method]>"), List.of("--json"), "object"),
+            new CommandDef("--entry-points", "Public entry points (REST, main, scheduled, listeners)",
+                    List.of("[package]"), List.of("--json"), "array")
+    );
+
+    /**
+     * Returns all known command names (for input validation).
+     */
+    public static String[] knownCommandNames() {
+        return COMMANDS.stream()
+                .map(CommandDef::name)
+                .filter(n -> n.startsWith("--"))
+                .toArray(String[]::new);
+    }
+
+    /**
+     * Prints all commands as JSON or text.
+     */
+    public static void describeAll(boolean json) {
+        describeAll(json, System.out);
+    }
+
+    public static void describeAll(boolean json, java.io.PrintStream out) {
+        if (json) {
+            List<Map<String, Object>> items = COMMANDS.stream()
+                    .map(CommandRegistry::toMap)
+                    .toList();
+            out.println(JsonWriter.toJson(items));
+        } else {
+            out.println("Available commands:");
+            for (CommandDef cmd : COMMANDS) {
+                out.printf("  %-20s %s%n", cmd.name(), cmd.description());
+                if (!cmd.args().isEmpty()) {
+                    out.printf("    args: %s%n", String.join(" ", cmd.args()));
+                }
+                out.printf("    flags: %s%n", String.join(" ", cmd.flags()));
+            }
+        }
+    }
+
+    /**
+     * Prints detail for a specific command.
+     */
+    public static boolean describeCommand(String commandName, boolean json) {
+        return describeCommand(commandName, json, System.out);
+    }
+
+    public static boolean describeCommand(String commandName, boolean json, java.io.PrintStream out) {
+        for (CommandDef cmd : COMMANDS) {
+            if (cmd.name().equals(commandName)) {
+                if (json) {
+                    out.println(JsonWriter.toJson(toMap(cmd)));
+                } else {
+                    out.printf("Command: %s%n", cmd.name());
+                    out.printf("  Description: %s%n", cmd.description());
+                    if (!cmd.args().isEmpty()) {
+                        out.printf("  Args: %s%n", String.join(" ", cmd.args()));
+                    }
+                    out.printf("  Flags: %s%n", String.join(" ", cmd.flags()));
+                    out.printf("  Output: %s%n", cmd.outputType());
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Map<String, Object> toMap(CommandDef cmd) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("name", cmd.name());
+        map.put("description", cmd.description());
+        map.put("args", cmd.args());
+        map.put("flags", cmd.flags());
+        map.put("outputType", cmd.outputType());
+        return map;
+    }
+}

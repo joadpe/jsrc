@@ -16,6 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 import com.jsrc.app.output.JsonFormatter;
 import com.jsrc.app.output.JsonReader;
 import com.jsrc.app.parser.HybridJavaParser;
+import com.jsrc.app.command.search.SearchCommand;
 
 class SearchCommandTest {
 

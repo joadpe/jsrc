@@ -5,7 +5,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.PerfCommand;
+import com.jsrc.app.command.analysis.PerfCommand;
 
 @Command(name = "perf", description = "Detect performance bottlenecks (loops with linear scan, I/O, allocations)")
 public class PerfSubcommand extends JsrcSubcommand {

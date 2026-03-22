@@ -4,7 +4,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.CallChainCommand;
+import com.jsrc.app.command.callgraph.CallChainCommand;
 
 @Command(name = "call-chain", description = "Full call chains from roots to target")
 public class CallChainSubcommand extends JsrcSubcommand {

@@ -2,7 +2,7 @@ package com.jsrc.app.cli.commands;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.ContextCommand;
+import com.jsrc.app.command.reverse.ContextCommand;
 @Command(name = "context", description = "Full context: summary + deps + hierarchy + call graph + smells + source")
 public class ContextSubcommand extends JsrcSubcommand {
     @Parameters(index = "0", paramLabel = "<className>", description = "Class to get context for")

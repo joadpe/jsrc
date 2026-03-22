@@ -1,5 +1,7 @@
 package com.jsrc.app.command;
 
+import com.jsrc.app.command.meta.WatchCommand;
+
 import com.jsrc.app.output.OutputFormatter;
 import com.jsrc.app.parser.HybridJavaParser;
 

@@ -3,7 +3,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.SmellsCommand;
+import com.jsrc.app.command.analysis.SmellsCommand;
 @Command(name = "smells", description = "Code smell detection (9 rules)")
 public class SmellsSubcommand extends JsrcSubcommand {
     @Parameters(index = "0", paramLabel = "<className>", description = "Class to analyze", defaultValue = "")

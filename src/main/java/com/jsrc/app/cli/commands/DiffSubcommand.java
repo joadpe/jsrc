@@ -1,7 +1,7 @@
 package com.jsrc.app.cli.commands;
 import picocli.CommandLine.Command;
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.DiffCommand;
+import com.jsrc.app.command.reverse.DiffCommand;
 @Command(name = "diff", description = "Files changed since last index by content hash")
 public class DiffSubcommand extends JsrcSubcommand {
     @Override protected String skipIndex() { return "--diff"; }

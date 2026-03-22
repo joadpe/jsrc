@@ -5,7 +5,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.JsrcSubcommand;
-import com.jsrc.app.command.MigrateCommand;
+import com.jsrc.app.command.quality.MigrateCommand;
 
 @Command(name = "migrate", description = "Detect Java modernization opportunities (Java 8→17/21)")
 public class MigrateSubcommand extends JsrcSubcommand {

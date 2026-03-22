@@ -52,6 +52,7 @@ public abstract class JsrcSubcommand implements Callable<Integer> {
     @Override
     public Integer call() {
         try {
+
             var timer = StopWatch.start();
             CommandContext ctx = parent.buildContext(skipIndex());
             Command cmd = createCommand();

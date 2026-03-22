@@ -79,7 +79,7 @@ test_cmd() {
         return
     fi
 
-    if [ -n "$pattern" ] && ! echo "$output" | grep -q "$pattern"; then
+    if [ -n "$pattern" ] && ! echo "$output" | grep -qE "$pattern"; then
         printf "  ❌ %-25s MISSING PATTERN: %s\n" "$name" "$pattern"
         FAIL=$((FAIL + 1))
         FAILURES+=("$name: missing '$pattern'")
@@ -133,8 +133,8 @@ test_error() {
     local pattern="$2"
     shift 2
     local output
-    output=$(cd "$CODEBASE" && timeout 15 $JSRC "$@" 2>&1) || true
-    if [ -n "$output" ] && echo "$output" | grep -qi "$pattern"; then
+    output=$(cd "$CODEBASE" && timeout 30 $JSRC "$@" 2>&1) || true
+    if [ -n "$output" ] && echo "$output" | grep -qiE "$pattern"; then
         printf "  ✅ %-25s OK (error message found)\n" "$name"
         PASS=$((PASS + 1))
     else
@@ -143,7 +143,10 @@ test_error() {
         FAILURES+=("$name: missing error '$pattern'")
     fi
 }
-test_error "class-not-found"  "not found\|Did you mean\|error" summary NonExistentClassName123 --json
+test_error "class-not-found"  "not found|Did you mean|error" summary NonExistentClassName123 --json
+test_error "ambiguous-method" "ambiguous|Multiple|candidates" callers SpringApplication.run --json
+test_error "missing-arg"     "Missing|required|Usage|missing" summary --json
+test_error "bad-flag"        "Unknown|unrecognized|Unknown option" overview --xyz --json
 
 echo ""
 echo "── Flag inheritance (critical) ──"
@@ -151,17 +154,40 @@ test_flag_position "--json" "overview"
 test_flag_position "--full" "overview"
 
 echo ""
-echo "── Navigation ──"
-test_cmd "overview"      15 "totalFiles"    overview --json
-test_cmd "classes"       30 "classes"       classes --json
-
-# Discover a class for testing
+# Discover a class early — needed for flag combination tests
 CLASS=$(find_class)
 if [ -z "$CLASS" ]; then
-    echo "  ⚠️  Could not find a class name. Some tests will be skipped."
+    echo "  ⚠️  Could not find a class name. Using fallback."
     CLASS="App"
 fi
 echo "  ℹ️  Using class: $CLASS"
+
+echo ""
+echo "── Flag combinations ──"
+test_cmd "json+full"         30 "$CLASS"    summary "$CLASS" --json --full
+test_cmd "json+no-test"      15 "totalFiles" overview --json --no-test
+test_cmd "json+fields"       30 "name"      summary "$CLASS" --json --fields name,pkg
+test_cmd "json+sig-only"     30 "$CLASS"    summary "$CLASS" --json --signature-only
+
+# --metrics writes to stderr, verify it appears there
+test_metrics() {
+    local output
+    output=$(cd "$CODEBASE" && timeout 30 $JSRC summary "$CLASS" --json --metrics 2>&1 1>/dev/null) || true
+    if echo "$output" | grep -qE "elapsedMs|ms|files"; then
+        printf "  ✅ %-25s OK (metrics in stderr)\n" "json+metrics"
+        PASS=$((PASS + 1))
+    else
+        printf "  ❌ %-25s MISSING METRICS in stderr\n" "json+metrics"
+        FAIL=$((FAIL + 1))
+        FAILURES+=("json+metrics: no metrics in stderr")
+    fi
+}
+test_metrics
+
+echo ""
+echo "── Navigation ──"
+test_cmd "overview"      15 "totalFiles"    overview --json
+test_cmd "classes"       30 "classes"       classes --json
 
 # Navigation: verify output references the class we asked about
 test_cmd "summary"       30 "$CLASS"        summary "$CLASS" --json
@@ -185,32 +211,32 @@ echo "── Search ──"
 test_cmd "search"        30 "TODO"          search "TODO" --json
 test_cmd "find"          30 "parse"         find "parse" --json
 test_cmd "scope"         30 "configuration" scope "configuration" --json
-test_cmd "unused"        60 "unused\|Method\|class" unused --json
+test_cmd "unused"        60 "unused|Method|class" unused --json
 
 echo ""
 echo "── Analysis ──"
 # Verify smells/lint/complexity output references the class
 test_cmd "smells"        30 "$CLASS"        smells "$CLASS" --json
-test_cmd "smells --all"  60 "totalFindings\|findings\|total" smells --all --json
+test_cmd "smells --all"  60 "totalFindings|findings|total" smells --all --json
 test_cmd "complexity"    30 "$CLASS"        complexity "$CLASS" --json
-test_cmd "complexity --all" 60 "complexity\|total" complexity --all --json
+test_cmd "complexity --all" 60 "complexity|total" complexity --all --json
 test_cmd "lint"          30 "$CLASS"        lint "$CLASS" --json
-test_cmd "lint --all"    60 "mutableStatics\|godClasses\|highParamMethods" lint --all --json
+test_cmd "lint --all"    60 "mutableStatics|godClasses|highParamMethods" lint --all --json
 test_cmd "hotspots"      45 "byCallers"     hotspots --json
 test_cmd "packages"      60 "totalPackages" packages --json
 test_cmd "style"         15 "java"          style --json
-test_cmd "patterns"      15 "naming\|logging\|injection" patterns --json
-test_cmd "snippet"       30 "service\|Service" snippet service --json
+test_cmd "patterns"      15 "naming|logging|injection" patterns --json
+test_cmd "snippet"       30 "service|Service" snippet service --json
 
 echo ""
 echo "── Architecture ──"
-test_cmd "check"         30 "violations\|ruleId\|pass" check --json
-test_cmd "endpoints"     30 "path\|httpMethod" endpoints --json
-test_cmd "entry-points"  30 "main\|total"   entry-points --json
+test_cmd "check"         30 "violations|ruleId|pass" check --json
+test_cmd "endpoints"     30 "path|httpMethod" endpoints --json
+test_cmd "entry-points"  30 "main|total"   entry-points --json
 test_cmd "validate"      30 "$CLASS"        validate "$CLASS.main" --json
-test_cmd "imports"       30 "class\|import\|relationship" imports "$CLASS" --json
+test_cmd "imports"       30 "class|import|relationship" imports "$CLASS" --json
 # layer needs .jsrc.yaml with architecture.layers configured
-if cd "$CODEBASE" && [ -f ".jsrc.yaml" ] && grep -q "layers:" .jsrc.yaml 2>/dev/null; then
+if [ -f "$CODEBASE/.jsrc.yaml" ] && grep -q "layers:" "$CODEBASE/.jsrc.yaml" 2>/dev/null; then
     test_cmd "layer"     15 "controller"    layer controller --json
 else
     printf "  ⏭  %-25s SKIPPED (no .jsrc.yaml layers)\n" "layer"
@@ -220,15 +246,15 @@ fi
 echo ""
 echo "── Reverse engineering ──"
 test_cmd "context"       45 "$CLASS"        context "$CLASS" --json
-test_cmd "context-for"   30 "fix bug\|relevant\|score" context-for "fix bug" --json
+test_cmd "context-for"   30 "fix bug|relevant|score" context-for "fix bug" --json
 test_cmd "contract"      30 "$CLASS"        contract "$CLASS" --json
-test_cmd "drift"         30 "Violations\|violations\|Issues\|totalIssues" drift --json
-test_cmd "diff"          15 "changed\|total\|files" diff --json
-test_cmd "changed"       15 "changed\|total\|files" changed --json
+test_cmd "drift"         30 "Violations|violations|Issues|totalIssues" drift --json
+test_cmd "diff"          15 "changed|total|files" diff --json
+test_cmd "changed"       15 "changed|total|files" changed --json
 
 echo ""
 echo "── Meta/Special ──"
-test_cmd "map"           30 "class\|pkg"    map --json
+test_cmd "map"           30 "class|pkg"    map --json
 test_cmd "resolve"       15 ""              resolve "$CLASS" --json
 test_cmd "similar"       45 ""              similar "$CLASS" --json
 test_cmd "explain"       60 "$CLASS"        explain "$CLASS" --json

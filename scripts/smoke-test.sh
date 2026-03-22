@@ -86,6 +86,18 @@ test_cmd() {
         return
     fi
 
+    # Validate JSON if --json flag is present in args
+    local has_json=false
+    for arg in "$@"; do [ "$arg" = "--json" ] && has_json=true; done
+    if $has_json; then
+        if ! echo "$output" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+            printf "  ❌ %-25s INVALID JSON\n" "$name"
+            FAIL=$((FAIL + 1))
+            FAILURES+=("$name: output is not valid JSON")
+            return
+        fi
+    fi
+
     local size=${#output}
     printf "  ✅ %-25s OK (%d bytes)\n" "$name" "$size"
     PASS=$((PASS + 1))
@@ -264,6 +276,66 @@ test_cmd "stats"         30 "$CLASS"        stats "$CLASS" --json
 test_cmd "type-check"    30 "$CLASS"        type-check "$CLASS" --json
 test_cmd "checklist"     45 "$CLASS"        checklist "$CLASS" --json
 test_cmd "history"       30 "$CLASS"        history "$CLASS" --json
+
+echo ""
+echo "── Batch (stdin multi-query) ──"
+test_batch() {
+    local output
+    output=$(cd "$CODEBASE" && echo '[{"command":"--overview"},{"command":"--summary","args":"'"$CLASS"'"}]' | \
+             timeout 45 $JSRC batch --json 2>/dev/null)
+    if [ -z "$output" ]; then
+        printf "  ❌ %-25s EMPTY OUTPUT\n" "batch"
+        FAIL=$((FAIL + 1))
+        FAILURES+=("batch: empty output")
+    elif echo "$output" | grep -qE "totalFiles" && echo "$output" | grep -qE "$CLASS"; then
+        printf "  ✅ %-25s OK (both queries answered)\n" "batch"
+        PASS=$((PASS + 1))
+    else
+        printf "  ❌ %-25s INCOMPLETE (missing overview or class)\n" "batch"
+        FAIL=$((FAIL + 1))
+        FAILURES+=("batch: incomplete results")
+    fi
+}
+test_batch
+
+echo ""
+echo "── Multiple classes ──"
+# Discover a large class (most callers) and an interface
+LARGE_CLASS=$(cd "$CODEBASE" && timeout 30 $JSRC hotspots --json 2>/dev/null | \
+    python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    for c in d.get('byCallers', []):
+        name = c.get('class', '')
+        simple = name.split('.')[-1] if '.' in name else name
+        if simple and 'Test' not in simple and 'Assert' not in simple and 'Mock' not in simple:
+            print(simple)
+            break
+except: pass
+" 2>/dev/null)
+
+INTERFACE=$(cd "$CODEBASE" && find . -name "*.java" -not -path "*/test/*" -exec grep -l "^public interface " {} \; 2>/dev/null | head -1 | sed 's|.*/||; s|\.java$||')
+
+if [ -n "$LARGE_CLASS" ] && [ "$LARGE_CLASS" != "$CLASS" ]; then
+    echo "  ℹ️  Large class: $LARGE_CLASS"
+    test_cmd "summary-large"   30 "$LARGE_CLASS"  summary "$LARGE_CLASS" --json
+    test_cmd "mini-large"      30 "$LARGE_CLASS"   mini "$LARGE_CLASS" --json
+    test_cmd "smells-large"    30 "$LARGE_CLASS"   smells "$LARGE_CLASS" --json
+else
+    printf "  ⏭  %-25s SKIPPED (no large class found)\n" "large-class tests"
+    SKIP=$((SKIP + 1))
+fi
+
+if [ -n "$INTERFACE" ]; then
+    echo "  ℹ️  Interface: $INTERFACE"
+    test_cmd "summary-iface"   30 "$INTERFACE"    summary "$INTERFACE" --json
+    test_cmd "hierarchy-iface" 30 "$INTERFACE"    hierarchy "$INTERFACE" --json
+    test_cmd "implements-iface" 30 ""             implements "$INTERFACE" --json
+else
+    printf "  ⏭  %-25s SKIPPED (no interface found)\n" "interface tests"
+    SKIP=$((SKIP + 1))
+fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

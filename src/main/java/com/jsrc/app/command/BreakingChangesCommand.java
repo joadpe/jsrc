@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.jsrc.app.parser.model.ClassInfo;
+import com.jsrc.app.util.ClassLookup;
 
 /**
  * Analyzes breaking change impact via inheritance, interfaces, and overrides.
@@ -38,7 +39,7 @@ public class BreakingChangesCommand implements Command {
             }
             var error = new java.util.LinkedHashMap<String, Object>();
             error.put("error", "Class not found in index: " + className);
-            String closest = SummaryCommand.findClosestClass(allClasses, className);
+            String closest = ClassLookup.findClosestClass(allClasses, className);
             if (closest != null) error.put("suggestion", closest);
             if (usageCount > 0) {
                 error.put("textUsages", usageCount);

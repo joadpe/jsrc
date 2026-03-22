@@ -14,6 +14,7 @@ import com.jsrc.app.parser.model.MethodCall;
 import com.jsrc.app.parser.model.MethodReference;
 import com.jsrc.app.util.MethodResolver;
 import com.jsrc.app.util.MethodTargetResolver;
+import com.jsrc.app.util.ClassLookup;
 
 /**
  * Pre-computes the impact of changing a method: who calls it (directly and
@@ -57,7 +58,7 @@ public class ImpactCommand implements Command {
             } else {
                 result.put("error", "Method not found");
             }
-            String closest = SummaryCommand.findClosestClass(ctx.getAllClasses(),
+            String closest = ClassLookup.findClosestClass(ctx.getAllClasses(),
                     ref.hasClassName() ? ref.className() : ref.methodName());
             if (closest != null) result.put("suggestion", closest);
             ctx.formatter().printResult(result);

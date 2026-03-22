@@ -10,6 +10,7 @@ import java.util.Set;
 import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
+import com.jsrc.app.util.ClassLookup;
 
 /**
  * Finds classes with similar structure (same methods, same interfaces).
@@ -25,7 +26,7 @@ public class SimilarCommand implements Command {
     @Override
     public int execute(CommandContext ctx) {
         var allClasses = ctx.getAllClasses();
-        ClassInfo target = SummaryCommand.resolveOrExit(allClasses, className);
+        ClassInfo target = ClassLookup.resolveOrExit(allClasses, className);
         if (target == null) return 0;
 
         Set<String> targetMethods = new HashSet<>();

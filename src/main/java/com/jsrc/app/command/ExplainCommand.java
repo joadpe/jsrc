@@ -8,6 +8,7 @@ import com.jsrc.app.architecture.LayerResolver;
 import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.analysis.CallGraph;
 import com.jsrc.app.parser.model.ClassInfo;
+import com.jsrc.app.util.ClassLookup;
 
 /**
  * Generates a concise, actionable summary of a class.
@@ -23,7 +24,7 @@ public class ExplainCommand implements Command {
     @Override
     public int execute(CommandContext ctx) {
         var allClasses = ctx.getAllClasses();
-        ClassInfo ci = SummaryCommand.resolveOrExit(allClasses, className);
+        ClassInfo ci = ClassLookup.resolveOrExit(allClasses, className);
         if (ci == null) return 0;
 
         StringBuilder summary = new StringBuilder();

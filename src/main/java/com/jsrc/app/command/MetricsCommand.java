@@ -6,6 +6,7 @@ import java.util.Map;
 import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
+import com.jsrc.app.util.ClassLookup;
 
 /**
  * Computes code metrics for a class: LOC, methods, complexity, coupling.
@@ -20,7 +21,7 @@ public class MetricsCommand implements Command {
     @Override
     public int execute(CommandContext ctx) {
         var allClasses = ctx.getAllClasses();
-        ClassInfo ci = SummaryCommand.resolveOrExit(allClasses, className);
+        ClassInfo ci = ClassLookup.resolveOrExit(allClasses, className);
         if (ci == null) return 0;
 
         int loc = ci.endLine() - ci.startLine() + 1;

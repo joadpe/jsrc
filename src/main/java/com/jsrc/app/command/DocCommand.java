@@ -7,6 +7,7 @@ import com.jsrc.app.analysis.SourceResolver;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
 import com.jsrc.app.parser.model.MethodReference;
+import com.jsrc.app.util.ClassLookup;
 
 /**
  * Generates Javadoc drafts for public methods without documentation.
@@ -23,7 +24,7 @@ public class DocCommand implements Command {
     @Override
     public int execute(CommandContext ctx) {
         var allClasses = ctx.getAllClasses();
-        ClassInfo ci = SummaryCommand.resolveOrExit(allClasses, target);
+        ClassInfo ci = ClassLookup.resolveOrExit(allClasses, target);
         if (ci == null) return 0;
 
         CallGraph graph = ctx.callGraph();

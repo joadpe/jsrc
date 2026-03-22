@@ -9,6 +9,7 @@ import com.jsrc.app.architecture.LayerResolver;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodCall;
 import com.jsrc.app.parser.model.MethodReference;
+import com.jsrc.app.util.ClassLookup;
 
 /**
  * Traces the execution flow DOWNWARD from a method (happy path).
@@ -40,7 +41,7 @@ public class FlowCommand implements Command {
         }
 
         var allClasses = ctx.getAllClasses();
-        ClassInfo ci = SummaryCommand.resolveOrExit(allClasses, className);
+        ClassInfo ci = ClassLookup.resolveOrExit(allClasses, className);
         if (ci == null) return 0;
 
         CallGraph graph = ctx.callGraph();

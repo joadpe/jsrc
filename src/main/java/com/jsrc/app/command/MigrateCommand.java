@@ -4,6 +4,7 @@ import java.util.*;
 
 import com.jsrc.app.analysis.SourceResolver;
 import com.jsrc.app.parser.model.ClassInfo;
+import com.jsrc.app.util.ClassLookup;
 
 /**
  * Detects Java 8 code patterns that can be modernized for a target Java version.
@@ -121,7 +122,7 @@ public class MigrateCommand implements Command {
         }
 
         var allClasses = ctx.getAllClasses();
-        ClassInfo ci = SummaryCommand.resolveOrExit(allClasses, targetClass);
+        ClassInfo ci = ClassLookup.resolveOrExit(allClasses, targetClass);
         if (ci == null) return 0;
 
         String source = SourceResolver.loadClassSource(ci.name(), ctx);

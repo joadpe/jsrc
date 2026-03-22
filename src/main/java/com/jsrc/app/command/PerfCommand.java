@@ -12,6 +12,7 @@ import com.jsrc.app.analysis.SourceResolver;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
 import com.jsrc.app.parser.model.MethodReference;
+import com.jsrc.app.util.ClassLookup;
 
 /**
  * Detects performance bottlenecks in methods using pattern registry + deep search.
@@ -100,7 +101,7 @@ public class PerfCommand implements Command {
             methodName = null;
         }
 
-        ClassInfo ci = SummaryCommand.resolveOrExit(allClasses, className);
+        ClassInfo ci = ClassLookup.resolveOrExit(allClasses, className);
         if (ci == null) return 0;
 
         String sourceCode = SourceResolver.loadClassSource(ci.name(), ctx);

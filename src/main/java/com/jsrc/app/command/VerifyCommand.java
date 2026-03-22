@@ -9,6 +9,7 @@ import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.spec.SpecParser;
 import com.jsrc.app.spec.SpecVerifier;
+import com.jsrc.app.util.ClassLookup;
 
 public class VerifyCommand implements Command {
     private final String className;
@@ -24,7 +25,7 @@ public class VerifyCommand implements Command {
         try {
             var spec = SpecParser.parse(Path.of(specPath));
             var allClasses = ctx.getAllClasses();
-            ClassInfo ci = SummaryCommand.resolveOrExit(allClasses, className);
+            ClassInfo ci = ClassLookup.resolveOrExit(allClasses, className);
             if (ci == null) return 0;
 
             var result = SpecVerifier.verify(ci, spec);

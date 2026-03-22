@@ -7,6 +7,7 @@ import com.jsrc.app.analysis.PatternDetector;
 import com.jsrc.app.analysis.PatternDetector.PatternDef;
 import com.jsrc.app.analysis.SourceResolver;
 import com.jsrc.app.parser.model.ClassInfo;
+import com.jsrc.app.util.ClassLookup;
 
 /**
  * Static Application Security Testing (SAST).
@@ -84,7 +85,7 @@ public class SecurityCommand implements Command {
         }
 
         var allClasses = ctx.getAllClasses();
-        ClassInfo ci = SummaryCommand.resolveOrExit(allClasses, target);
+        ClassInfo ci = ClassLookup.resolveOrExit(allClasses, target);
         if (ci == null) return 0;
 
         String sourceCode = SourceResolver.loadClassSource(ci.name(), ctx);

@@ -301,6 +301,37 @@ test_cmd "checklist"     45 "$CLASS"        checklist "$CLASS" --json
 test_cmd "history"       30 "$CLASS"        history "$CLASS" --json
 
 echo ""
+echo "── Performance analysis ──"
+test_cmd "perf"          30 "$CLASS"        perf "$CLASS" --json
+test_cmd "perf-method"   30 "method"        perf "$CLASS.main" --json
+test_cmd "dump"          15 "format|entries" dump --json
+
+echo ""
+echo "── Security ──"
+test_cmd "security"      30 "totalFindings|findings" security "$CLASS" --json
+
+echo ""
+echo "── Migration ──"
+test_cmd "migrate"       30 "totalSuggestions|suggestions" migrate "$CLASS" --target 17 --json
+test_cmd "compat"        30 "totalIssues|issues" compat --target 17 --json
+
+echo ""
+echo "── Tech debt ──"
+test_cmd "debt"          30 "totalScore|grade" debt --json
+test_cmd "todo"          30 "total|byType"     todo --json
+
+echo ""
+echo "── Documentation ──"
+test_cmd "api"           30 "totalClasses|packages" api --json
+test_cmd "doc"           30 "undocumentedMethods|docs" doc "$CLASS" --json
+test_cmd "tour"          45 "summary|layers"   tour --json
+
+echo ""
+echo "── Code generation ──"
+test_cmd "scaffold"      15 "code|pattern"     scaffold service TestService --json
+test_cmd "flow"          45 "entry|flow"       flow "$CLASS" --json
+
+echo ""
 echo "── Batch (stdin multi-query) ──"
 test_batch() {
     local output

@@ -20,8 +20,73 @@ public record ProjectConfig(
         List<String> sourceRoots,
         List<String> excludes,
         String javaVersion,
-        ArchitectureConfig architecture
+        ArchitectureConfig architecture,
+        PerformanceConfig performance,
+        SecurityConfig security,
+        MigrationConfig migration,
+        DebtConfig debt,
+        ProjectInfo project
 ) {
+    /** Backward-compatible constructor for configs without new sections. */
+    public ProjectConfig(List<String> sourceRoots, List<String> excludes,
+                          String javaVersion, ArchitectureConfig architecture) {
+        this(sourceRoots, excludes, javaVersion, architecture,
+                PerformanceConfig.empty(), SecurityConfig.empty(),
+                MigrationConfig.empty(), DebtConfig.empty(), ProjectInfo.empty());
+    }
+
+    // ─── New config records ───
+
+    public record PerformanceConfig(
+            List<String> daoBaseClasses,
+            List<String> heavyClasses,
+            List<IgnorePattern> ignorePatterns
+    ) {
+        public record IgnorePattern(String pattern, String className, String method) {}
+        public static PerformanceConfig empty() { return new PerformanceConfig(List.of(), List.of(), List.of()); }
+    }
+
+    public record SecurityConfig(
+            List<String> trustedInputs,
+            List<String> ignoreClasses,
+            List<CustomSink> customSinks
+    ) {
+        public record CustomSink(String method, String type) {}
+        public static SecurityConfig empty() { return new SecurityConfig(List.of(), List.of(), List.of()); }
+    }
+
+    public record MigrationConfig(
+            int target,
+            List<String> ignore,
+            List<Replacement> customReplacements
+    ) {
+        public record Replacement(String from, String to) {}
+        public static MigrationConfig empty() { return new MigrationConfig(17, List.of(), List.of()); }
+    }
+
+    public record DebtConfig(
+            Map<String, Integer> weights,
+            Map<String, Integer> thresholds,
+            List<String> exclude
+    ) {
+        public static DebtConfig empty() {
+            return new DebtConfig(
+                    Map.of("smells", 2, "complexity", 1, "perfIssues", 5, "coupling", 1, "missingTests", 15),
+                    Map.of("maxComplexity", 15, "maxLoc", 300, "maxParams", 5),
+                    List.of());
+        }
+    }
+
+    public record ProjectInfo(
+            String name,
+            String team,
+            Map<String, String> conventions,
+            List<Domain> domains
+    ) {
+        public record Domain(String name, List<String> packages) {}
+        public static ProjectInfo empty() { return new ProjectInfo("", "", Map.of(), List.of()); }
+    }
+
     private static final Logger logger = LoggerFactory.getLogger(ProjectConfig.class);
     private static final String CONFIG_FILE = ".jsrc.yaml";
 
@@ -60,7 +125,14 @@ public record ProjectConfig(
         String javaVersion = getString(root, "javaVersion", "");
         ArchitectureConfig arch = parseArchitecture((Map<String, Object>) root.get("architecture"));
 
-        return new ProjectConfig(sourceRoots, excludes, javaVersion, arch);
+        // New sections — all optional
+        PerformanceConfig perf = parsePerformance((Map<String, Object>) root.get("performance"));
+        SecurityConfig sec = parseSecurity((Map<String, Object>) root.get("security"));
+        MigrationConfig mig = parseMigration((Map<String, Object>) root.get("migration"));
+        DebtConfig debt = parseDebt((Map<String, Object>) root.get("debt"));
+        ProjectInfo proj = parseProject((Map<String, Object>) root.get("project"));
+
+        return new ProjectConfig(sourceRoots, excludes, javaVersion, arch, perf, sec, mig, debt, proj);
     }
 
     @SuppressWarnings("unchecked")
@@ -142,5 +214,79 @@ public record ProjectConfig(
             try { return Integer.parseInt(s); } catch (NumberFormatException e) { return defaultVal; }
         }
         return defaultVal;
+    }
+
+    // ─── New section parsers ───
+
+    @SuppressWarnings("unchecked")
+    private static PerformanceConfig parsePerformance(Map<String, Object> map) {
+        if (map == null) return PerformanceConfig.empty();
+        return new PerformanceConfig(
+                getStringList(map, "daoBaseClasses"),
+                getStringList(map, "heavyClasses"),
+                List.of() // ignorePatterns parsed separately if needed
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static SecurityConfig parseSecurity(Map<String, Object> map) {
+        if (map == null) return SecurityConfig.empty();
+        return new SecurityConfig(
+                getStringList(map, "trustedInputs"),
+                getStringList(map, "ignoreClasses"),
+                List.of() // customSinks parsed separately if needed
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static MigrationConfig parseMigration(Map<String, Object> map) {
+        if (map == null) return MigrationConfig.empty();
+        return new MigrationConfig(
+                getInt(map, "target", 17),
+                getStringList(map, "ignore"),
+                List.of() // customReplacements parsed separately if needed
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static DebtConfig parseDebt(Map<String, Object> map) {
+        if (map == null) return DebtConfig.empty();
+        Map<String, Integer> weights = new java.util.LinkedHashMap<>();
+        Map<String, Integer> thresholds = new java.util.LinkedHashMap<>();
+        if (map.get("weights") instanceof Map<?, ?> w) {
+            w.forEach((k, v) -> weights.put(k.toString(), v instanceof Number n ? n.intValue() : 0));
+        }
+        if (map.get("thresholds") instanceof Map<?, ?> t) {
+            t.forEach((k, v) -> thresholds.put(k.toString(), v instanceof Number n ? n.intValue() : 0));
+        }
+        if (weights.isEmpty()) weights.putAll(DebtConfig.empty().weights());
+        if (thresholds.isEmpty()) thresholds.putAll(DebtConfig.empty().thresholds());
+        return new DebtConfig(weights, thresholds, getStringList(map, "exclude"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ProjectInfo parseProject(Map<String, Object> map) {
+        if (map == null) return ProjectInfo.empty();
+        Map<String, String> conventions = new java.util.LinkedHashMap<>();
+        if (map.get("conventions") instanceof Map<?, ?> c) {
+            c.forEach((k, v) -> conventions.put(k.toString(), v.toString()));
+        }
+        List<ProjectInfo.Domain> domains = new ArrayList<>();
+        if (map.get("domains") instanceof List<?> dl) {
+            for (Object d : dl) {
+                if (d instanceof Map<?, ?> dm) {
+                    String name = dm.get("name") != null ? dm.get("name").toString() : "";
+                    List<String> pkgs = dm.get("packages") instanceof List<?> pl
+                            ? pl.stream().map(Object::toString).toList() : List.of();
+                    domains.add(new ProjectInfo.Domain(name, pkgs));
+                }
+            }
+        }
+        return new ProjectInfo(
+                getString(map, "name", ""),
+                getString(map, "team", ""),
+                conventions,
+                domains
+        );
     }
 }

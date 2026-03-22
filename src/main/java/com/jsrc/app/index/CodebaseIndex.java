@@ -163,10 +163,20 @@ public class CodebaseIndex {
 
         Files.writeString(indexDir.resolve(CLASSES_FILE),
                 JsonWriter.toJson(classesData), StandardCharsets.UTF_8);
-        Files.writeString(indexDir.resolve(EDGES_FILE),
-                JsonWriter.toJson(edgesData), StandardCharsets.UTF_8);
-        Files.writeString(indexDir.resolve(SMELLS_FILE),
-                JsonWriter.toJson(smellsData), StandardCharsets.UTF_8);
+        // Only overwrite edges/smells if we have data — auto-refresh doesn't
+        // regenerate these, so writing empty would destroy existing data
+        if (!edgesData.isEmpty()) {
+            Files.writeString(indexDir.resolve(EDGES_FILE),
+                    JsonWriter.toJson(edgesData), StandardCharsets.UTF_8);
+        } else if (!Files.exists(indexDir.resolve(EDGES_FILE))) {
+            Files.writeString(indexDir.resolve(EDGES_FILE), "[]", StandardCharsets.UTF_8);
+        }
+        if (!smellsData.isEmpty()) {
+            Files.writeString(indexDir.resolve(SMELLS_FILE),
+                    JsonWriter.toJson(smellsData), StandardCharsets.UTF_8);
+        } else if (!Files.exists(indexDir.resolve(SMELLS_FILE))) {
+            Files.writeString(indexDir.resolve(SMELLS_FILE), "[]", StandardCharsets.UTF_8);
+        }
 
         // Write binary classes index (fastest to load)
         try {

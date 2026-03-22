@@ -33,6 +33,7 @@ import com.jsrc.app.parser.HybridJavaParser;
     mixinStandardHelpOptions = true,
     subcommands = {
         CommandLine.HelpCommand.class,
+        // Navigation
         com.jsrc.app.cli.commands.OverviewSubcommand.class,
         com.jsrc.app.cli.commands.ClassesSubcommand.class,
         com.jsrc.app.cli.commands.SummarySubcommand.class,
@@ -43,11 +44,55 @@ import com.jsrc.app.parser.HybridJavaParser;
         com.jsrc.app.cli.commands.DepsSubcommand.class,
         com.jsrc.app.cli.commands.AnnotationsSubcommand.class,
         com.jsrc.app.cli.commands.RelatedSubcommand.class,
+        // Call graph
         com.jsrc.app.cli.commands.CallersSubcommand.class,
         com.jsrc.app.cli.commands.CalleesSubcommand.class,
         com.jsrc.app.cli.commands.CallChainSubcommand.class,
         com.jsrc.app.cli.commands.ImpactSubcommand.class,
-        com.jsrc.app.cli.commands.TestForSubcommand.class
+        com.jsrc.app.cli.commands.TestForSubcommand.class,
+        // Search
+        com.jsrc.app.cli.commands.SearchSubcommand.class,
+        com.jsrc.app.cli.commands.FindSubcommand.class,
+        com.jsrc.app.cli.commands.ScopeSubcommand.class,
+        com.jsrc.app.cli.commands.UnusedSubcommand.class,
+        // Analysis
+        com.jsrc.app.cli.commands.SmellsSubcommand.class,
+        com.jsrc.app.cli.commands.ComplexitySubcommand.class,
+        com.jsrc.app.cli.commands.LintSubcommand.class,
+        com.jsrc.app.cli.commands.HotspotsSubcommand.class,
+        com.jsrc.app.cli.commands.PackagesSubcommand.class,
+        com.jsrc.app.cli.commands.StyleSubcommand.class,
+        com.jsrc.app.cli.commands.PatternsSubcommand.class,
+        com.jsrc.app.cli.commands.SnippetSubcommand.class,
+        // Architecture
+        com.jsrc.app.cli.commands.CheckSubcommand.class,
+        com.jsrc.app.cli.commands.EndpointsSubcommand.class,
+        com.jsrc.app.cli.commands.EntryPointsSubcommand.class,
+        com.jsrc.app.cli.commands.ValidateSubcommand.class,
+        com.jsrc.app.cli.commands.ImportsSubcommand.class,
+        com.jsrc.app.cli.commands.LayerSubcommand.class,
+        // Reverse engineering
+        com.jsrc.app.cli.commands.ContextSubcommand.class,
+        com.jsrc.app.cli.commands.ContextForSubcommand.class,
+        com.jsrc.app.cli.commands.ContractSubcommand.class,
+        com.jsrc.app.cli.commands.VerifySubcommand.class,
+        com.jsrc.app.cli.commands.DriftSubcommand.class,
+        com.jsrc.app.cli.commands.DiffSubcommand.class,
+        com.jsrc.app.cli.commands.ChangedSubcommand.class,
+        // Meta
+        com.jsrc.app.cli.commands.IndexSubcommand.class,
+        com.jsrc.app.cli.commands.MapSubcommand.class,
+        com.jsrc.app.cli.commands.BatchSubcommand.class,
+        com.jsrc.app.cli.commands.WatchSubcommand.class,
+        com.jsrc.app.cli.commands.ExplainSubcommand.class,
+        com.jsrc.app.cli.commands.SimilarSubcommand.class,
+        com.jsrc.app.cli.commands.ResolveSubcommand.class,
+        com.jsrc.app.cli.commands.HistorySubcommand.class,
+        com.jsrc.app.cli.commands.StatsSubcommand.class,
+        com.jsrc.app.cli.commands.ChecklistSubcommand.class,
+        com.jsrc.app.cli.commands.TypeCheckSubcommand.class,
+        com.jsrc.app.cli.commands.BreakingChangesSubcommand.class,
+        com.jsrc.app.cli.commands.DiffImpactSubcommand.class
     }
 )
 public class JsrcCommand implements Runnable {
@@ -75,16 +120,13 @@ public class JsrcCommand implements Runnable {
 
     /**
      * Resolves the effective source root path.
+     * If --dir is set explicitly, use it. Otherwise use .jsrc.yaml config or ".".
      */
     public String resolvedRoot() {
         if (sourceRoot != null && !".".equals(sourceRoot)) {
             return sourceRoot;
         }
-        // Try .jsrc.yaml for sourceRoot config
-        var config = loadConfig();
-        if (config != null && !config.sourceRoots().isEmpty()) {
-            return ".";
-        }
+        // Default to current directory (config sourceRoots handled in buildContext)
         return ".";
     }
 

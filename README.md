@@ -6,143 +6,166 @@ A Java source code navigator built for AI agents. Uses [Tree-sitter](https://tre
 
 An agent with ~200K tokens of context can't read a 10,000-file codebase. jsrc gives the agent structured navigation:
 
-- **"What classes are in this codebase?"** → `jsrc --overview --json` (77ms for 8,323 files)
-- **"Show me OrderService"** → `jsrc --summary OrderService --json`
-- **"Who calls validate()?"** → `jsrc --callers validate --json`
-- **"Does the code match the spec?"** → `jsrc --verify OrderService --spec spec.md --json`
+- **"What classes are in this codebase?"** → `jsrc overview --json` (77ms for 8,323 files)
+- **"Show me OrderService"** → `jsrc summary OrderService --json`
+- **"Who calls validate()?"** → `jsrc callers validate --json`
+- **"Find God classes"** → `jsrc lint --all --json`
 
 All responses are compact JSON optimized for token efficiency.
 
-## Performance
+## Installation
 
-| Codebase | Files | `--overview` (no index) | `--overview` (with index) |
-|----------|-------|------------------------|--------------------------|
-| Small project | 51 | 1.7s | — |
-| Spring Boot core | 1,621 | 145s | **41ms** |
-| Spring Boot full | 8,323 | ~14min | **77ms** |
+### macOS / Linux (recommended)
 
-The persistent index makes all navigation commands sub-second on any codebase size.
+```bash
+brew install jsrc
+```
+
+Or install the native binary directly:
+
+```bash
+curl -fsSL https://github.com/joadpe/jsrc/releases/latest/download/jsrc-macos-arm64 \
+  -o ~/bin/jsrc
+chmod +x ~/bin/jsrc
+```
+
+### From source
+
+```bash
+git clone https://github.com/joadpe/jsrc.git
+cd jsrc
+mvn clean package -DskipTests
+java -jar target/jsrc.jar [command]
+```
+
+### Native binary (fastest)
+
+```bash
+# Build native binary (requires GraalVM CE 25+)
+mvn clean package -DskipTests
+native-image -jar target/jsrc.jar -o target/jsrc
+
+# Or install via SDKMAN
+sdk install java 25.0.2-graalce
+mvn clean package -DskipTests
+native-image -jar target/jsrc.jar -o target/jsrc
+```
+
+Requirements for source build:
+- Java 22+ ([SDKMAN](https://sdkman.io/) recommended)
+- Maven 3.6.3+
+- Tree-sitter native libraries (auto-compiled on first run)
 
 ## Quick Start
 
-### Requirements
-
-- Java 22+ ([SDKMAN](https://sdkman.io/) recommended)
-- Maven 3.6.3+
-- Tree-sitter native libraries (`libtree-sitter.so` + `libtree-sitter-java.so`)
-
-### Build
-
 ```bash
-mvn clean compile
-```
-
-### First use on a codebase
-
-```bash
-# 1. Index the codebase (one-time, auto-refreshes after)
-jsrc /path/to/codebase --index
+# 1. Index the codebase (one-time, auto-refreshes after edits)
+jsrc index
 
 # 2. Explore
-jsrc /path/to/codebase --overview --json
-jsrc /path/to/codebase --classes --json
-jsrc /path/to/codebase --summary MyService --json
-```
-
-If you run jsrc from the codebase root, the path is optional:
-
-```bash
-cd /path/to/codebase
-jsrc --overview --json
+jsrc overview --json          # Codebase stats
+jsrc classes --json           # All classes/interfaces
+jsrc summary MyService --json # Class metadata
+jsrc callers validate --json  # Who calls this method?
 ```
 
 ## Commands
 
-### Navigate
+### Navigation
 
 | Command | Description |
 |---------|-------------|
-| `--overview` | Codebase stats: files, classes, interfaces, methods, packages |
-| `--classes` | List all classes/interfaces/enums/records |
+| `overview` | Stats: files, classes, interfaces, methods, packages |
+| `classes` | List all classes/interfaces/enums/records (ranked by callers) |
 | `--summary <Class>` | Class metadata + method signatures (no bodies) |
+| `--mini <Class>` | Quick class overview (~120 tokens, prefer over --summary) |
+| `--read <Class>` | Full source code of a class |
+| `--read <Class.method>` | Source code of a specific method |
 | `--hierarchy <Class>` | Inheritance tree: extends, implements, subclasses |
 | `--implements <Interface>` | Find all implementors of an interface |
 | `--deps <Class>` | Dependencies: imports, fields, constructor params |
 | `--annotations <Name>` | Find all elements with a specific annotation |
-| `--read <Class>` | Full source code of a class |
-| `--read <Class.method>` | Source code of a specific method |
+| `--related <Class>` | Related classes by coupling (shared imports/callers) |
 
 ### Call Graph
 
 | Command | Description |
 |---------|-------------|
 | `--callers <method>` | Who calls this method? (includes reflective calls) |
+| `--callers <Class.method> --full` | Full signature + caller count |
 | `--callees <method>` | What does this method call? |
-| `--call-chain <method>` | Full call chains from roots to target + Mermaid diagrams |
+| `--call-chain <method>` | Full call chains from roots to target |
+| `--impact <method>` | Change risk: callers + transitive callers + depth |
+| `--test-for <method>` | Find tests that cover this method |
 
-### Analyze
+### Search
 
 | Command | Description |
 |---------|-------------|
-| `--smells` | Detect code smells (9 rules) |
-| `--check` | Evaluate architecture rules from `.jsrc.yaml` |
-| `--check <ruleId>` | Evaluate a specific architecture rule |
-| `--endpoints` | List REST endpoints (path, HTTP method, controller) |
-| `--drift` | Combined architecture check + changed file detection |
-| `--diff` | Files changed since last index (by content hash) |
-| `--changed` | Java files changed in git (vs HEAD) |
+| `--search <pattern>` | Text search (supports OR: `TODO\|FIXME`) |
+| `--find <keywords>` | Semantic search by keywords |
+| `--scope <task>` | Find relevant classes for a task |
+| `unused` | Dead code: classes/methods never called |
+
+### Analysis
+
+| Command | Description |
+|---------|-------------|
+| `--smells <Class>` | Code smells for a class (9 rules) |
+| `--smells --all` | All smells in codebase (with topFindings) |
+| `--complexity <Class>` | Cyclomatic complexity per method |
+| `--complexity --all` | Top 30 classes by complexity |
+| `--lint <Class>` | Pre-compile checks + architecture rules |
+| `--lint --all` | All lint issues: God classes, mutable statics, high-param methods |
+| `hotspots` | Top classes by callers + imports + test coverage |
+| `packages` | Package stats: import counts, circular deps |
+| `style` | Code style conventions (~75 tokens) |
+| `patterns` | Naming patterns and layer conventions |
+| `--snippet <type>` | Code template (service, controller, repo) |
+
+### Architecture
+
+| Command | Description |
+|---------|-------------|
+| `check` | Evaluate all architecture rules from `.jsrc.yaml` |
+| `--check <ruleId>` | Evaluate a specific rule |
+| `endpoints` | REST endpoints (path, HTTP method, controller) |
+| `entry-points` | Main methods and entry points |
+| `--validate <Method(Type1,Type2)>` | Validate method exists with exact signature |
 
 ### Reverse Engineering
 
 | Command | Description |
 |---------|-------------|
-| `--context <Class> --json` | Full context package: summary + deps + hierarchy + call graph + smells + source |
-| `--context <Class> --md` | Generate Markdown spec draft for the class |
-| `--contract <Interface>` | Extract formal contract (methods, params, throws, javadoc) |
-| `--verify <Class> --spec spec.md` | Compare implementation against Markdown spec |
+| `--context <Class> --json` | Full context: summary + deps + hierarchy + call graph + smells + source |
+| `--context <Class> --md` | Markdown spec draft for the class |
+| `--contract <Interface>` | Formal contract: methods, params, throws, javadoc |
+| `--verify <Class> --spec spec.md` | Compare implementation against spec |
+| `drift` | Architecture check + changed file detection |
+| `diff` | Files changed since last index (by content hash) |
+| `changed` | Java files changed in git (vs HEAD) |
 
 ### Meta
 
 | Command | Description |
 |---------|-------------|
-| `--index` | Build/refresh persistent index |
-| `--describe` | List all commands with args and flags (runtime introspection) |
+| `index` | Build/refresh persistent index |
+| `describe` | List all commands with args and flags |
 | `--describe <command>` | Detail of a specific command |
 
 ## Global Flags
 
 | Flag | Description |
 |------|-------------|
-| `--json` | Machine-readable JSON output (always use for agents) |
-| `--md` | Markdown output (for `--context`) |
-| `--metrics` | Append execution metrics to stderr |
-| `--signature-only` | Compact method output (signature only, no body) |
-| `--fields name,pkg` | Limit JSON to specific fields (saves tokens) |
-| `--config <path>` | Use custom config file |
+| `json` | Machine-readable JSON (always use for agents) |
+| `md` | Markdown output (for `--context`) |
+| `metrics` | Append execution metrics to stderr |
+| `full` | Verbose output (full signatures, all details) |
+| `all` | Include everything (all smells, all complexity) |
+| `--fields f1,f2` | Limit JSON to specific fields (saves tokens) |
+| `json` | Output format |
 
-## Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | OK, results found |
-| 1 | OK, no results matched |
-| 2 | Bad arguments / unknown command |
-| 3 | I/O error |
-
-## Persistent Index
-
-jsrc builds a persistent index (`.jsrc/index.json`) that makes all navigation commands instant:
-
-```bash
-jsrc --index                    # First run: parses all files (~14min for 8K files)
-jsrc --overview --json          # Uses index: 77ms
-# Edit some files...
-jsrc --overview --json          # Auto-detects changes, re-parses only modified files
-```
-
-The index stores SHA-256 content hashes. On each command, jsrc compares file timestamps and only re-parses files that actually changed.
-
-## Architecture Configuration
+## Configuration
 
 Create `.jsrc.yaml` in your project root:
 
@@ -158,31 +181,18 @@ architecture:
   layers:
     - name: controller
       pattern: "**/*Controller"
-      annotations: [RestController, Controller]
     - name: service
       pattern: "**/*Service"
-      annotations: [Service]
     - name: repository
       pattern: "**/*Repository"
-      annotations: [Repository]
 
   rules:
     - id: no-repo-in-controller
-      description: "Controllers must not import repositories directly"
       from: controller
       denyImport: repository
     - id: constructor-injection
-      description: "Services must use constructor injection"
       layer: service
       require: constructor-injection
-      denyAnnotation: Autowired
-
-  endpoints:
-    - GetMapping
-    - PostMapping
-    - PutMapping
-    - DeleteMapping
-    - RequestMapping
 
   invokers:
     - method: invoke
@@ -191,37 +201,18 @@ architecture:
       callerSuffixes: [Detail, View, Form]
 ```
 
-### Invoker Resolution
+## Persistent Index
 
-For codebases with reflective method invocation patterns (common in enterprise Java):
-
-```java
-// invoiceView.java
-invoke("invoiceRate", params);
-```
-
-jsrc resolves this to `invoiceAdapter.invoiceRate(Object params)` by:
-1. Extracting the string literal from the configured argument position
-2. Stripping the caller suffix ("View") 
-3. Appending the convention name ("Adapter")
-
-These reflective calls appear in `--callers` output with `"type": "reflective"`.
-
-## Reverse Engineering Workflow
+The index makes all commands instant:
 
 ```bash
-# 1. Generate spec draft from code
-jsrc --context OrderService --md > specs/OrderService.md
-
-# 2. Agent or human refines the spec (fills TODOs, adds invariants)
-
-# 3. Verify implementation matches spec
-jsrc --verify OrderService --spec specs/OrderService.md --json
-# → {"pass": true, "discrepancies": []}
-
-# 4. After code changes, check for drift
-jsrc --drift --json
+jsrc index                    # First run: parses all files (~14min for 8K files)
+jsrc overview --json          # Uses index: 77ms
+# Edit files...
+jsrc overview --json          # Auto-refreshes: only re-parses changed files
 ```
+
+Index is stored in `.jsrc/index.json` with SHA-256 content hashes.
 
 ## Code Smell Detection
 
@@ -237,86 +228,83 @@ jsrc --drift --json
 | `TOO_MANY_PARAMETERS` | INFO | Method has more than 5 parameters |
 | `DEEP_NESTING` | WARNING | Nesting depth exceeds 4 levels |
 | `MAGIC_NUMBER` | INFO | Numeric literal (not 0, 1, -1) |
-| `UNUSED_PARAMETER` | INFO | Parameter never used in method body |
+| `UNUSED_PARAMETER` | INFO | Parameter never used |
 
-## Project Structure
+## Benchmarks
 
-```
-src/main/java/com/jsrc/app/
-├── App.java                         CLI entry point + command dispatch
-├── ExitCode.java                    Exit code constants
-├── CommandRegistry.java             Command metadata for --describe
-├── architecture/
-│   ├── LayerResolver.java           Resolves class → architectural layer
-│   ├── RuleEngine.java              Evaluates architecture rules
-│   ├── Violation.java               Rule violation record
-│   ├── EndpointMapper.java          REST endpoint discovery
-│   └── InvokerResolver.java         Reflective call resolution
-├── codebase/
-│   ├── CodeBase.java                Codebase interface
-│   ├── JavaCodeBase.java            Java implementation (lazy cache)
-│   └── CodeBaseLoader.java          File discovery
-├── config/
-│   ├── ProjectConfig.java           .jsrc.yaml loader (SnakeYAML)
-│   └── ArchitectureConfig.java      Architecture config records
-├── index/
-│   ├── CodebaseIndex.java           Persistent index (build/save/load)
-│   ├── IndexedCodebase.java         Query index + auto-refresh
-│   ├── IndexEntry.java              Per-file index entry
-│   ├── IndexedClass.java            Indexed class metadata
-│   └── IndexedMethod.java           Indexed method metadata
-├── output/
-│   ├── OutputFormatter.java         Formatter interface
-│   ├── JsonFormatter.java           JSON output (agent-optimized)
-│   ├── TextFormatter.java           Human-readable text output
-│   ├── MarkdownFormatter.java       Spec Markdown generator
-│   ├── JsonWriter.java              Minimal JSON serializer
-│   ├── JsonReader.java              Minimal JSON parser
-│   ├── FieldsFilter.java            --fields support
-│   ├── ExecutionMetrics.java        Performance metrics
-│   ├── AnnotationMatch.java         Annotation search result
-│   ├── DependencyResult.java        Dependency analysis result
-│   ├── HierarchyResult.java         Hierarchy query result
-│   └── OverviewResult.java          Codebase overview result
-├── parser/
-│   ├── CodeParser.java              Parser interface
-│   ├── TreeSitterParser.java        Fast syntax-level parsing
-│   ├── HybridJavaParser.java        Tree-sitter + JavaParser hybrid
-│   ├── TreeSitterLanguageFactory.java  Native library management
-│   ├── CodeSmellDetector.java       9-rule static analysis
-│   ├── CallGraphBuilder.java        Cross-file call graph
-│   ├── CallChainTracer.java         DFS call chain tracing
-│   ├── MermaidDiagramGenerator.java  Sequence diagram output
-│   ├── ContextAssembler.java        Full context package builder
-│   ├── SourceReader.java            Source code reader
-│   ├── DependencyAnalyzer.java      Import/field/ctor analysis
-│   └── model/                       Immutable records (8 types)
-├── spec/
-│   ├── SpecParser.java              Markdown spec parser
-│   └── SpecVerifier.java            Spec vs implementation checker
-└── util/
-    ├── StopWatch.java               Performance timer
-    └── InputValidator.java          Input hardening (anti-hallucination)
-```
+### vs grep on Spring Boot (8,323 files)
 
-## Agent Integration
+**Model: Claude Sonnet 4 (200K context)**
 
-jsrc ships with a `SKILL.md` that agents can read to understand all commands, invariants, and best practices. See [SKILL.md](SKILL.md) for the complete agent guide.
+| Metric | grep | jsrc |
+|--------|------|------|
+| Tasks completed | 14/30 | **25/30** |
+| Time | 4m49s | **3m24s** |
+| Tool calls | 78 | **59** |
 
-Key invariants for agents:
-1. Always use `--json` — text output is for humans
-2. Run `--index` first on new codebases
-3. Index auto-refreshes — no manual re-indexing needed after file changes
-4. stdout = data, stderr = diagnostics
-5. Use `--fields` to limit JSON and save tokens
-6. Use `--metrics` to verify index is working (should be <1s)
+jsrc completes **78% more tasks** than grep, 24% faster.
+
+**Detailed Results (30 questions):**
+
+| # | Category | Question | grep | jsrc |
+|---|----------|----------|------|------|
+| **Precision** |
+| Q1 | Find | All HealthIndicator implementations | ❌ | ✅ |
+| Q2 | Hierarchy | Superclass chain of a class | ✅ | ✅ |
+| Q3 | Search | Classes in config package | ✅ | ✅ |
+| Q4 | Annotation | @AutoConfiguration with dependencies | ❌ | ✅ |
+| Q5 | Search | Classes in configuration package | ✅ | ❌ |
+| Q6 | Aggregate | Top 5 classes by method count | ✅ | ✅ |
+| Q7 | Search | ConditionMessage source location | ❌ | ✅ |
+| Q8 | Code smell | Mutable static fields | ✅ | ✅ |
+| **Investigation** |
+| Q9 | Impact | Binder.bind callers and impact | ❌ | ✅ |
+| Q10 | Filter | Methods with >5 parameters | ❌ | ✅ |
+| Q11 | Code smell | Swallowed exception catch blocks | ✅ | ✅ |
+| Q12 | Callers | ConfigurationPropertyName.of callers | ❌ | ✅ |
+| Q13 | Pipeline | Auto-config processing pipeline | ✅ | ✅ |
+| **Code Generation** |
+| Q17 | Write | DnsHealthIndicator from pattern | ❌ | ✅ |
+| Q18 | Write | Exception wrapper for HTTP client | ❌ | ✅ |
+| Q19 | Write | Add retry logic to service | ❌ | ✅ |
+| Q20 | Refactor | Extract interface from class | ❌ | ✅ |
+| Q21 | Fix | NPE in null check | ✅ | ✅ |
+| Q22 | Fix | Thread-safety issue | ✅ | ✅ |
+| **Comparative** |
+| Q23 | Compare | Logback vs Log4J2 methods | ❌ | ✅ |
+| Q24 | Compare | Two actuator endpoints | ❌ | ✅ |
+| Q25 | Compare | Two data classes | ✅ | ✅ |
+| Q26 | Compare | Request vs Response objects | ✅ | ✅ |
+| **Architecture** |
+| Q27 | Layers | Layer violations | ✅ | ✅ |
+| Q28 | Deps | Circular dependencies | ❌ | ✅ |
+| Q29 | Architecture | Package coupling | ❌ | ✅ |
+| Q30 | Architecture | God classes (>500 LOC, >20 methods) | ❌ | ✅ |
+
+### Model Comparison
+
+| Model | grep | jsrc | jsrc Advantage |
+|-------|------|------|----------------|
+| Sonnet (200K ctx) | 14/30 | **25/30** | 1.8x more tasks |
+| Qwen 9B (32K ctx) | 0.5/12 | **8/12** | 10x more tasks |
+
+**Key insight:** On small models (9B params), raw grep output overwhelms the context window. jsrc's structured JSON is pre-digested — the model just parses it.
+
+### Native Binary Performance
+
+| Command | Native | JVM | Speedup |
+|---------|--------|-----|---------|
+| `help` | 3ms | 52ms | **17x** |
+| `overview` | 133ms | 383ms | **2.9x** |
+| `classes` | 165ms | 499ms | **3x** |
+| `--smells --all` | 149ms | 528ms | **3.5x** |
 
 ## Test
 
 ```bash
-mvn test    # 173 tests
+mvn test    # 477 tests
 ```
 
 ## License
 
-Licensed under the MIT License.
+MIT

@@ -1,0 +1,24 @@
+package com.jsrc.app.cli.adapters;
+
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
+import picocli.CommandLine.Parameters;
+
+import com.jsrc.app.cli.PicocliAdapter;
+import com.jsrc.app.command.callgraph.FlowCommand;
+
+@Command(name = "flow", description = "Trace execution flow downward (happy path)")
+public class FlowAdapter extends PicocliAdapter {
+
+    @Parameters(index = "0", paramLabel = "<target>",
+                description = "Class.method to trace from")
+    String target;
+
+    @Option(names = "--depth", description = "Max depth (default: 10)", defaultValue = "10")
+    int depth;
+
+    @Override
+    protected com.jsrc.app.command.Command createCommand() {
+        return new FlowCommand(target, depth);
+    }
+}

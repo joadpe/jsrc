@@ -128,16 +128,16 @@ public class DebtCommand implements Command {
     }
 
     private int countPerfIssues(ClassInfo ci, CommandContext ctx) {
-        String source = SourceResolver.loadClassSource(ci.name(), ctx);
-        if (source == null) return 0;
-        int count = 0;
-        for (String line : source.split("\n")) {
-            String trimmed = line.trim();
-            for (var p : PerfCommand.PERF_PATTERNS) {
-                if (p.detector().test(trimmed)) { count++; break; }
-            }
-        }
-        return Math.min(count, 20); // cap
+        // Heuristic: use method count + LOC as proxy instead of scanning source
+        // (scanning source for all 8K+ classes takes 30s)
+        int methodCount = ci.methods().size();
+        int loc = ci.methods().stream().mapToInt(m -> Math.max(0, m.endLine() - m.startLine())).sum();
+        // High method count + high LOC = likely has perf issues
+        int estimate = 0;
+        if (methodCount > 20) estimate += 2;
+        if (loc > 500) estimate += 2;
+        if (loc > 1000) estimate += 3;
+        return estimate;
     }
 
     private int countCallers(ClassInfo ci, CallGraph graph) {

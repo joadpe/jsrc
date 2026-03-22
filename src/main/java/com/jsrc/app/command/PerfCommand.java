@@ -161,7 +161,7 @@ public class PerfCommand implements Command {
 
         if (methodSource != null) {
             // Source-based detection (depth 0-1)
-            analyzeSource(methodSource, mi, ci, findings, tree, graph, ctx, currentDepth);
+            analyzeSource(methodSource, sourceCode, mi, ci, findings, tree, graph, ctx, currentDepth);
             result.put("analysis", "source");
         } else {
             // Index-only heuristics (depth 2+)
@@ -174,7 +174,7 @@ public class PerfCommand implements Command {
         return result;
     }
 
-    private void analyzeSource(String methodSource, MethodInfo mi, ClassInfo ci,
+    private void analyzeSource(String methodSource, String fullClassSource, MethodInfo mi, ClassInfo ci,
                                 List<Map<String, Object>> findings,
                                 List<Map<String, Object>> tree,
                                 CallGraph graph, CommandContext ctx, int currentDepth) {
@@ -210,9 +210,10 @@ public class PerfCommand implements Command {
                 // Detect I/O in loop
                 if (line.contains("Files.read") || line.contains("Files.write")
                         || line.contains("new File(") || line.contains("io.File(")
-                        || line.contains(".parse(") || line.contains("FileInputStream")
-                        || line.contains("readString") || line.contains("readAllBytes")
-                        || line.contains("writeString") || line.contains("writeToFile")) {
+                        || line.contains("FileInputStream") || line.contains("FileOutputStream")
+                        || line.contains("Files.readString") || line.contains("Files.readAllBytes")
+                        || line.contains("Files.writeString") || line.contains("Files.newOutputStream")
+                        || line.contains("writeToFile") || line.contains("readFromFile")) {
                     findings.add(finding("LOOP_WITH_IO", "CRITICAL", lineNum,
                             "I/O operation inside loop — moves bottleneck from CPU to disk"));
                 }
@@ -225,7 +226,7 @@ public class PerfCommand implements Command {
                         callNode.put("line", lineNum);
 
                         // Check callee complexity via index
-                        boolean isLinearScan = isLinearScanCallee(callName, ci, graph, ctx);
+                        boolean isLinearScan = isLinearScanCallee(callName, ci, graph, ctx, fullClassSource);
                         if (isLinearScan) {
                             callNode.put("flags", List.of("🔴 LINEAR_SCAN in loop → O(N²)"));
                             findings.add(finding("LOOP_WITH_LINEAR_CALLEE", "CRITICAL", lineNum,
@@ -263,9 +264,18 @@ public class PerfCommand implements Command {
         }
     }
 
-    private boolean isLinearScanCallee(String callName, ClassInfo ci, CallGraph graph, CommandContext ctx) {
+    private boolean isLinearScanCallee(String callName, ClassInfo ci, CallGraph graph,
+                                       CommandContext ctx, String currentSource) {
         String calleeMethod = callName.contains(".") ? callName.substring(callName.lastIndexOf('.') + 1) : callName;
         String calleeClass = callName.contains(".") ? callName.substring(0, callName.lastIndexOf('.')) : null;
+
+        // Same-class call (this.method)
+        if ("this".equals(calleeClass)) {
+            if (currentSource != null) {
+                return checkSourceForLoop(currentSource, calleeMethod);
+            }
+            return false;
+        }
 
         if (calleeClass != null) {
             // Resolve field type to class name
@@ -292,13 +302,51 @@ public class PerfCommand implements Command {
     private boolean checkCalleeForLoop(Path file, String methodName) {
         try {
             String source = java.nio.file.Files.readString(file);
-            String methodSrc = extractMethodByName(source, methodName);
-            if (methodSrc != null) {
-                return methodSrc.contains("for (") || methodSrc.contains("for(")
-                        || methodSrc.contains("while (") || methodSrc.contains("while(");
-            }
+            return checkSourceForLoop(source, methodName);
         } catch (Exception e) {
             // ignore
+        }
+        return false;
+    }
+
+    /**
+     * Checks if a method contains a linear scan pattern:
+     * a loop with a conditional return/break inside (searching for something).
+     * A loop that just iterates and processes all items is NOT a linear scan.
+     */
+    /**
+     * Checks if a method contains a linear scan pattern:
+     * a loop with a conditional return/break inside (searching for something).
+     * Uses brace counting to track loop boundaries.
+     */
+    private static boolean checkSourceForLoop(String source, String methodName) {
+        String methodSrc = extractMethodByName(source, methodName);
+        if (methodSrc == null) return false;
+
+        int loopBraceDepth = 0;
+        boolean inLoop = false;
+        for (String line : methodSrc.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("//") || trimmed.startsWith("*")) continue;
+
+            if (!inLoop && isLoopStart(trimmed) && !trimmed.contains("\"")) {
+                inLoop = true;
+                loopBraceDepth = 0;
+            }
+
+            if (inLoop) {
+                for (char c : trimmed.toCharArray()) {
+                    if (c == '{') loopBraceDepth++;
+                    else if (c == '}') loopBraceDepth--;
+                }
+                // return/break INSIDE the loop body = linear scan
+                if (loopBraceDepth > 0 && (trimmed.startsWith("return ") || trimmed.equals("break;"))) {
+                    return true;
+                }
+                if (loopBraceDepth <= 0) {
+                    inLoop = false;
+                }
+            }
         }
         return false;
     }
@@ -355,19 +403,42 @@ public class PerfCommand implements Command {
                 || line.contains(".forEach(");
     }
 
+    private static final Set<String> IGNORED_CALLS = Set.of(
+            "System.out", "System.err", "System.in",
+            "if", "for", "while", "switch", "catch", "return", "throw", "new",
+            "String.format", "String.valueOf", "Integer.parseInt", "Long.parseLong",
+            "Objects.requireNonNull", "Optional.of", "Optional.empty", "Optional.ofNullable",
+            "List.of", "List.copyOf", "Set.of", "Set.copyOf", "Map.of", "Map.entry",
+            "Collections.emptyList", "Collections.emptyMap", "Collections.unmodifiableMap",
+            "Math.max", "Math.min", "Arrays.asList"
+    );
+
     private static List<String> extractMethodCalls(String line) {
         List<String> calls = new ArrayList<>();
-        // Simple pattern: identifier.method( or identifier.method(
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+
+        // Pattern 1: object.method( — field/variable calls
+        java.util.regex.Matcher m1 = java.util.regex.Pattern.compile(
                 "(\\w+\\.\\w+)\\s*\\(").matcher(line);
-        while (m.find()) {
-            String call = m.group(1);
-            // Filter out common non-method patterns
-            if (!call.startsWith("new ") && !call.equals("System.out")
-                    && !call.equals("System.err")) {
+        while (m1.find()) {
+            String call = m1.group(1);
+            if (!IGNORED_CALLS.contains(call) && !call.matches("\\d+\\.\\w+")) {
                 calls.add(call);
             }
         }
+
+        // Pattern 2: standalone method( — same-class calls
+        // Match method calls NOT preceded by . (to avoid double-matching object.method)
+        java.util.regex.Matcher m2 = java.util.regex.Pattern.compile(
+                "(?<![.\\w])(\\w+)\\s*\\(").matcher(line);
+        while (m2.find()) {
+            String call = m2.group(1);
+            // Filter keywords, constructors, and common utilities
+            if (!IGNORED_CALLS.contains(call) && !call.matches("[A-Z].*")
+                    && call.length() > 1 && !call.equals("super")) {
+                calls.add("this." + call); // mark as same-class
+            }
+        }
+
         return calls;
     }
 

@@ -97,6 +97,13 @@ class PerfCommandTest {
     }
 
     @Test
+    void detectsSameClassLinearCallee() {
+        String json = capture(new PerfCommand("NestedCallService.processAll", 1));
+        assertTrue(json.contains("LOOP_WITH_LINEAR_CALLEE") || json.contains("LINEAR_SCAN"),
+                "Should detect same-class method with loop. Got: " + json);
+    }
+
+    @Test
     void outputHasCorrectStructure() {
         String json = capture(new PerfCommand("SlowService.processAll", 1));
         assertTrue(json.contains("\"method\""), "Should have method field");

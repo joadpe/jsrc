@@ -169,6 +169,13 @@ class PerfCommandTest {
     }
 
     @Test
+    void detectsDaoInheritanceInLoop() {
+        String json = capture(new PerfCommand("OrderProcessor.processCustomers", 1));
+        assertTrue(json.contains("DB_QUERY") || json.contains("DAO"),
+                "Should detect DAO class call in loop via inheritance. Got: " + json);
+    }
+
+    @Test
     void detectsDbQueryInLoop() {
         String json = capture(new PerfCommand("JavaAntiPatterns.loadDetails", 1));
         assertTrue(json.contains("DB_QUERY"),

@@ -114,6 +114,7 @@ public class PerfCommand implements Command {
 
     private final String target;
     private final int maxDepth;
+    private Set<String> daoClasses; // lazily detected classes with DB queries
 
     public PerfCommand(String target, int maxDepth) {
         this.target = target;
@@ -473,6 +474,15 @@ public class PerfCommand implements Command {
 
         Set<String> foundTypes = new HashSet<>();
 
+        // Check if callee class is a known DAO class (inherits from DB-query class)
+        if (resolvedClass != null && !foundTypes.contains("DB_QUERY")) {
+            Set<String> daos = detectDaoClasses(ctx);
+            if (daos.contains(resolvedClass)) {
+                results.add(Map.of("type", "DB_QUERY", "path", calleeMethod + " → DAO class (" + resolvedClass + ")"));
+                foundTypes.add("DB_QUERY");
+            }
+        }
+
         // Detect patterns in callee source
         if (calleeSource != null) {
             for (String line : calleeSource.split("\n")) {
@@ -569,6 +579,69 @@ public class PerfCommand implements Command {
     }
 
 
+
+    /**
+     * Detects "DAO classes": classes whose methods contain direct DB queries
+     * (prepareStatement, executeQuery, etc.) or inherit from such classes.
+     * Uses index to check class names and hierarchy — does NOT read all source files.
+     * Falls back to name heuristics (Dao, Repository, Mapper) for speed.
+     */
+    private Set<String> detectDaoClasses(CommandContext ctx) {
+        if (daoClasses != null) return daoClasses;
+        daoClasses = new HashSet<>();
+
+        for (ClassInfo ci : ctx.getAllClasses()) {
+            String name = ci.name();
+            String qname = ci.qualifiedName();
+
+            // Heuristic 1: class name ends with DAO/Dao/Repository/Mapper
+            if (name.endsWith("Dao") || name.endsWith("DAO")
+                    || name.endsWith("Repository") || name.endsWith("Mapper")) {
+                daoClasses.add(name);
+                daoClasses.add(qname);
+                continue;
+            }
+
+            // Heuristic 2: extends a class that looks like a DAO
+            String superClass = ci.superClass();
+            if (superClass != null && !superClass.isEmpty()) {
+                String superSimple = superClass.contains(".")
+                        ? superClass.substring(superClass.lastIndexOf('.') + 1) : superClass;
+                if (superSimple.contains("Dao") || superSimple.contains("DAO")
+                        || superSimple.contains("Repository") || superSimple.contains("Mapper")
+                        || superSimple.contains("JdbcTemplate") || superSimple.contains("JpaRepository")
+                        || superSimple.contains("CrudRepository")) {
+                    daoClasses.add(name);
+                    daoClasses.add(qname);
+                }
+            }
+
+            // Heuristic 3: implements Repository interface
+            for (String iface : ci.interfaces()) {
+                String ifaceSimple = iface.contains(".")
+                        ? iface.substring(iface.lastIndexOf('.') + 1) : iface;
+                if (ifaceSimple.contains("Repository") || ifaceSimple.contains("Dao")
+                        || ifaceSimple.contains("Mapper")) {
+                    daoClasses.add(name);
+                    daoClasses.add(qname);
+                }
+            }
+        }
+
+        return daoClasses;
+    }
+
+    /**
+     * Checks if a method call target is a known DAO class.
+     */
+    private boolean isDaoClassCall(String callName, ClassInfo ci, CommandContext ctx) {
+        String calleeClass = callName.contains(".") ? callName.substring(0, callName.lastIndexOf('.')) : null;
+        if (calleeClass == null || "this".equals(calleeClass)) return false;
+
+        String resolvedClass = resolveFieldType(calleeClass, ci);
+        Set<String> daos = detectDaoClasses(ctx);
+        return daos.contains(resolvedClass);
+    }
 
     private String resolveFieldType(String fieldOrVar, ClassInfo ci) {
         // Check if it's a field name → resolve to type

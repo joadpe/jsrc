@@ -39,9 +39,19 @@ public class ExplainCommand implements Command {
             summary.append("Implements ").append(String.join(", ", ci.interfaces())).append(". ");
         }
 
-        // Dependencies
+        // Dependencies — use index to find file directly instead of scanning all files
         var analyzer = ctx.dependencyAnalyzer();
-        var deps = analyzer.analyze(ctx.javaFiles(), ci.name());
+        java.util.Optional<com.jsrc.app.model.DependencyResult> deps;
+        if (ctx.indexed() != null) {
+            var filePath = ctx.indexed().findFileForClass(ci.name());
+            if (filePath.isPresent()) {
+                deps = analyzer.analyze(java.util.List.of(java.nio.file.Path.of(filePath.get())), ci.name());
+            } else {
+                deps = analyzer.analyze(ctx.javaFiles(), ci.name());
+            }
+        } else {
+            deps = analyzer.analyze(ctx.javaFiles(), ci.name());
+        }
         if (deps.isPresent()) {
             int fieldCount = deps.get().fieldDependencies().size();
             int ctorCount = deps.get().constructorDependencies().size();
@@ -67,11 +77,21 @@ public class ExplainCommand implements Command {
                     layer -> summary.append("Layer: ").append(layer).append(". "));
         }
 
-        // Smells
-        long smellCount = ctx.javaFiles().stream()
-                .flatMap(f -> ctx.parser().detectSmells(f).stream())
-                .filter(s -> s.className().equals(ci.name()))
-                .count();
+        // Smells — use indexed smells if available, else parse only the target file
+        long smellCount = 0;
+        if (ctx.indexed() != null) {
+            var filePath = ctx.indexed().findFileForClass(ci.name());
+            if (filePath.isPresent()) {
+                smellCount = ctx.parser().detectSmells(java.nio.file.Path.of(filePath.get())).stream()
+                        .filter(s -> s.className().equals(ci.name()))
+                        .count();
+            }
+        } else {
+            smellCount = ctx.javaFiles().stream()
+                    .flatMap(f -> ctx.parser().detectSmells(f).stream())
+                    .filter(s -> s.className().equals(ci.name()))
+                    .count();
+        }
         if (smellCount > 0) summary.append(smellCount).append(" code smell(s). ");
 
         Map<String, Object> result = new LinkedHashMap<>();

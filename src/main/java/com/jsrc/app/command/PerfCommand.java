@@ -9,6 +9,8 @@ import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
 import com.jsrc.app.parser.model.MethodReference;
 
+import java.util.function.Predicate;
+
 /**
  * Detects performance bottlenecks in methods by analyzing source code
  * at depth 0-1 (real patterns) and index metrics at depth 2+ (heuristics).
@@ -30,6 +32,40 @@ import com.jsrc.app.parser.model.MethodReference;
  * </ul>
  */
 public class PerfCommand implements Command {
+
+    /**
+     * A line-level performance anti-pattern detector.
+     * To add a new pattern: add an entry to PATTERNS.
+     * It will automatically be detected both directly in loop bodies
+     * AND recursively in callee chains up to maxDepth.
+     */
+    private record PatternDef(
+            String id,
+            String severity,
+            String directType,
+            String deepType,
+            String directMessage,
+            String deepPrefix,
+            Predicate<String> detector
+    ) {}
+
+    private static final List<PatternDef> PATTERNS = List.of(
+            new PatternDef("IO", "CRITICAL",
+                    "LOOP_WITH_IO", "LOOP_WITH_DEEP_IO",
+                    "I/O operation inside loop — moves bottleneck from CPU to disk",
+                    "IO in call chain",
+                    PerfCommand::hasDirectIO),
+            new PatternDef("ALLOCATION", "WARNING",
+                    "ALLOCATION_IN_LOOP", "LOOP_WITH_DEEP_ALLOCATION",
+                    "Object allocation inside loop — consider pre-allocating or reusing",
+                    "Allocation in call chain",
+                    PerfCommand::hasAllocation),
+            new PatternDef("NESTED", "WARNING",
+                    "NESTED_ITERATION", "LOOP_WITH_DEEP_NESTED",
+                    "Nested iteration — consider using a Set for O(1) lookup",
+                    "Nested iteration in call chain",
+                    PerfCommand::hasNestedIteration)
+    );
 
     private final String target;
     private final int maxDepth;
@@ -204,28 +240,16 @@ public class PerfCommand implements Command {
                 // Track what patterns have been reported for this loop to avoid duplicates
                 // (initialized per loop via loopReported, reset when loop starts)
 
-                // 1. Detect patterns directly in this line
-                // Dedup: same type + same line = duplicate. Same type + different line = new finding.
-                String allocKey = "ALLOCATION:direct:" + lineNum;
-                if (hasAllocation(line) && !loopReported.contains(allocKey)) {
-                    findings.add(finding("ALLOCATION_IN_LOOP", "WARNING", lineNum,
-                            "Object allocation inside loop — consider pre-allocating or reusing"));
-                    loopReported.add(allocKey);
-                }
-
-                String ioKey = "IO:direct:" + lineNum;
-                if (hasDirectIO(line) && !loopReported.contains(ioKey)) {
-                    findings.add(finding("LOOP_WITH_IO", "CRITICAL", lineNum,
-                            "I/O operation inside loop — moves bottleneck from CPU to disk"));
-                    loopReported.add(ioKey);
-                    // Block deep IO search for this specific callee chain (direct IO found)
-                    loopReported.add("IO:direct:block");
-                }
-
-                if (hasNestedIteration(line) && !loopReported.contains("NESTED:direct:" + lineNum)) {
-                    findings.add(finding("NESTED_ITERATION", "WARNING", lineNum,
-                            "Nested iteration — consider using a Set for O(1) lookup"));
-                    loopReported.add("NESTED:direct:" + lineNum);
+                // 1. Detect all patterns directly in this line
+                for (PatternDef pattern : PATTERNS) {
+                    String directKey = pattern.id() + ":direct:" + lineNum;
+                    if (pattern.detector().test(line) && !loopReported.contains(directKey)) {
+                        findings.add(finding(pattern.directType(), pattern.severity(), lineNum,
+                                pattern.directMessage()));
+                        loopReported.add(directKey);
+                        // Block deep search for same pattern type in this loop
+                        loopReported.add(pattern.id() + ":direct:block");
+                    }
                 }
 
                 // 2. Deep search into callees (up to maxDepth)
@@ -245,13 +269,18 @@ public class PerfCommand implements Command {
                         for (var df : deepFindings) {
                             String type = df.get("type").toString();
                             String path = df.get("path").toString();
-                            // Skip deep IO if direct IO already found in this loop
-                            if ("IO".equals(type) && loopReported.contains("IO:direct:block")) continue;
-                            // Dedup key: type + full path (same type in different chains = different finding)
+                            // Skip if direct detection already found this pattern type in this loop
+                            if (loopReported.contains(type + ":direct:block")) continue;
+                            // Dedup: same type + same path = duplicate
                             String dedupKey = type + ":" + path;
                             if (!loopReported.contains(dedupKey)) {
+                                // Find the matching pattern def for proper naming
+                                String deepType = PATTERNS.stream()
+                                        .filter(p -> p.id().equals(type))
+                                        .map(PatternDef::deepType)
+                                        .findFirst().orElse("LOOP_WITH_DEEP_" + type);
                                 flags.add("🔴 DEEP " + type + ": " + path);
-                                findings.add(finding("LOOP_WITH_DEEP_" + type, "CRITICAL", lineNum,
+                                findings.add(finding(deepType, "CRITICAL", lineNum,
                                         type + " in call chain: " + callName + " → " + path));
                                 loopReported.add(dedupKey);
                             }
@@ -365,20 +394,14 @@ public class PerfCommand implements Command {
 
         Set<String> foundTypes = new HashSet<>();
 
-        // Check callee for direct patterns
+        // Check callee for all registered patterns
         for (String line : calleeSource.split("\n")) {
             String trimmed = line.trim();
-            if (hasDirectIO(trimmed) && !foundTypes.contains("IO")) {
-                results.add(Map.of("type", "IO", "path", calleeMethod + " → I/O"));
-                foundTypes.add("IO");
-            }
-            if (hasAllocation(trimmed) && !foundTypes.contains("ALLOCATION")) {
-                results.add(Map.of("type", "ALLOCATION", "path", calleeMethod + " → allocation"));
-                foundTypes.add("ALLOCATION");
-            }
-            if (hasNestedIteration(trimmed) && !foundTypes.contains("NESTED")) {
-                results.add(Map.of("type", "NESTED", "path", calleeMethod + " → nested iteration"));
-                foundTypes.add("NESTED");
+            for (PatternDef pattern : PATTERNS) {
+                if (pattern.detector().test(trimmed) && !foundTypes.contains(pattern.id())) {
+                    results.add(Map.of("type", pattern.id(), "path", calleeMethod + " → " + pattern.id().toLowerCase()));
+                    foundTypes.add(pattern.id());
+                }
             }
         }
 

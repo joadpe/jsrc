@@ -126,6 +126,26 @@ test_cmd "--version"     5 "jsrc"      --version
 test_cmd "help overview" 5 "overview"  help overview
 
 echo ""
+echo "── Error handling ──"
+# Error tests: verify useful error messages (checks stdout + stderr)
+test_error() {
+    local name="$1"
+    local pattern="$2"
+    shift 2
+    local output
+    output=$(cd "$CODEBASE" && timeout 15 $JSRC "$@" 2>&1) || true
+    if [ -n "$output" ] && echo "$output" | grep -qi "$pattern"; then
+        printf "  ✅ %-25s OK (error message found)\n" "$name"
+        PASS=$((PASS + 1))
+    else
+        printf "  ❌ %-25s MISSING ERROR: %s\n" "$name" "$pattern"
+        FAIL=$((FAIL + 1))
+        FAILURES+=("$name: missing error '$pattern'")
+    fi
+}
+test_error "class-not-found"  "not found\|Did you mean\|error" summary NonExistentClassName123 --json
+
+echo ""
 echo "── Flag inheritance (critical) ──"
 test_flag_position "--json" "overview"
 test_flag_position "--full" "overview"

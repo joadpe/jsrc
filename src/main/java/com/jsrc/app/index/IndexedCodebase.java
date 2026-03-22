@@ -34,6 +34,8 @@ public class IndexedCodebase {
     private java.nio.file.Path sourceRoot;
     private boolean edgesLoaded = false;
     private boolean smellsLoaded = false;
+    private java.util.Map<String, IndexedClass> classLookup; // lazy O(1) class lookup
+    private java.util.Map<String, String> classToPath; // lazy O(1) class→file path
 
     private IndexedCodebase(List<IndexEntry> entries) {
         this.entries = entries;
@@ -164,14 +166,9 @@ public class IndexedCodebase {
      * Returns the file path (relative) for a given class name.
      */
     public Optional<String> findFileForClass(String className) {
-        for (IndexEntry entry : entries) {
-            for (IndexedClass ic : entry.classes()) {
-                if (ic.name().equals(className) || ic.qualifiedName().equals(className)) {
-                    return Optional.of(entry.path());
-                }
-            }
-        }
-        return Optional.empty();
+        classLookup(); // ensure maps are built
+        String path = classToPath.get(className);
+        return path != null ? Optional.of(path) : Optional.empty();
     }
 
     /**
@@ -181,26 +178,42 @@ public class IndexedCodebase {
      * @param className simple or qualified class name
      * @return dependency result, or empty if not found
      */
-    public Optional<com.jsrc.app.model.DependencyResult> getDependencies(String className) {
-        for (IndexEntry entry : entries) {
-            for (IndexedClass ic : entry.classes()) {
-                if (!ic.name().equals(className) && !ic.qualifiedName().equals(className)) continue;
-
-                List<com.jsrc.app.model.DependencyResult.FieldDep> fieldDeps = ic.fields().stream()
-                        .map(f -> new com.jsrc.app.model.DependencyResult.FieldDep(f.type(), f.name()))
-                        .toList();
-
-                // Constructor params: find methods named after the class (constructors)
-                List<com.jsrc.app.model.DependencyResult.FieldDep> ctorDeps = ic.methods().stream()
-                        .filter(m -> m.name().equals(ic.name()))
-                        .flatMap(m -> extractParamsFromSignature(m.signature()).stream())
-                        .toList();
-
-                return Optional.of(new com.jsrc.app.model.DependencyResult(
-                        ic.qualifiedName(), ic.imports(), fieldDeps, ctorDeps));
+    /**
+     * Returns a lazily-built O(1) lookup map from class name to IndexedClass.
+     * Maps both simple name and qualified name for fast lookup.
+     */
+    private java.util.Map<String, IndexedClass> classLookup() {
+        if (classLookup == null) {
+            classLookup = new java.util.HashMap<>();
+            classToPath = new java.util.HashMap<>();
+            for (IndexEntry entry : entries) {
+                for (IndexedClass ic : entry.classes()) {
+                    classLookup.putIfAbsent(ic.name(), ic);
+                    classLookup.putIfAbsent(ic.qualifiedName(), ic);
+                    classToPath.putIfAbsent(ic.name(), entry.path());
+                    classToPath.putIfAbsent(ic.qualifiedName(), entry.path());
+                }
             }
         }
-        return Optional.empty();
+        return classLookup;
+    }
+
+    public Optional<com.jsrc.app.model.DependencyResult> getDependencies(String className) {
+        IndexedClass ic = classLookup().get(className);
+        if (ic == null) return Optional.empty();
+
+        List<com.jsrc.app.model.DependencyResult.FieldDep> fieldDeps = ic.fields().stream()
+                .map(f -> new com.jsrc.app.model.DependencyResult.FieldDep(f.type(), f.name()))
+                .toList();
+
+        // Constructor params: find methods named after the class (constructors)
+        List<com.jsrc.app.model.DependencyResult.FieldDep> ctorDeps = ic.methods().stream()
+                .filter(m -> m.name().equals(ic.name()))
+                .flatMap(m -> extractParamsFromSignature(m.signature()).stream())
+                .toList();
+
+        return Optional.of(new com.jsrc.app.model.DependencyResult(
+                ic.qualifiedName(), ic.imports(), fieldDeps, ctorDeps));
     }
 
     /**

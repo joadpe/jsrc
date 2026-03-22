@@ -100,7 +100,8 @@ import com.jsrc.app.parser.HybridJavaParser;
         com.jsrc.app.cli.commands.FlowSubcommand.class,
         com.jsrc.app.cli.commands.DebtSubcommand.class,
         com.jsrc.app.cli.commands.MigrateSubcommand.class,
-        com.jsrc.app.cli.commands.ApiSubcommand.class
+        com.jsrc.app.cli.commands.ApiSubcommand.class,
+        com.jsrc.app.cli.commands.CompatSubcommand.class
     }
 )
 public class JsrcCommand implements Runnable {

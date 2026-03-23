@@ -10,8 +10,10 @@ public class SmellsAdapter extends PicocliAdapter {
     String className;
     @Option(names = "--all", description = "Analyze entire codebase")
     boolean all;
+    @Option(names = "--trend", description = "Compare smells in changed files vs HEAD")
+    boolean trend;
     @Override protected com.jsrc.app.command.Command createCommand() {
         String arg = all ? "--all" : (className.isEmpty() ? null : className);
-        return new SmellsCommand(arg);
+        return new SmellsCommand(arg, trend);
     }
 }

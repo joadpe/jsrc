@@ -18,9 +18,12 @@ public class PerfAdapter extends PicocliAdapter {
             defaultValue = "1")
     String depth;
 
+    @Option(names = "--fix", description = "Include fix suggestions for each finding")
+    boolean fix;
+
     @Override
     protected com.jsrc.app.command.Command createCommand() {
         int maxDepth = "full".equalsIgnoreCase(depth) ? Integer.MAX_VALUE : Integer.parseInt(depth);
-        return new PerfCommand(target, maxDepth);
+        return new PerfCommand(target, maxDepth, fix);
     }
 }

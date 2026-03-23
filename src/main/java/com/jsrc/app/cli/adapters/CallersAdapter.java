@@ -1,6 +1,7 @@
 package com.jsrc.app.cli.adapters;
 
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.PicocliAdapter;
@@ -13,8 +14,11 @@ public class CallersAdapter extends PicocliAdapter {
                 description = "Method reference (e.g. Class.method or methodName)")
     String methodRef;
 
+    @Option(names = "--graph", description = "Output Mermaid diagram of caller graph")
+    boolean graph;
+
     @Override
     protected com.jsrc.app.command.Command createCommand() {
-        return new CallersCommand(methodRef);
+        return new CallersCommand(methodRef, graph);
     }
 }

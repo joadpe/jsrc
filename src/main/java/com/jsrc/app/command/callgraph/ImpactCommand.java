@@ -29,9 +29,15 @@ public class ImpactCommand implements Command {
     private static final int MAX_DEPTH = 30;
 
     private final String methodInput;
+    private final boolean whatIf;
 
     public ImpactCommand(String methodInput) {
+        this(methodInput, false);
+    }
+
+    public ImpactCommand(String methodInput, boolean whatIf) {
         this.methodInput = methodInput;
+        this.whatIf = whatIf;
     }
 
     @Override
@@ -118,6 +124,33 @@ public class ImpactCommand implements Command {
         result.put("transitiveCallers", allAffected.size());
         result.put("affectedClasses", allAffected.stream().sorted().toList());
         result.put("riskLevel", risk);
+
+        // --what-if: simulate which tests would fail
+        if (whatIf) {
+            List<String> affectedTests = new java.util.ArrayList<>();
+            for (String cls : allAffected) {
+                String simple = cls.contains(".") ? cls.substring(cls.lastIndexOf('.') + 1) : cls;
+                // Look for corresponding test classes
+                for (var ci : ctx.getAllClasses()) {
+                    if (ci.name().equals(simple + "Test") || ci.name().equals(simple + "Tests")
+                            || ci.name().equals(simple + "IT")) {
+                        affectedTests.add(ci.qualifiedName());
+                    }
+                }
+            }
+            // Also check test-for via call graph (tests that transitively call the target)
+            for (var ci : ctx.getAllClasses()) {
+                if (ci.name().endsWith("Test") || ci.name().endsWith("Tests") || ci.name().endsWith("IT")) {
+                    if (allAffected.contains(ci.qualifiedName()) || allAffected.contains(ci.name())) {
+                        if (!affectedTests.contains(ci.qualifiedName())) {
+                            affectedTests.add(ci.qualifiedName());
+                        }
+                    }
+                }
+            }
+            result.put("affectedTests", affectedTests.stream().sorted().distinct().toList());
+            result.put("testCount", affectedTests.size());
+        }
 
         if (ctx.mdOutput()) {
             String md = toMarkdown(methodInput, directCount, allAffected, risk);

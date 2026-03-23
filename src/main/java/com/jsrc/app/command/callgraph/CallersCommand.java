@@ -15,9 +15,15 @@ import com.jsrc.app.util.MethodTargetResolver;
 
 public class CallersCommand implements Command {
     private final String methodInput;
+    private final boolean mermaidGraph;
 
     public CallersCommand(String methodInput) {
+        this(methodInput, false);
+    }
+
+    public CallersCommand(String methodInput, boolean graph) {
         this.methodInput = methodInput;
+        this.mermaidGraph = graph;
     }
 
     @Override
@@ -82,8 +88,28 @@ public class CallersCommand implements Command {
             }
         }
 
-        if (!ctx.fullOutput() && callers.size() > 0) {
-            // Compact: just class.method list, no line numbers or qualified refs
+        if (mermaidGraph) {
+            // Mermaid flowchart of callers
+            var mermaid = new LinkedHashMap<String, Object>();
+            mermaid.put("method", methodInput);
+            mermaid.put("total", callers.size());
+            var sb = new StringBuilder("graph LR\n");
+            String targetNode = methodInput.replace(".", "_");
+            sb.append("    ").append(targetNode).append("[\"").append(methodInput).append("\"]\n");
+            callers.stream()
+                    .map(e -> Objects.toString(e.get("class"), "") + "." + Objects.toString(e.get("method"), ""))
+                    .distinct()
+                    .forEach(caller -> {
+                        String node = caller.replace(".", "_");
+                        sb.append("    ").append(node).append("[\"").append(caller).append("\"]");
+                        sb.append(" --> ").append(targetNode).append("\n");
+                    });
+            mermaid.put("mermaid", sb.toString());
+            mermaid.put("callers", callers.stream()
+                    .map(e -> Objects.toString(e.get("class"), "?") + "." + Objects.toString(e.get("method"), "?"))
+                    .distinct().toList());
+            ctx.formatter().printResult(mermaid);
+        } else if (!ctx.fullOutput() && callers.size() > 0) {
             var compact = new java.util.LinkedHashMap<String, Object>();
             compact.put("method", methodInput);
             compact.put("total", callers.size());

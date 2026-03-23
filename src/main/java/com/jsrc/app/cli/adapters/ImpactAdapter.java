@@ -1,6 +1,7 @@
 package com.jsrc.app.cli.adapters;
 
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 import com.jsrc.app.cli.PicocliAdapter;
@@ -13,8 +14,11 @@ public class ImpactAdapter extends PicocliAdapter {
                 description = "Method reference to assess impact for")
     String methodRef;
 
+    @Option(names = "--what-if", description = "Simulate which tests would fail if method changes")
+    boolean whatIf;
+
     @Override
     protected com.jsrc.app.command.Command createCommand() {
-        return new ImpactCommand(methodRef);
+        return new ImpactCommand(methodRef, whatIf);
     }
 }

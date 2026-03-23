@@ -81,12 +81,40 @@ public class PerfCommand implements Command {
                     PatternDetector::hasConnection)
     );
 
+    /** Fix suggestions for each perf pattern type. */
+    private static final Map<String, String> FIX_SUGGESTIONS = Map.ofEntries(
+            Map.entry("IO", "Move I/O outside the loop: read/write in bulk, then process in-memory"),
+            Map.entry("ALLOCATION", "Pre-allocate before loop: `var list = new ArrayList<>(size);`"),
+            Map.entry("NESTED", "Replace inner list with Set/Map for O(1) lookup: `var set = new HashSet<>(list);`"),
+            Map.entry("STRING_CONCAT", "Replace `+=` with StringBuilder: `var sb = new StringBuilder(); sb.append(x);`"),
+            Map.entry("STRING_FORMAT", "Replace String.format() with StringBuilder or MessageFormat (pre-parsed)"),
+            Map.entry("DATE_FORMAT", "Create DateTimeFormatter once as static final: `private static final DateTimeFormatter FMT = ...;`"),
+            Map.entry("REGEX_COMPILE", "Compile Pattern once as static final: `private static final Pattern PAT = Pattern.compile(...);`"),
+            Map.entry("REFLECTION", "Cache Method/Field references: `private static final Method M = Foo.class.getMethod(...);`"),
+            Map.entry("STREAM_CREATE", "Replace stream with for-loop when inside another loop"),
+            Map.entry("LIST_REMOVE", "Use `list.removeIf(predicate)` or Iterator: `var it = list.iterator(); while (it.hasNext()) { if (...) it.remove(); }`"),
+            Map.entry("DB_QUERY", "Batch query: replace N queries with IN clause or JOIN: `WHERE id IN (:ids)`"),
+            Map.entry("BOXING", "Use primitive arrays/collections (IntStream, int[]) to avoid autoboxing"),
+            Map.entry("VECTOR_HASHTABLE", "Replace Vector with ArrayList, Hashtable with HashMap"),
+            Map.entry("TABLE_FIRE", "Batch UI updates: call fireTableDataChanged() once after all mutations"),
+            Map.entry("JNDI_LOOKUP", "Cache JNDI result: `private final DataSource ds = (DataSource) ctx.lookup(...);`"),
+            Map.entry("SELECT_STAR", "Specify columns: `SELECT col1, col2 FROM ...` instead of `SELECT *`"),
+            Map.entry("SQL_CONCAT", "Use PreparedStatement with `?` parameters instead of string concatenation"),
+            Map.entry("CONNECTION", "Use connection pool (HikariCP) and try-with-resources: `try (var conn = pool.getConnection()) {}`")
+    );
+
     private final String target;
     private final int maxDepth;
+    private final boolean fix;
 
     public PerfCommand(String target, int maxDepth) {
+        this(target, maxDepth, false);
+    }
+
+    public PerfCommand(String target, int maxDepth, boolean fix) {
         this.target = target;
         this.maxDepth = maxDepth;
+        this.fix = fix;
     }
 
     @Override
@@ -159,6 +187,37 @@ public class PerfCommand implements Command {
         // Structural issues (class-level)
         List<Map<String, Object>> structuralFindings = detectStructuralIssues(ci, sourceCode);
         totalFindings += structuralFindings.size();
+
+        // Enrich findings with fix suggestions when --fix is enabled
+        if (fix) {
+            for (var mResult2 : perMethod) {
+                @SuppressWarnings("unchecked")
+                var fs = (List<Map<String, Object>>) mResult2.get("findings");
+                if (fs != null) {
+                    for (var f : fs) {
+                        String type = String.valueOf(f.get("type"));
+                        for (var pat : PERF_PATTERNS) {
+                            if (type.equals(pat.directType()) || type.equals(pat.deepType())) {
+                                String fixSuggestion = FIX_SUGGESTIONS.get(pat.id());
+                                if (fixSuggestion != null) f.put("fix", fixSuggestion);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            for (var sf : structuralFindings) {
+                String type = String.valueOf(sf.get("type"));
+                for (var pat : PERF_PATTERNS) {
+                    if (type.equals(pat.directType()) || type.equals(pat.deepType())
+                            || type.equals(pat.id())) {
+                        String fixSuggestion = FIX_SUGGESTIONS.get(pat.id());
+                        if (fixSuggestion != null) sf.put("fix", fixSuggestion);
+                        break;
+                    }
+                }
+            }
+        }
 
         result.put("methods", ci.methods().size());
         result.put("totalFindings", totalFindings);

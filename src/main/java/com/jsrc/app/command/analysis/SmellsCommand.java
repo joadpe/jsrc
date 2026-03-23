@@ -30,13 +30,23 @@ import com.jsrc.app.util.TargetResolver.MethodMatch;
 public class SmellsCommand implements Command {
 
     private final String target;
+    private final boolean trend;
 
     public SmellsCommand(String target) {
+        this(target, false);
+    }
+
+    public SmellsCommand(String target, boolean trend) {
         this.target = target;
+        this.trend = trend;
     }
 
     @Override
     public int execute(CommandContext ctx) {
+        if (trend) {
+            return showTrend(ctx);
+        }
+
         if (target == null) {
             printUsage();
             return 0;
@@ -47,6 +57,37 @@ public class SmellsCommand implements Command {
         }
 
         return scanTarget(ctx);
+    }
+
+    private int showTrend(CommandContext ctx) {
+        // Compare current smells vs what changed files had before
+        var changedFiles = com.jsrc.app.util.GitHelper.changedFiles(
+                java.nio.file.Path.of(ctx.rootPath()), "HEAD");
+
+        int currentSmells = 0;
+        int changedFileSmells = 0;
+        Map<String, Integer> byRule = new java.util.LinkedHashMap<>();
+
+        for (Path file : ctx.javaFiles()) {
+            var smells = ctx.parser().detectSmells(file);
+            currentSmells += smells.size();
+            String rel = java.nio.file.Path.of(ctx.rootPath()).relativize(file).toString();
+            if (changedFiles.contains(rel)) {
+                changedFileSmells += smells.size();
+                for (var s : smells) {
+                    byRule.merge(s.ruleId(), 1, Integer::sum);
+                }
+            }
+        }
+
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("totalSmells", currentSmells);
+        result.put("changedFiles", changedFiles.size());
+        result.put("smellsInChangedFiles", changedFileSmells);
+        result.put("byRuleInChanged", byRule);
+        result.put("trend", changedFileSmells == 0 ? "clean" : "needs-attention");
+        ctx.formatter().printResult(result);
+        return currentSmells;
     }
 
     private int scanAll(CommandContext ctx) {

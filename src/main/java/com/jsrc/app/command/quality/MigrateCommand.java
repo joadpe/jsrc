@@ -115,7 +115,21 @@ public class MigrateCommand implements Command {
                     "Multi-line string concatenation can be a text block (triple quotes)",
                     MigrateCommand::hasTextBlockCandidate),
 
-            // ─── Deprecated APIs ───
+            // ─── Java 11+ API replacements ───
+            new MigrationDef("HTTP_CLIENT", "api", 11,
+                    "HttpURLConnection is legacy — use java.net.http.HttpClient (Java 11+)",
+                    line -> line.contains("HttpURLConnection") || line.contains("URLConnection")),
+            new MigrationDef("NASHORN_ENGINE", "deprecated", 15,
+                    "Nashorn JavaScript engine removed in Java 15 — use GraalJS or another engine",
+                    line -> line.contains("\"nashorn\"") || line.contains("jdk.nashorn")),
+
+            // ─── Deprecated/removed APIs ───
+            new MigrationDef("SECURITY_MANAGER", "deprecated", 17,
+                    "SecurityManager is deprecated for removal — no direct replacement",
+                    line -> line.contains("SecurityManager") && !line.startsWith("//") && !line.startsWith("*")),
+            new MigrationDef("APPLET_REMOVED", "deprecated", 17,
+                    "java.applet.* removed in Java 17 — use web technologies instead",
+                    line -> line.contains("java.applet") || line.contains("extends Applet")),
             new MigrationDef("FINALIZE_OVERRIDE", "deprecated", 9,
                     "finalize() is deprecated — use Cleaner or try-with-resources",
                     line -> line.contains("void finalize()") || line.contains("void finalize ()")),

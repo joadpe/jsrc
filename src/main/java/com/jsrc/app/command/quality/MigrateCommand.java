@@ -145,9 +145,12 @@ public class MigrateCommand implements Command {
         Map<String, Integer> byId = new LinkedHashMap<>();
 
         for (ClassInfo ci : allClasses) {
+            // Skip test classes for speed in --all mode
+            if (scanAll && (ci.name().endsWith("Test") || ci.name().endsWith("Tests")
+                    || ci.qualifiedName().contains(".test."))) continue;
+
             String source = SourceResolver.loadClassSource(ci.name(), ctx);
             if (source == null) continue;
-
             var suggestions = scanSource(source, ci);
             if (!suggestions.isEmpty()) {
                 Map<String, Object> classResult = new LinkedHashMap<>();
@@ -207,6 +210,86 @@ public class MigrateCommand implements Command {
         return result;
     }
 
+    /** Index-based migrations that don't need source (fast). */
+    private static final Set<String> INDEX_BASED = Set.of(
+            "JAVAX_SERVLET", "JAVAX_PERSISTENCE", "JAVAX_EJB", "JAVAX_INJECT",
+            "JAVAX_WS", "JAVAX_VALIDATION", "FINALIZE_OVERRIDE", "VECTOR_USAGE",
+            "HASHTABLE_USAGE", "STRINGBUFFER_USAGE", "COLLECTIONS_UNMODIFIABLE"
+    );
+
+    private List<Map<String, Object>> scanFromIndex(ClassInfo ci) {
+        List<Map<String, Object>> suggestions = new ArrayList<>();
+
+        for (MigrationDef mig : MIGRATIONS) {
+            if (mig.minTarget() > targetVersion) continue;
+            if (!INDEX_BASED.contains(mig.id())) continue;
+
+            // Check imports for javax.* patterns
+            if (mig.id().startsWith("JAVAX_")) {
+                String prefix = switch (mig.id()) {
+                    case "JAVAX_SERVLET" -> "javax.servlet";
+                    case "JAVAX_PERSISTENCE" -> "javax.persistence";
+                    case "JAVAX_EJB" -> "javax.ejb";
+                    case "JAVAX_INJECT" -> "javax.inject";
+                    case "JAVAX_WS" -> "javax.ws.rs";
+                    case "JAVAX_VALIDATION" -> "javax.validation";
+                    default -> "";
+                };
+                if (!prefix.isEmpty()) {
+                    for (var field : ci.fields()) {
+                        // fields won't have imports, but we check other signals
+                    }
+                    // Use the detector as fallback — it checks line content
+                    // For index mode, check class name/package for javax references
+                    if (ci.qualifiedName().contains("javax.") || 
+                        ci.superClass().contains("javax.")) {
+                        suggestions.add(indexSuggestion(mig));
+                    }
+                }
+            }
+
+            // Check fields for Vector/Hashtable/StringBuffer
+            for (var field : ci.fields()) {
+                if (mig.id().equals("VECTOR_USAGE") && 
+                    (field.type().equals("Vector") || field.type().startsWith("Vector<"))) {
+                    suggestions.add(indexSuggestion(mig));
+                    break;
+                }
+                if (mig.id().equals("HASHTABLE_USAGE") &&
+                    (field.type().equals("Hashtable") || field.type().startsWith("Hashtable<"))) {
+                    suggestions.add(indexSuggestion(mig));
+                    break;
+                }
+                if (mig.id().equals("STRINGBUFFER_USAGE") &&
+                    (field.type().equals("StringBuffer") || field.type().startsWith("StringBuffer"))) {
+                    suggestions.add(indexSuggestion(mig));
+                    break;
+                }
+            }
+
+            // Check methods for finalize
+            if (mig.id().equals("FINALIZE_OVERRIDE")) {
+                for (var method : ci.methods()) {
+                    if (method.name().equals("finalize") && method.parameters().isEmpty()) {
+                        suggestions.add(indexSuggestion(mig));
+                        break;
+                    }
+                }
+            }
+        }
+        return suggestions;
+    }
+
+    private Map<String, Object> indexSuggestion(MigrationDef mig) {
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("id", mig.id());
+        s.put("category", mig.category());
+        s.put("line", 0);
+        s.put("message", mig.message());
+        s.put("minVersion", mig.minTarget());
+        return s;
+    }
+
     private List<Map<String, Object>> scanSource(String source, ClassInfo ci) {
         List<Map<String, Object>> suggestions = new ArrayList<>();
         String[] lines = source.split("\n");
@@ -219,7 +302,8 @@ public class MigrateCommand implements Command {
             if (line.startsWith("//") || line.startsWith("*")) continue;
 
             for (MigrationDef mig : MIGRATIONS) {
-                if (mig.minTarget() > targetVersion) continue; // skip if beyond target
+                if (mig.minTarget() > targetVersion) continue;
+                // all patterns checked via source scan
                 String key = mig.id() + ":" + lineNum;
                 if (mig.detector().test(line) && !reported.contains(key)) {
                     Map<String, Object> suggestion = new LinkedHashMap<>();

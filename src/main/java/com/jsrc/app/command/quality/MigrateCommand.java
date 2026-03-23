@@ -105,7 +105,24 @@ public class MigrateCommand implements Command {
                     line -> line.contains("void finalize()") || line.contains("void finalize ()")),
             new MigrationDef("THREAD_STOP", "deprecated", 1,
                     "Thread.stop()/suspend()/resume() are deprecated — use interrupt()",
-                    line -> line.contains(".stop()") || line.contains(".suspend()") || line.contains(".resume()"))
+                    line -> line.contains(".stop()") || line.contains(".suspend()") || line.contains(".resume()")),
+
+            // ─── Java 9-16 improvements (from Oracle Migration Guide) ───
+            new MigrationDef("MAP_GET_OR_DEFAULT", "feature", 9,
+                    "Use map.getOrDefault(key, default) instead of containsKey + get",
+                    MigrateCommand::hasMapGetOrDefault),
+            new MigrationDef("OPTIONAL_OR_ELSE", "feature", 9,
+                    "Use opt.orElse(default) instead of isPresent() ? get() : default",
+                    MigrateCommand::hasOptionalOrElse),
+            new MigrationDef("STRING_STRIP", "feature", 11,
+                    "Use String.strip() instead of trim() for Unicode-aware whitespace handling",
+                    MigrateCommand::hasStringStrip),
+            new MigrationDef("STREAM_TO_LIST", "feature", 16,
+                    "Use stream.toList() instead of stream.collect(Collectors.toList())",
+                    MigrateCommand::hasStreamToList),
+            new MigrationDef("SWITCH_EXPRESSION", "feature", 14,
+                    "Use switch expression (arrow syntax) instead of switch statement",
+                    MigrateCommand::hasSwitchExpression)
     );
 
     private final int targetVersion;
@@ -437,5 +454,30 @@ public class MigrateCommand implements Command {
         // String with \n concatenation
         return line.contains("\"\\n\" +") || line.contains("+ \"\\n\"")
                 || (line.contains("\" +") && line.endsWith("\\n\";"));
+    }
+
+    static boolean hasMapGetOrDefault(String line) {
+        // map.containsKey(k) ? map.get(k) : default → map.getOrDefault(k, default)
+        return line.contains("containsKey") && (line.contains("?") || line.contains("if ("));
+    }
+
+    static boolean hasOptionalOrElse(String line) {
+        // opt.isPresent() ? opt.get() : default → opt.orElse(default)
+        return line.contains("isPresent") && line.contains("?");
+    }
+
+    static boolean hasStringStrip(String line) {
+        // .trim() → .strip() (Unicode-aware since Java 11)
+        return line.contains(".trim()");
+    }
+
+    static boolean hasStreamToList(String line) {
+        // stream.collect(Collectors.toList()) → stream.toList()
+        return line.contains("Collectors.toList()") || line.contains("Collectors.toSet()");
+    }
+
+    static boolean hasSwitchExpression(String line) {
+        // switch (x) { case A: return y; } → switch (x) { case A -> y; }
+        return line.contains("switch") && line.contains("case") && line.contains("return");
     }
 }

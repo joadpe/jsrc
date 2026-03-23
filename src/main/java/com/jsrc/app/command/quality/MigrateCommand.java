@@ -87,24 +87,27 @@ public class MigrateCommand implements Command {
                     MigrateCommand::hasExplicitLocalType),
 
             // ─── Java 14+ features ───
-            new MigrationDef("RECORD_CANDIDATE", "feature", 16,
-                    "Class with only fields + getters could be a record",
-                    MigrateCommand::hasRecordCandidate),
             new MigrationDef("INSTANCEOF_CAST", "feature", 16,
                     "instanceof + cast can use pattern matching: if (x instanceof Type t)",
                     MigrateCommand::hasInstanceofCast),
 
             // ─── Java 9+ collections (from Oracle Guide) ───
             new MigrationDef("COLLECTIONS_EMPTY", "feature", 9,
-                    "Use List.of()/Map.of()/Set.of() instead of Collections.empty*()",
+                    "Use List.of()/Map.of()/Set.of() instead of Collections.empty*() — same semantics, more concise",
                     MigrateCommand::hasCollectionsEmpty),
-            new MigrationDef("CONCURRENT_HASHMAP", "feature", 5,
-                    "Use ConcurrentHashMap instead of Collections.synchronized*()",
-                    MigrateCommand::hasConcurrentHashMap),
+            new MigrationDef("SYNCHRONIZED_MAP", "feature", 5,
+                    "Consider ConcurrentHashMap instead of Collections.synchronizedMap()",
+                    line -> line.contains("Collections.synchronizedMap(")),
+            new MigrationDef("SYNCHRONIZED_LIST", "feature", 5,
+                    "Consider CopyOnWriteArrayList instead of Collections.synchronizedList()",
+                    line -> line.contains("Collections.synchronizedList(")),
+            new MigrationDef("SYNCHRONIZED_SET", "feature", 5,
+                    "Consider ConcurrentHashMap.newKeySet() or CopyOnWriteArraySet instead of Collections.synchronizedSet()",
+                    line -> line.contains("Collections.synchronizedSet(")),
 
             // ─── Java 11+ lambda ───
             new MigrationDef("LAMBDA_VAR", "feature", 11,
-                    "Use (var x, var y) -> to add type annotations in lambda parameters",
+                    "Use (var x, var y) -> to enable type annotations on lambda parameters",
                     MigrateCommand::hasLambdaVar),
 
             // ─── Java 15+ features ───
@@ -128,14 +131,11 @@ public class MigrateCommand implements Command {
                     "Use opt.orElse(default) instead of isPresent() ? get() : default",
                     MigrateCommand::hasOptionalOrElse),
             new MigrationDef("STRING_STRIP", "feature", 11,
-                    "Use String.strip() instead of trim() for Unicode-aware whitespace handling",
+                    "Consider String.strip() instead of trim() — strip() handles Unicode whitespace (U+2000..U+200A, etc.)",
                     MigrateCommand::hasStringStrip),
             new MigrationDef("STREAM_TO_LIST", "feature", 16,
                     "Use stream.toList() instead of stream.collect(Collectors.toList())",
-                    MigrateCommand::hasStreamToList),
-            new MigrationDef("SWITCH_EXPRESSION", "feature", 14,
-                    "Use switch expression (arrow syntax) instead of switch statement",
-                    MigrateCommand::hasSwitchExpression)
+                    MigrateCommand::hasStreamToList)
     );
 
     private final int targetVersion;
@@ -452,15 +452,13 @@ public class MigrateCommand implements Command {
                 || line.matches("^\\s*(String|Integer|Long|Double|Boolean)\\s+\\w+\\s*=\\s*\\w+\\..*");
     }
 
-    static boolean hasRecordCandidate(String line) {
-        // Heuristic: class with "private final" fields — potential record
-        // Full detection would need to check: only fields + getters + equals/hashCode
-        return false; // disabled for now — needs multi-line analysis at class level
-    }
-
     static boolean hasInstanceofCast(String line) {
         // if (x instanceof Type) { Type t = (Type) x; ...}
-        return line.contains("instanceof ") && !line.contains("instanceof " + "var");
+        // Exclude lines that already use pattern matching: instanceof Type varName
+        if (!line.contains("instanceof ")) return false;
+        // Pattern matching: "instanceof TypeName variableName" (two words after instanceof)
+        // Old style: "instanceof TypeName)" or "instanceof TypeName &&"
+        return line.matches(".*instanceof\\s+\\w+\\s*[)&|{].*");
     }
 
     static boolean hasTextBlockCandidate(String line) {
@@ -471,12 +469,14 @@ public class MigrateCommand implements Command {
 
     static boolean hasMapGetOrDefault(String line) {
         // map.containsKey(k) ? map.get(k) : default → map.getOrDefault(k, default)
-        return line.contains("containsKey") && (line.contains("?") || line.contains("if ("));
+        // Only match ternary pattern: containsKey + ? + .get( on same line
+        return line.contains("containsKey") && line.contains("?") && line.contains(".get(");
     }
 
     static boolean hasOptionalOrElse(String line) {
         // opt.isPresent() ? opt.get() : default → opt.orElse(default)
-        return line.contains("isPresent") && line.contains("?");
+        // Only match ternary pattern: isPresent() + ? + .get() on same line
+        return line.contains(".isPresent()") && line.contains("?") && line.contains(".get()");
     }
 
     static boolean hasStringStrip(String line) {
@@ -489,29 +489,16 @@ public class MigrateCommand implements Command {
         return line.contains("Collectors.toList()") || line.contains("Collectors.toSet()");
     }
 
-    static boolean hasSwitchExpression(String line) {
-        // switch (x) { case A: return y; } → switch (x) { case A -> y; }
-        return line.contains("switch") && line.contains("case") && line.contains("return");
-    }
-
     static boolean hasCollectionsEmpty(String line) {
-        // Collections.emptyList() / emptyMap() / emptySet()
         return line.contains("Collections.emptyList()")
                 || line.contains("Collections.emptyMap()")
                 || line.contains("Collections.emptySet()");
     }
 
-    static boolean hasConcurrentHashMap(String line) {
-        // Collections.synchronizedMap / synchronizedSet / synchronizedList
-        return line.contains("Collections.synchronizedMap(")
-                || line.contains("Collections.synchronizedSet(")
-                || line.contains("Collections.synchronizedList(")
-                || line.contains("Collections.synchronizedCollection(");
-    }
-
     static boolean hasLambdaVar(String line) {
-        // (x, y) -> expression without var — can use (var x, var y) ->
-        // Match: (identifier, identifier) ->
-        return line.matches(".*\\([a-zA-Z_][a-zA-Z0-9_]*,.*\\)\\s*->.*");
+        // (x, y) -> without type declarations — can use (var x, var y) ->
+        // Untyped params start with lowercase. Exclude typed lambdas (String x, int y) ->
+        if (!line.contains("->")) return false;
+        return line.matches(".*\\([a-z_][a-zA-Z0-9_]*\\s*,\\s*[a-z_][a-zA-Z0-9_]*\\)\\s*->.*");
     }
 }

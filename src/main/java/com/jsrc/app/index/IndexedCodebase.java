@@ -147,7 +147,12 @@ public class IndexedCodebase {
                 var edgeResolver = new EdgeResolver();
                 var edgeParser = new com.github.javaparser.JavaParser();
                 List<CallEdge> edges = edgeResolver.extractCallEdges(file, edgeParser);
-                refreshed.add(new IndexEntry(relativePath, hash, lastModified, indexed, edges));
+                // Re-detect smells for modified file
+                var smells = parser.detectSmells(file).stream()
+                        .map(s -> new CachedSmell(s.ruleId(), s.severity().name(),
+                                s.line(), s.methodName(), s.className(), s.message()))
+                        .toList();
+                refreshed.add(new IndexEntry(relativePath, hash, lastModified, indexed, edges, smells));
             } catch (IOException e) {
                 logger.error("Error refreshing {}: {}", file, e.getMessage());
                 if (prev != null) refreshed.add(prev); // keep stale rather than lose
@@ -164,7 +169,8 @@ public class IndexedCodebase {
                 var builder = new com.jsrc.app.analysis.CallGraphBuilder();
                 builder.loadFromIndex(refreshed);
                 preBuiltGraph = builder.toCallGraph();
-                updatedIndex.saveWithGraph(sourceRoot, preBuiltGraph);
+                // Preserve existing migration cache when saving
+                updatedIndex.saveWithGraph(sourceRoot, preBuiltGraph, loadedMigrations);
             } catch (IOException e) {
                 logger.warn("Could not save refreshed index: {}", e.getMessage());
             }
@@ -581,7 +587,7 @@ public class IndexedCodebase {
         }
     }
 
-    private static IndexedClass classInfoToIndexed(ClassInfo ci) {
+    static IndexedClass classInfoToIndexed(ClassInfo ci) {
         List<IndexedMethod> methods = ci.methods().stream()
                 .map(m -> new IndexedMethod(
                         m.name(), m.signature(), m.startLine(), m.endLine(),

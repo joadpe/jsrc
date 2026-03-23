@@ -4,6 +4,7 @@ import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 import com.jsrc.app.analysis.SourceResolver;
 import com.jsrc.app.parser.model.ClassInfo;
@@ -25,6 +26,13 @@ public class MigrateCommand implements Command {
             String message,
             java.util.function.Predicate<String> detector
     ) {}
+
+    // Pre-compiled patterns for hot-path detectors (scanSource runs per line per file)
+    private static final Pattern PAT_DIAMOND = Pattern.compile(".*new\\s+\\w+<.+>\\s*\\(.*");
+    private static final Pattern PAT_LOCAL_VAR_NEW = Pattern.compile("^\\s*(String|Integer|Long|Double|Boolean|List|Map|Set)\\s+\\w+\\s*=\\s*new\\s+.*");
+    private static final Pattern PAT_LOCAL_VAR_CALL = Pattern.compile("^\\s*(String|Integer|Long|Double|Boolean)\\s+\\w+\\s*=\\s*\\w+\\..*");
+    private static final Pattern PAT_INSTANCEOF = Pattern.compile(".*instanceof\\s+\\w+\\s*[)&|{].*");
+    private static final Pattern PAT_LAMBDA_VAR = Pattern.compile(".*\\([a-z_][a-zA-Z0-9_]*\\s*,\\s*[a-z_][a-zA-Z0-9_]*\\)\\s*->.*");
 
     public static final List<MigrationDef> MIGRATIONS = List.of(
             // ─── Syntax (Java 7+) ───
@@ -321,86 +329,6 @@ public class MigrateCommand implements Command {
         return result;
     }
 
-    /** Index-based migrations that don't need source (fast). */
-    private static final Set<String> INDEX_BASED = Set.of(
-            "JAVAX_SERVLET", "JAVAX_PERSISTENCE", "JAVAX_EJB", "JAVAX_INJECT",
-            "JAVAX_WS", "JAVAX_VALIDATION", "FINALIZE_OVERRIDE", "VECTOR_USAGE",
-            "HASHTABLE_USAGE", "STRINGBUFFER_USAGE", "COLLECTIONS_UNMODIFIABLE"
-    );
-
-    private List<Map<String, Object>> scanFromIndex(ClassInfo ci) {
-        List<Map<String, Object>> suggestions = new ArrayList<>();
-
-        for (MigrationDef mig : MIGRATIONS) {
-            if (mig.minTarget() > targetVersion) continue;
-            if (!INDEX_BASED.contains(mig.id())) continue;
-
-            // Check imports for javax.* patterns
-            if (mig.id().startsWith("JAVAX_")) {
-                String prefix = switch (mig.id()) {
-                    case "JAVAX_SERVLET" -> "javax.servlet";
-                    case "JAVAX_PERSISTENCE" -> "javax.persistence";
-                    case "JAVAX_EJB" -> "javax.ejb";
-                    case "JAVAX_INJECT" -> "javax.inject";
-                    case "JAVAX_WS" -> "javax.ws.rs";
-                    case "JAVAX_VALIDATION" -> "javax.validation";
-                    default -> "";
-                };
-                if (!prefix.isEmpty()) {
-                    for (var field : ci.fields()) {
-                        // fields won't have imports, but we check other signals
-                    }
-                    // Use the detector as fallback — it checks line content
-                    // For index mode, check class name/package for javax references
-                    if (ci.qualifiedName().contains("javax.") || 
-                        ci.superClass().contains("javax.")) {
-                        suggestions.add(indexSuggestion(mig));
-                    }
-                }
-            }
-
-            // Check fields for Vector/Hashtable/StringBuffer
-            for (var field : ci.fields()) {
-                if (mig.id().equals("VECTOR_USAGE") && 
-                    (field.type().equals("Vector") || field.type().startsWith("Vector<"))) {
-                    suggestions.add(indexSuggestion(mig));
-                    break;
-                }
-                if (mig.id().equals("HASHTABLE_USAGE") &&
-                    (field.type().equals("Hashtable") || field.type().startsWith("Hashtable<"))) {
-                    suggestions.add(indexSuggestion(mig));
-                    break;
-                }
-                if (mig.id().equals("STRINGBUFFER_USAGE") &&
-                    (field.type().equals("StringBuffer") || field.type().startsWith("StringBuffer"))) {
-                    suggestions.add(indexSuggestion(mig));
-                    break;
-                }
-            }
-
-            // Check methods for finalize
-            if (mig.id().equals("FINALIZE_OVERRIDE")) {
-                for (var method : ci.methods()) {
-                    if (method.name().equals("finalize") && method.parameters().isEmpty()) {
-                        suggestions.add(indexSuggestion(mig));
-                        break;
-                    }
-                }
-            }
-        }
-        return suggestions;
-    }
-
-    private Map<String, Object> indexSuggestion(MigrationDef mig) {
-        Map<String, Object> s = new LinkedHashMap<>();
-        s.put("id", mig.id());
-        s.put("category", mig.category());
-        s.put("line", 0);
-        s.put("message", mig.message());
-        s.put("minVersion", mig.minTarget());
-        return s;
-    }
-
     private List<Map<String, Object>> scanSource(String source, ClassInfo ci) {
         List<Map<String, Object>> suggestions = new ArrayList<>();
         String[] lines = source.split("\n");
@@ -437,7 +365,7 @@ public class MigrateCommand implements Command {
     static boolean hasMissingDiamond(String line) {
         // new HashMap<String, List<Integer>>() → should be new HashMap<>()
         return line.contains("new ") && !line.contains("<>")
-                && line.matches(".*new\\s+\\w+<.+>\\s*\\(.*")
+                && PAT_DIAMOND.matcher(line).matches()
                 && (line.contains("HashMap") || line.contains("ArrayList") || line.contains("HashSet")
                 || line.contains("LinkedHashMap") || line.contains("TreeMap") || line.contains("LinkedList")
                 || line.contains("Vector") || line.contains("Hashtable"));
@@ -462,8 +390,8 @@ public class MigrateCommand implements Command {
     static boolean hasExplicitLocalType(String line) {
         // Very conservative: only flag obvious cases like "String x = ..."
         // where the type is on both sides
-        return line.matches("^\\s*(String|Integer|Long|Double|Boolean|List|Map|Set)\\s+\\w+\\s*=\\s*new\\s+.*")
-                || line.matches("^\\s*(String|Integer|Long|Double|Boolean)\\s+\\w+\\s*=\\s*\\w+\\..*");
+        return PAT_LOCAL_VAR_NEW.matcher(line).matches()
+                || PAT_LOCAL_VAR_CALL.matcher(line).matches();
     }
 
     static boolean hasInstanceofCast(String line) {
@@ -472,7 +400,7 @@ public class MigrateCommand implements Command {
         if (!line.contains("instanceof ")) return false;
         // Pattern matching: "instanceof TypeName variableName" (two words after instanceof)
         // Old style: "instanceof TypeName)" or "instanceof TypeName &&"
-        return line.matches(".*instanceof\\s+\\w+\\s*[)&|{].*");
+        return PAT_INSTANCEOF.matcher(line).matches();
     }
 
     static boolean hasTextBlockCandidate(String line) {
@@ -513,6 +441,6 @@ public class MigrateCommand implements Command {
         // (x, y) -> without type declarations — can use (var x, var y) ->
         // Untyped params start with lowercase. Exclude typed lambdas (String x, int y) ->
         if (!line.contains("->")) return false;
-        return line.matches(".*\\([a-z_][a-zA-Z0-9_]*\\s*,\\s*[a-z_][a-zA-Z0-9_]*\\)\\s*->.*");
+        return PAT_LAMBDA_VAR.matcher(line).matches();
     }
 }

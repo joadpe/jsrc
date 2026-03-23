@@ -30,7 +30,7 @@ public class CodebaseIndex {
     private static final String INDEX_DIR = ".jsrc";
     private static final String INDEX_FILE = "index.json";
     private static final String CLASSES_FILE = "classes.json";
-    private static final String CLASSES_BIN = "classes.bin";
+    private static final String CLASSES_BIN = "classes.bin"; // legacy — cleaned up on re-index
     private static final String EDGES_FILE = "edges.json";
     private static final String SMELLS_FILE = "smells.json";
 
@@ -217,22 +217,14 @@ public class CodebaseIndex {
             Files.writeString(indexDir.resolve(SMELLS_FILE), "[]", StandardCharsets.UTF_8);
         }
 
-        // Write binary classes index (fastest to load)
-        try {
-            BinaryIndexWriter.write(indexDir.resolve(CLASSES_BIN), entries);
-        } catch (Exception e) {
-            logger.warn("Failed to write binary index: {}", e.getMessage());
-        }
-
-        // Also write combined index.json for backward compat
+        // Write combined index.json for backward compat
         List<Map<String, Object>> combined = entries.stream()
                 .map(this::entryToMap).toList();
         Files.writeString(indexDir.resolve(INDEX_FILE),
                 JsonWriter.toJson(combined), StandardCharsets.UTF_8);
 
-        logger.info("Index saved: {} entries (bin {}KB, classes {}KB, edges {}KB, smells {}KB)",
+        logger.info("Index saved: {} entries (classes {}KB, edges {}KB, smells {}KB)",
                 entries.size(),
-                Files.exists(indexDir.resolve(CLASSES_BIN)) ? Files.size(indexDir.resolve(CLASSES_BIN)) / 1024 : 0,
                 Files.size(indexDir.resolve(CLASSES_FILE)) / 1024,
                 Files.size(indexDir.resolve(EDGES_FILE)) / 1024,
                 Files.size(indexDir.resolve(SMELLS_FILE)) / 1024);
@@ -287,17 +279,7 @@ public class CodebaseIndex {
      * ~63% faster for commands that don't need call graph.
      */
     public static List<IndexEntry> loadClassesOnly(Path projectRoot) {
-        // Try binary format first (fastest: ~200ms for 8K files)
-        Path binaryFile = projectRoot.resolve(INDEX_DIR).resolve(CLASSES_BIN);
-        if (Files.exists(binaryFile)) {
-            try {
-                return BinaryIndexReader.read(binaryFile);
-            } catch (Exception e) {
-                logger.debug("Failed to load binary index, trying JSON: {}", e.getMessage());
-            }
-        }
-
-        // Try JSON split (second fastest: ~1.3s for 8K files)
+        // JSON split fallback (V2 binary is preferred but loaded separately in IndexedCodebase)
         Path classesFile = projectRoot.resolve(INDEX_DIR).resolve(CLASSES_FILE);
         if (Files.exists(classesFile)) {
             try {

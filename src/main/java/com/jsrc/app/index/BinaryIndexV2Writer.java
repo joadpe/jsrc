@@ -37,6 +37,11 @@ public class BinaryIndexV2Writer {
      * @param callGraph  pre-resolved call graph (may be null if not built yet)
      */
     public static void write(Path file, List<IndexEntry> entries, CallGraph callGraph) throws IOException {
+        write(file, entries, callGraph, null);
+    }
+
+    public static void write(Path file, List<IndexEntry> entries, CallGraph callGraph,
+                              Map<String, List<CachedMigration>> migrations) throws IOException {
         // Build string table from all data
         Map<String, Integer> stringTable = new LinkedHashMap<>();
         List<String> strings = new ArrayList<>();
@@ -60,6 +65,13 @@ public class BinaryIndexV2Writer {
                 intern(smell.message(), stringTable, strings);
                 intern(safe(smell.className()), stringTable, strings);
                 intern(safe(smell.method()), stringTable, strings);
+            }
+        }
+
+        // Intern strings from migrations
+        if (migrations != null) {
+            for (String path : migrations.keySet()) {
+                intern(path, stringTable, strings);
             }
         }
 
@@ -130,6 +142,22 @@ public class BinaryIndexV2Writer {
                 out.writeInt(ref(safe(smell.className()), stringTable));
                 out.writeInt(ref(smell.message(), stringTable));
             }
+        }
+
+        // 6. MIGRATIONS (cached migration suggestions)
+        if (migrations != null && !migrations.isEmpty()) {
+            out.writeByte(1); // has migrations
+            out.writeInt(migrations.size());
+            for (var entry : migrations.entrySet()) {
+                out.writeInt(ref(entry.getKey(), stringTable));
+                out.writeShort(entry.getValue().size());
+                for (var mig : entry.getValue()) {
+                    out.writeByte(mig.patternId());
+                    out.writeShort(mig.line());
+                }
+            }
+        } else {
+            out.writeByte(0); // no migrations
         }
 
         out.flush();

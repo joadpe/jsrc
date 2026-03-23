@@ -133,11 +133,16 @@ public class CodebaseIndex {
      * This is the primary save method — JSON files are also written for backward compat.
      */
     public void saveWithGraph(Path projectRoot, com.jsrc.app.analysis.CallGraph callGraph) throws IOException {
+        saveWithGraph(projectRoot, callGraph, null);
+    }
+
+    public void saveWithGraph(Path projectRoot, com.jsrc.app.analysis.CallGraph callGraph,
+                               java.util.Map<String, java.util.List<CachedMigration>> migrations) throws IOException {
         Path indexDir = projectRoot.resolve(INDEX_DIR);
         Files.createDirectories(indexDir);
 
         // Write unified V2 binary (primary format)
-        BinaryIndexV2Writer.write(indexDir.resolve(INDEX_BIN), entries, callGraph);
+        BinaryIndexV2Writer.write(indexDir.resolve(INDEX_BIN), entries, callGraph, migrations);
 
         // Clean up legacy files if they exist
         deleteLegacyFiles(indexDir);

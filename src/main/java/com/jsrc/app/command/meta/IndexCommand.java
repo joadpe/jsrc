@@ -34,7 +34,17 @@ public class IndexCommand implements Command {
             var builder = new com.jsrc.app.analysis.CallGraphBuilder();
             builder.loadFromIndex(index.getEntries());
             var callGraph = builder.toCallGraph();
-            index.saveWithGraph(root, callGraph);
+            // Pre-compute migration suggestions
+            var migrateCmd = new com.jsrc.app.command.quality.MigrateCommand(null, 17, true);
+            var migrationData = migrateCmd.computeAllForIndex(ctx);
+            java.util.Map<String, java.util.List<com.jsrc.app.index.CachedMigration>> migrations = new java.util.LinkedHashMap<>();
+            for (var entry : migrationData.entrySet()) {
+                migrations.put(entry.getKey(), entry.getValue().stream()
+                        .map(arr -> new com.jsrc.app.index.CachedMigration(arr[0], arr[1]))
+                        .toList());
+            }
+
+            index.saveWithGraph(root, callGraph, migrations);
             System.err.printf("Done. Indexed %d files (%d re-indexed, %d cached).%n",
                     ctx.javaFiles().size(), reindexed, ctx.javaFiles().size() - reindexed);
         } catch (IOException ex) {

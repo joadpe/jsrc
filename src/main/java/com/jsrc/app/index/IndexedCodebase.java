@@ -37,6 +37,7 @@ public class IndexedCodebase {
     private com.jsrc.app.analysis.CallGraph preBuiltCallGraph; // loaded from V2 binary
     private java.util.Map<String, IndexedClass> classLookup; // lazy O(1) class lookup
     private java.util.Map<String, String> classToPath; // lazy O(1) class→file path
+    private java.util.Map<String, List<CachedMigration>> migrationCache; // path → migrations
 
     private IndexedCodebase(List<IndexEntry> entries) {
         this.entries = entries;
@@ -77,6 +78,7 @@ public class IndexedCodebase {
         // Try V2 binary index first (contains pre-resolved call graph)
         Path v2File = sourceRoot.resolve(".jsrc/index.bin");
         com.jsrc.app.analysis.CallGraph preBuiltGraph = null;
+        java.util.Map<String, List<CachedMigration>> loadedMigrations = null;
         List<IndexEntry> existing;
 
         if (Files.exists(v2File)) {
@@ -84,6 +86,7 @@ public class IndexedCodebase {
                 var v2Data = BinaryIndexV2Reader.read(v2File);
                 existing = v2Data.entries();
                 preBuiltGraph = v2Data.callGraph();
+                loadedMigrations = v2Data.migrations();
                 logger.info("Loaded V2 binary index: {} entries, graph={}",
                         existing.size(), preBuiltGraph != null);
             } catch (IOException e) {
@@ -177,6 +180,7 @@ public class IndexedCodebase {
         // preBuiltGraph is either loaded from V2 binary (no changes)
         // or rebuilt from updated edges (stale files re-extracted)
         indexed.preBuiltCallGraph = preBuiltGraph;
+        indexed.migrationCache = loadedMigrations;
         return indexed;
     }
 
@@ -408,6 +412,23 @@ public class IndexedCodebase {
      */
     public com.jsrc.app.analysis.CallGraph preBuiltCallGraph() {
         return preBuiltCallGraph;
+    }
+
+    public boolean hasCachedMigrations() {
+        return migrationCache != null && !migrationCache.isEmpty();
+    }
+
+    public List<CachedMigration> getCachedMigrations(String path) {
+        if (migrationCache == null) return List.of();
+        return migrationCache.getOrDefault(path, List.of());
+    }
+
+    public java.util.Map<String, List<CachedMigration>> getAllMigrations() {
+        return migrationCache != null ? migrationCache : java.util.Map.of();
+    }
+
+    public void setMigrationCache(java.util.Map<String, List<CachedMigration>> cache) {
+        this.migrationCache = cache;
     }
 
     public boolean hasCallEdges() {

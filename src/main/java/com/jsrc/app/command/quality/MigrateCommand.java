@@ -137,6 +137,36 @@ public class MigrateCommand implements Command {
         return suggestions != null ? suggestions.size() : 0;
     }
 
+    /**
+     * Computes migration suggestions for all classes and returns as map path → suggestions.
+     * Used by IndexCommand to pre-compute and cache in index.bin.
+     */
+    public Map<String, List<int[]>> computeAllForIndex(CommandContext ctx) {
+        Map<String, List<int[]>> result = new LinkedHashMap<>();
+        for (ClassInfo ci : ctx.getAllClasses()) {
+            String source = SourceResolver.loadClassSource(ci.name(), ctx);
+            if (source == null) continue;
+            var suggestions = scanSource(source, ci);
+            if (!suggestions.isEmpty()) {
+                String path = ctx.indexed() != null
+                        ? ctx.indexed().findFileForClass(ci.name()).orElse(ci.name())
+                        : ci.name();
+                List<int[]> compact = suggestions.stream()
+                        .map(s -> new int[]{patternIndex(s.get("id").toString()), (int) s.get("line")})
+                        .toList();
+                result.put(path, compact);
+            }
+        }
+        return result;
+    }
+
+    private int patternIndex(String id) {
+        for (int i = 0; i < MIGRATIONS.size(); i++) {
+            if (MIGRATIONS.get(i).id().equals(id)) return i;
+        }
+        return -1;
+    }
+
     private int scanAllClasses(CommandContext ctx) {
         var allClasses = ctx.getAllClasses();
         List<Map<String, Object>> allResults = new ArrayList<>();
@@ -144,8 +174,40 @@ public class MigrateCommand implements Command {
         Map<String, Integer> byCategory = new LinkedHashMap<>();
         Map<String, Integer> byId = new LinkedHashMap<>();
 
+        // Try cache first
+        if (ctx.indexed() != null && ctx.indexed().hasCachedMigrations()) {
+            for (var entry : ctx.indexed().getAllMigrations().entrySet()) {
+                List<Map<String, Object>> suggestions = new ArrayList<>();
+                for (var mig : entry.getValue()) {
+                    if (mig.patternId() >= 0 && mig.patternId() < MIGRATIONS.size()) {
+                        MigrationDef def = MIGRATIONS.get(mig.patternId());
+                        if (def.minTarget() > targetVersion) continue;
+                        Map<String, Object> s = new LinkedHashMap<>();
+                        s.put("id", def.id());
+                        s.put("category", def.category());
+                        s.put("line", mig.line());
+                        s.put("message", def.message());
+                        s.put("minVersion", def.minTarget());
+                        suggestions.add(s);
+                    }
+                }
+                if (!suggestions.isEmpty()) {
+                    Map<String, Object> classResult = new LinkedHashMap<>();
+                    classResult.put("class", entry.getKey());
+                    classResult.put("suggestions", suggestions);
+                    allResults.add(classResult);
+                    totalSuggestions += suggestions.size();
+                    for (var s : suggestions) {
+                        byCategory.merge(s.get("category").toString(), 1, Integer::sum);
+                        byId.merge(s.get("id").toString(), 1, Integer::sum);
+                    }
+                }
+            }
+            return finishAllResult(allResults, totalSuggestions, byCategory, byId, allClasses.size(), ctx);
+        }
+
+        // Fallback: source scan
         for (ClassInfo ci : allClasses) {
-            // Skip test classes for speed in --all mode
             if (scanAll && (ci.name().endsWith("Test") || ci.name().endsWith("Tests")
                     || ci.qualifiedName().contains(".test."))) continue;
 
@@ -166,15 +228,20 @@ public class MigrateCommand implements Command {
             }
         }
 
+        return finishAllResult(allResults, totalSuggestions, byCategory, byId, allClasses.size(), ctx);
+    }
+
+    private int finishAllResult(List<Map<String, Object>> allResults, int totalSuggestions,
+                                 Map<String, Integer> byCategory, Map<String, Integer> byId,
+                                 int classesScanned, CommandContext ctx) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("targetVersion", targetVersion);
         result.put("totalSuggestions", totalSuggestions);
-        result.put("classesScanned", allClasses.size());
+        result.put("classesScanned", classesScanned);
         result.put("classesWithSuggestions", allResults.size());
         result.put("byCategory", byCategory);
         result.put("byId", byId);
 
-        // Sort by suggestion count
         allResults.sort((a, b) -> {
             @SuppressWarnings("unchecked")
             var sa = (List<?>) a.get("suggestions");

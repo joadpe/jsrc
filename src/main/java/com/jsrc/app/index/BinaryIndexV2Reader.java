@@ -25,7 +25,8 @@ public class BinaryIndexV2Reader {
      */
     public record IndexData(
             List<IndexEntry> entries,
-            CallGraph callGraph
+            CallGraph callGraph,
+            Map<String, List<CachedMigration>> migrations
     ) {}
 
     /**
@@ -137,9 +138,29 @@ public class BinaryIndexV2Reader {
             }
         }
 
-        logger.info("Loaded V2 binary index: {} entries, {} strings, graph={}",
-                entryCount, stringCount, callGraph != null);
-        return new IndexData(entries, callGraph);
+        // 6. MIGRATIONS
+        Map<String, List<CachedMigration>> migrations = new HashMap<>();
+        if (in.available() > 0) {
+            byte hasMigrations = in.readByte();
+            if (hasMigrations == 1) {
+                int migFileCount = in.readInt();
+                for (int mf = 0; mf < migFileCount; mf++) {
+                    String path = str(in.readInt(), strings);
+                    int migCount = in.readUnsignedShort();
+                    List<CachedMigration> migs = new ArrayList<>(migCount);
+                    for (int m = 0; m < migCount; m++) {
+                        int patternId = in.readUnsignedByte();
+                        int line = in.readUnsignedShort();
+                        migs.add(new CachedMigration(patternId, line));
+                    }
+                    migrations.put(path, migs);
+                }
+            }
+        }
+
+        logger.info("Loaded V2 binary index: {} entries, {} strings, graph={}, migrations={}",
+                entryCount, stringCount, callGraph != null, migrations.size());
+        return new IndexData(entries, callGraph, migrations);
     }
 
     private static CallGraph readGraph(DataInputStream in, String[] strings) throws IOException {

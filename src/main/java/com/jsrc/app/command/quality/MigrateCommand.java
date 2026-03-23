@@ -87,12 +87,25 @@ public class MigrateCommand implements Command {
                     MigrateCommand::hasExplicitLocalType),
 
             // ─── Java 14+ features ───
-            new MigrationDef("RECORD_CANDIDATE", "feature", 14,
+            new MigrationDef("RECORD_CANDIDATE", "feature", 16,
                     "Class with only fields + getters could be a record",
                     MigrateCommand::hasRecordCandidate),
             new MigrationDef("INSTANCEOF_CAST", "feature", 16,
                     "instanceof + cast can use pattern matching: if (x instanceof Type t)",
                     MigrateCommand::hasInstanceofCast),
+
+            // ─── Java 9+ collections (from Oracle Guide) ───
+            new MigrationDef("COLLECTIONS_EMPTY", "feature", 9,
+                    "Use List.of()/Map.of()/Set.of() instead of Collections.empty*()",
+                    MigrateCommand::hasCollectionsEmpty),
+            new MigrationDef("CONCURRENT_HASHMAP", "feature", 5,
+                    "Use ConcurrentHashMap instead of Collections.synchronized*()",
+                    MigrateCommand::hasConcurrentHashMap),
+
+            // ─── Java 11+ lambda ───
+            new MigrationDef("LAMBDA_VAR", "feature", 11,
+                    "Use (var x, var y) -> to add type annotations in lambda parameters",
+                    MigrateCommand::hasLambdaVar),
 
             // ─── Java 15+ features ───
             new MigrationDef("TEXT_BLOCK", "feature", 15,
@@ -479,5 +492,26 @@ public class MigrateCommand implements Command {
     static boolean hasSwitchExpression(String line) {
         // switch (x) { case A: return y; } → switch (x) { case A -> y; }
         return line.contains("switch") && line.contains("case") && line.contains("return");
+    }
+
+    static boolean hasCollectionsEmpty(String line) {
+        // Collections.emptyList() / emptyMap() / emptySet()
+        return line.contains("Collections.emptyList()")
+                || line.contains("Collections.emptyMap()")
+                || line.contains("Collections.emptySet()");
+    }
+
+    static boolean hasConcurrentHashMap(String line) {
+        // Collections.synchronizedMap / synchronizedSet / synchronizedList
+        return line.contains("Collections.synchronizedMap(")
+                || line.contains("Collections.synchronizedSet(")
+                || line.contains("Collections.synchronizedList(")
+                || line.contains("Collections.synchronizedCollection(");
+    }
+
+    static boolean hasLambdaVar(String line) {
+        // (x, y) -> expression without var — can use (var x, var y) ->
+        // Match: (identifier, identifier) ->
+        return line.matches(".*\\([a-zA-Z_][a-zA-Z0-9_]*,.*\\)\\s*->.*");
     }
 }

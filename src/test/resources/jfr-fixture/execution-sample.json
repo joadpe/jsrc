@@ -1,0 +1,150 @@
+{
+  "recording": {
+    "events": [
+      {
+        "type": "jdk.ExecutionSample",
+        "values": {
+          "stackTrace": {
+            "frames": [
+              { "method": { "type": "com.example.OrderService", "name": "processOrder" } },
+              { "method": { "type": "com.example.App", "name": "main" } }
+            ]
+          }
+        }
+      },
+      {
+        "type": "jdk.ExecutionSample",
+        "values": {
+          "stackTrace": {
+            "frames": [
+              { "method": { "type": "com.example.OrderService", "name": "processOrder" } }
+            ]
+          }
+        }
+      },
+      {
+        "type": "jdk.ExecutionSample",
+        "values": {
+          "stackTrace": {
+            "frames": [
+              { "method": { "type": "com.example.OrderService", "name": "processOrder" } }
+            ]
+          }
+        }
+      },
+      {
+        "type": "jdk.ExecutionSample",
+        "values": {
+          "stackTrace": {
+            "frames": [
+              { "method": { "type": "com.example.CacheManager", "name": "get" } }
+            ]
+          }
+        }
+      },
+      {
+        "type": "jdk.ExecutionSample",
+        "values": {
+          "stackTrace": {
+            "frames": [
+              { "method": { "type": "com.example.JsonParser", "name": "parse" } }
+            ]
+          }
+        }
+      },
+      {
+        "type": "jdk.GCPhasePause",
+        "values": {
+          "duration": 89000000
+        }
+      },
+      {
+        "type": "jdk.GCPhasePause",
+        "values": {
+          "duration": 28000000
+        }
+      },
+      {
+        "type": "jdk.GarbageCollection",
+        "values": {
+          "duration": 45000000
+        }
+      },
+      {
+        "type": "jdk.FileRead",
+        "values": { "path": "/tmp/data.csv", "bytesRead": 1024 }
+      },
+      {
+        "type": "jdk.FileRead",
+        "values": { "path": "/tmp/config.yml", "bytesRead": 256 }
+      },
+      {
+        "type": "jdk.FileWrite",
+        "values": { "path": "/tmp/output.csv", "bytesWritten": 2048 }
+      },
+      {
+        "type": "jdk.SocketRead",
+        "values": { "bytesRead": 4096 }
+      },
+      {
+        "type": "jdk.SocketWrite",
+        "values": { "bytesWritten": 512 }
+      },
+      {
+        "type": "jdk.SocketWrite",
+        "values": { "bytesWritten": 256 }
+      },
+      {
+        "type": "jdk.ObjectAllocationInNewTLAB",
+        "values": {
+          "objectClass": { "name": "java.lang.String" },
+          "tlabSize": 1200000000
+        }
+      },
+      {
+        "type": "jdk.ObjectAllocationInNewTLAB",
+        "values": {
+          "objectClass": { "name": "java.lang.String" },
+          "tlabSize": 500000
+        }
+      },
+      {
+        "type": "jdk.ObjectAllocationInNewTLAB",
+        "values": {
+          "objectClass": { "name": "com.example.Order" },
+          "tlabSize": 45000000
+        }
+      },
+      {
+        "type": "jdk.JavaMonitorWait",
+        "values": {
+          "monitorClass": { "name": "com.example.CacheManager" },
+          "duration": 1200000000,
+          "stackTrace": {
+            "frames": [
+              { "method": { "type": "com.example.CacheManager", "name": "get" } }
+            ]
+          }
+        }
+      },
+      {
+        "type": "jdk.JavaExceptionThrow",
+        "values": {
+          "thrownClass": { "name": "java.lang.NullPointerException" }
+        }
+      },
+      {
+        "type": "jdk.JavaExceptionThrow",
+        "values": {
+          "thrownClass": { "name": "java.lang.NullPointerException" }
+        }
+      },
+      {
+        "type": "jdk.JavaExceptionThrow",
+        "values": {
+          "thrownClass": { "name": "java.io.IOException" }
+        }
+      }
+    ]
+  }
+}

@@ -28,6 +28,7 @@ import com.jsrc.app.command.callgraph.TestForCommand;
 import com.jsrc.app.command.meta.BatchCommand;
 import com.jsrc.app.command.meta.IndexCommand;
 import com.jsrc.app.command.meta.MetricsCommand;
+import com.jsrc.app.command.meta.RecordCommand;
 import com.jsrc.app.command.meta.WatchCommand;
 import com.jsrc.app.command.reverse.ChangedCommand;
 import com.jsrc.app.command.reverse.ContextCommand;
@@ -36,6 +37,7 @@ import com.jsrc.app.command.reverse.ContractCommand;
 import com.jsrc.app.command.reverse.DiffCommand;
 import com.jsrc.app.command.reverse.DriftCommand;
 import com.jsrc.app.command.reverse.HistoryCommand;
+import com.jsrc.app.command.analysis.ProfileCommand;
 import com.jsrc.app.command.search.FindCommand;
 import com.jsrc.app.command.search.MethodSearchCommand;
 import com.jsrc.app.command.search.ScopeCommand;
@@ -130,6 +132,8 @@ public final class CommandFactory {
             case "--complexity" -> arg != null ? ("--all".equals(arg) ? new ComplexityAllCommand() : new ComplexityCommand(arg)) : null;
             case "--entry-points" -> new EntryPointsCommand(arg);
             case "--perf" -> arg != null ? new PerfCommand(arg, 1) : null;
+            case "--record" -> new RecordCommand(null, "30s", null, "profile", false, true);
+            case "--profile" -> arg != null ? new ProfileCommand(arg, 20, false, false, false, false, false, false) : null;
             default -> null;
         };
     }

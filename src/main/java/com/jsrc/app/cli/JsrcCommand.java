@@ -104,7 +104,10 @@ import com.jsrc.app.parser.HybridJavaParser;
         com.jsrc.app.cli.adapters.CompatAdapter.class,
         com.jsrc.app.cli.adapters.TourAdapter.class,
         com.jsrc.app.cli.adapters.DocAdapter.class,
-        com.jsrc.app.cli.adapters.ScaffoldAdapter.class
+        com.jsrc.app.cli.adapters.ScaffoldAdapter.class,
+        // JFR integration
+        com.jsrc.app.cli.adapters.RecordAdapter.class,
+        com.jsrc.app.cli.adapters.ProfileAdapter.class
     }
 )
 public class JsrcCommand implements Runnable {

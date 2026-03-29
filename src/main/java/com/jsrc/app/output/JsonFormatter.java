@@ -433,4 +433,40 @@ public class JsonFormatter implements OutputFormatter {
             out.println(JsonWriter.toJson(data));
         }
     }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public void printResultWithHints(Object data,
+                                      java.util.List<com.jsrc.app.model.CommandHint> hints) {
+        if (hints == null || hints.isEmpty()) {
+            printResult(data);
+            return;
+        }
+        // Merge hints into the data map
+        if (data instanceof Map<?, ?> map) {
+            var merged = new java.util.LinkedHashMap<>((Map<String, Object>) map);
+            merged.put("nextCommands", hints.stream()
+                    .map(h -> {
+                        var m = new java.util.LinkedHashMap<String, String>();
+                        m.put("command", h.command());
+                        m.put("description", h.description());
+                        return m;
+                    })
+                    .toList());
+            printResult(merged);
+        } else {
+            // Non-map data: wrap in a map with hints
+            var wrapped = new java.util.LinkedHashMap<String, Object>();
+            wrapped.put("result", data);
+            wrapped.put("nextCommands", hints.stream()
+                    .map(h -> {
+                        var m = new java.util.LinkedHashMap<String, String>();
+                        m.put("command", h.command());
+                        m.put("description", h.description());
+                        return m;
+                    })
+                    .toList());
+            printResult(wrapped);
+        }
+    }
 }

@@ -142,6 +142,14 @@ public interface OutputFormatter {
     void printResult(Object data);
 
     /**
+     * Prints result data with appended nextCommands hints.
+     * Default: delegates to printResult (non-JSON formatters ignore hints).
+     */
+    default void printResultWithHints(Object data, java.util.List<com.jsrc.app.model.CommandHint> hints) {
+        printResult(data);
+    }
+
+    /**
      * Factory method to create the appropriate formatter.
      *
      * @param json true for JSON output, false for human-readable text

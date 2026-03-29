@@ -2,12 +2,14 @@ package com.jsrc.app.command.navigate;
 
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 
-import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.TreeSet;
 
-import com.jsrc.app.model.OverviewResult;
 import com.jsrc.app.parser.model.ClassInfo;
 
 public class OverviewCommand implements Command {
@@ -25,20 +27,51 @@ public class OverviewCommand implements Command {
         }
 
         int fileCount = ctx.indexed() != null ? ctx.indexed().fileCount() : ctx.javaFiles().size();
-        // Always include packages (small metadata, high navigation value)
         List<String> fullPackageList = List.copyOf(packages);
 
-        // Extract top classes by method count for navigation entry points
-        List<String> topClasses = allClasses.stream()
+        // Top classes by method count (with display label)
+        List<String> topClassLabels = allClasses.stream()
                 .filter(ci -> !ci.isInterface())
                 .sorted((a, b) -> Integer.compare(b.methods().size(), a.methods().size()))
                 .limit(10)
                 .map(ci -> ci.name() + " (" + ci.methods().size() + " methods)")
                 .toList();
 
-        ctx.formatter().printOverview(new OverviewResult(
-                fileCount, totalClasses, totalInterfaces,
-                totalMethods, fullPackageList), packages.size(), topClasses);
+        // Top class names only (for hint resolution)
+        List<String> topClassNames = allClasses.stream()
+                .filter(ci -> !ci.isInterface())
+                .sorted((a, b) -> Integer.compare(b.methods().size(), a.methods().size()))
+                .limit(10)
+                .map(ClassInfo::name)
+                .toList();
+
+        // Build output map
+        var map = new LinkedHashMap<String, Object>();
+        map.put("totalFiles", fileCount);
+        map.put("totalClasses", totalClasses);
+        map.put("totalInterfaces", totalInterfaces);
+        map.put("totalMethods", totalMethods);
+        map.put("totalPackages", packages.size());
+        if (!fullPackageList.isEmpty()) {
+            map.put("packages", fullPackageList);
+        }
+        if (!topClassLabels.isEmpty()) {
+            map.put("topClasses", topClassLabels);
+        }
+
+        // Build hints per command-hints-map.md
+        var hintCtx = HintContext.forOverview(topClassNames, fullPackageList);
+        var hints = new ArrayList<CommandHint>();
+        hints.add(new CommandHint("find \"keyword\"", "Search for relevant classes"));
+        if (!topClassNames.isEmpty()) {
+            hints.add(CommandHint.resolve("read {topClass}",
+                    "Read the most important class", hintCtx));
+        }
+        hints.add(new CommandHint("hotspots", "See most-used classes"));
+        hints.add(new CommandHint("map", "Visual codebase map"));
+        hints.add(new CommandHint("tour", "Guided tour of the codebase"));
+
+        ctx.formatter().printResultWithHints(map, hints);
         return totalClasses + totalInterfaces;
     }
 }

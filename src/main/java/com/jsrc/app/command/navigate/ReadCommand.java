@@ -2,8 +2,11 @@ package com.jsrc.app.command.navigate;
 
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 import com.jsrc.app.parser.SourceReader;
@@ -38,62 +41,11 @@ public class ReadCommand implements Command {
         }
 
         if (result != null) {
-            // Compact mode: if content is large and it's a full-class read, truncate
             boolean isClassRead = !ref.hasClassName() && !target.contains("(");
             if (isClassRead) {
-                // Extract method list so agents know what to drill into
-                List<String> methodNames = extractMethodNames(ctx, result);
-
-                // Only truncate truly large classes (>750 LOC / ~25000 chars)
-                // Smaller classes are shown in full — agents need source for reasoning
-                if (!ctx.fullOutput() && result.content() != null
-                        && result.content().length() > 25000) {
-                    var compact = new java.util.LinkedHashMap<String, Object>();
-                    compact.put("class", result.className());
-                    compact.put("file", result.file().toString());
-                    compact.put("lines", result.startLine() + "-" + result.endLine());
-                    compact.put("chars", result.content().length());
-                    if (!methodNames.isEmpty()) {
-                        compact.put("methods", methodNames);
-                    }
-                    compact.put("hint", "Large class. Use 'read " + result.className()
-                            + ".methodName' for specific methods, or --full for complete source.");
-                    String[] lines = result.content().split("\n");
-                    int previewLines = Math.min(100, lines.length);
-                    compact.put("preview", String.join("\n", java.util.Arrays.copyOf(lines, previewLines)));
-                    compact.put("truncated", lines.length > previewLines);
-                    ctx.formatter().printResult(compact);
-                } else {
-                    // Full class output — still include method names for discoverability
-                    var enriched = new java.util.LinkedHashMap<String, Object>();
-                    enriched.put("class", result.className());
-                    enriched.put("file", result.file().toString());
-                    enriched.put("line", result.startLine());
-                    if (!methodNames.isEmpty()) {
-                        enriched.put("methods", methodNames);
-                        enriched.put("hint", "Use 'read " + result.className()
-                                + ".methodName' to read individual methods.");
-                    }
-                    enriched.put("content", result.content());
-                    ctx.formatter().printResult(enriched);
-                }
+                printClassRead(ctx, result);
             } else {
-                // Method read — include sibling methods for navigation
-                List<String> siblings = extractSiblingMethods(ctx, result);
-                if (!siblings.isEmpty()) {
-                    var enriched = new java.util.LinkedHashMap<String, Object>();
-                    enriched.put("class", result.className());
-                    enriched.put("method", result.methodName());
-                    enriched.put("file", result.file().toString());
-                    enriched.put("line", result.startLine());
-                    enriched.put("content", result.content());
-                    enriched.put("siblingMethods", siblings);
-                    enriched.put("hint", "Use 'read " + result.className()
-                            + ".methodName' to read other methods in this class.");
-                    ctx.formatter().printResult(enriched);
-                } else {
-                    ctx.formatter().printReadResult(result);
-                }
+                printMethodRead(ctx, result);
             }
             return 1;
         }
@@ -101,9 +53,80 @@ public class ReadCommand implements Command {
         return 0;
     }
 
+    private void printClassRead(CommandContext ctx, SourceReader.ReadResult result) {
+        List<String> methodNames = extractMethodNames(ctx, result);
+        var hintCtx = HintContext.forClass(result.className(), methodNames);
+
+        // Build hints per command-hints-map.md
+        var hints = new ArrayList<CommandHint>();
+        hints.add(CommandHint.resolve("read {class}.METHOD",
+                "Read a specific method (see methods list)", hintCtx));
+        hints.add(CommandHint.resolve("mini {class}", "Compact class summary", hintCtx));
+        hints.add(CommandHint.resolve("smells {class}", "Check for code smells", hintCtx));
+        hints.add(CommandHint.resolve("deps {class}", "See dependencies", hintCtx));
+
+        if (!ctx.fullOutput() && result.content() != null
+                && result.content().length() > 25000) {
+            // Truncated large class
+            var compact = new java.util.LinkedHashMap<String, Object>();
+            compact.put("class", result.className());
+            compact.put("file", result.file().toString());
+            compact.put("lines", result.startLine() + "-" + result.endLine());
+            compact.put("chars", result.content().length());
+            if (!methodNames.isEmpty()) {
+                compact.put("methods", methodNames);
+            }
+            String[] lines = result.content().split("\n");
+            int previewLines = Math.min(100, lines.length);
+            compact.put("preview", String.join("\n",
+                    java.util.Arrays.copyOf(lines, previewLines)));
+            compact.put("truncated", lines.length > previewLines);
+            ctx.formatter().printResultWithHints(compact, hints);
+        } else {
+            // Full class output
+            var enriched = new java.util.LinkedHashMap<String, Object>();
+            enriched.put("class", result.className());
+            enriched.put("file", result.file().toString());
+            enriched.put("line", result.startLine());
+            if (!methodNames.isEmpty()) {
+                enriched.put("methods", methodNames);
+            }
+            enriched.put("content", result.content());
+            ctx.formatter().printResultWithHints(enriched, hints);
+        }
+    }
+
+    private void printMethodRead(CommandContext ctx, SourceReader.ReadResult result) {
+        List<String> siblings = extractSiblingMethods(ctx, result);
+        var hintCtx = HintContext.forMethod(result.className(), result.methodName(), siblings);
+
+        // Build hints per command-hints-map.md
+        var hints = new ArrayList<CommandHint>();
+        hints.add(CommandHint.resolve("callers {method}", "Who calls this method?", hintCtx));
+        hints.add(CommandHint.resolve("impact {method}", "Change risk assessment", hintCtx));
+        hints.add(CommandHint.resolve("test-for {class}.{method}",
+                "Find tests for this method", hintCtx));
+        hints.add(CommandHint.resolve("callees {method}",
+                "What does this method call?", hintCtx));
+        if (!siblings.isEmpty()) {
+            hints.add(CommandHint.resolve("read {class}.METHOD",
+                    "Read a sibling method (see siblingMethods)", hintCtx));
+        }
+
+        var enriched = new java.util.LinkedHashMap<String, Object>();
+        enriched.put("class", result.className());
+        enriched.put("method", result.methodName());
+        enriched.put("file", result.file().toString());
+        enriched.put("line", result.startLine());
+        enriched.put("content", result.content());
+        if (!siblings.isEmpty()) {
+            enriched.put("siblingMethods", siblings);
+        }
+        ctx.formatter().printResultWithHints(enriched, hints);
+    }
+
     private SourceReader.ReadResult findMethodRead(CommandContext ctx, SourceReader reader,
                                                     MethodResolver.MethodRef ref) {
-        // Fast path: locate file via index, then parse only that file
         Path targetFile = findFileForClass(ctx, ref.className());
         List<Path> searchFiles = targetFile != null ? List.of(targetFile) : ctx.javaFiles();
 
@@ -124,7 +147,6 @@ public class ReadCommand implements Command {
 
     private SourceReader.ReadResult findMethodReadAllFiles(CommandContext ctx,
                                                             MethodResolver.MethodRef ref) {
-        // Fast path: use index to find which file contains the method
         if (ctx.indexed() != null) {
             var indexed = ctx.indexed().findMethodsByName(ref.methodName());
             for (MethodInfo im : indexed) {
@@ -144,7 +166,6 @@ public class ReadCommand implements Command {
             }
         }
 
-        // Fallback: scan all files
         for (Path file : ctx.javaFiles()) {
             List<MethodInfo> methods = ctx.parser().findMethods(file, ref.methodName());
             methods = MethodResolver.filter(methods, ref);
@@ -158,10 +179,6 @@ public class ReadCommand implements Command {
         return null;
     }
 
-    /**
-     * Extracts sibling method names (other methods in the same class, excluding the current one).
-     * Helps agents navigate to related methods without reading the whole file.
-     */
     private List<String> extractSiblingMethods(CommandContext ctx, SourceReader.ReadResult result) {
         try {
             Path file = result.file();
@@ -178,10 +195,6 @@ public class ReadCommand implements Command {
         }
     }
 
-    /**
-     * Extracts method names from the class for discoverability.
-     * Agents can use these to drill into specific methods with 'read Class.method'.
-     */
     private List<String> extractMethodNames(CommandContext ctx, SourceReader.ReadResult result) {
         try {
             Path file = result.file();
@@ -205,14 +218,12 @@ public class ReadCommand implements Command {
     }
 
     private static Path findFileForClass(CommandContext ctx, String className) {
-        // Try index first
         if (ctx.indexed() != null) {
             var path = ctx.indexed().findFileForClass(className);
             if (path.isPresent()) {
                 return findFileByPath(ctx.javaFiles(), path.get());
             }
         }
-        // Fallback: match by filename
         for (Path f : ctx.javaFiles()) {
             if (f.getFileName().toString().equals(className + ".java")) return f;
         }

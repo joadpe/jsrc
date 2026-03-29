@@ -6,6 +6,7 @@ import com.jsrc.app.command.CommandContext;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
 
@@ -89,7 +90,12 @@ public class ApiCommand implements Command {
         }
         result.put("byPackage", modules);
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read CLASS.METHOD", "Read an API method"),
+            new CommandHint("contract CLASS", "Formal contracts for this class")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return publicClasses.size();
     }
 }

@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.jsrc.app.analysis.CallGraph;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 
 /**
@@ -125,7 +126,12 @@ public class RelatedCommand implements Command {
         }
         result.put("ranked", ranked);
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read RELATED_CLASS", "Read a related class"),
+            new CommandHint("deps CLASS", "See dependencies")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return ranked.size();
     }
 

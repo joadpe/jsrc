@@ -8,8 +8,9 @@ import java.util.List;
 import java.util.Map;
 
 import com.jsrc.app.architecture.LayerResolver;
-import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.analysis.CallGraph;
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.util.ClassLookup;
 
@@ -102,7 +103,12 @@ public class ExplainCommand implements Command {
         result.put("class", ci.qualifiedName());
         result.put("summary", summary.toString().trim());
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read CLASS", "Read the source code"),
+            new CommandHint("hierarchy CLASS", "See inheritance")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return 1;
     }
 }

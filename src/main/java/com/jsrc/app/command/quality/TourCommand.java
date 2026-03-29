@@ -6,6 +6,7 @@ import com.jsrc.app.command.CommandContext;
 import java.util.*;
 
 import com.jsrc.app.analysis.CallGraph;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodReference;
 
@@ -102,7 +103,12 @@ public class TourCommand implements Command {
         if (allClasses.stream().anyMatch(c -> c.annotations().stream().anyMatch(a -> a.name().contains("Entity") || a.name().contains("Table")))) stack.add("JPA");
         if (!stack.isEmpty()) result.put("techStack", stack);
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read CLASS", "Read a class from the tour"),
+            new CommandHint("map", "Visual codebase map")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return allClasses.size();
     }
 

@@ -6,6 +6,7 @@ import com.jsrc.app.command.CommandContext;
 import java.util.List;
 
 import com.jsrc.app.architecture.EndpointMapper;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.output.JsonWriter;
 
 public class EndpointsCommand implements Command {
@@ -16,15 +17,21 @@ public class EndpointsCommand implements Command {
                 ? ctx.config().architecture().endpointAnnotations() : List.of();
         var mapper = new EndpointMapper(epAnnotations);
         var endpoints = mapper.findEndpoints(allClasses);
+
+        var hints = java.util.List.of(
+            new CommandHint("read CONTROLLER.ENDPOINT", "Read the endpoint"),
+            new CommandHint("flow ENDPOINT", "Trace execution from endpoint")
+        );
+
         // Compact mode (default): limit to 25 endpoints + total count
         if (!ctx.fullOutput() && endpoints.size() > 25) {
             var compact = new java.util.LinkedHashMap<String, Object>();
             compact.put("total", endpoints.size());
             compact.put("endpoints", endpoints.subList(0, 25));
             compact.put("truncated", true);
-            ctx.formatter().printResult(compact);
+            ctx.formatter().printResultWithHints(compact, hints);
         } else {
-            ctx.formatter().printResult(endpoints);
+            ctx.formatter().printResultWithHints(endpoints, hints);
         }
         return endpoints.size();
     }

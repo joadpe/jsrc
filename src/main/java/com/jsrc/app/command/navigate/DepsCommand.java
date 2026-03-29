@@ -2,6 +2,7 @@ package com.jsrc.app.command.navigate;
 
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.model.CommandHint;
 
 
 public class DepsCommand implements Command {
@@ -46,7 +47,14 @@ public class DepsCommand implements Command {
             compact.put("constructorParamTypes", deps.constructorDependencies().stream()
                     .map(com.jsrc.app.model.DependencyResult.FieldDep::type)
                     .distinct().toList());
-            ctx.formatter().printResult(compact);
+
+            var hints = java.util.List.of(
+                new CommandHint("read DEPENDENCY", "Read a dependency"),
+                new CommandHint("related CLASS", "Find coupled classes"),
+                new CommandHint("imports CLASS", "Who imports this class?")
+            );
+
+            ctx.formatter().printResultWithHints(compact, hints);
         } else {
             ctx.formatter().printDependencies(deps);
         }

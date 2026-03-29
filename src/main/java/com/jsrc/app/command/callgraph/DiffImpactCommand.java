@@ -16,6 +16,7 @@ import java.util.Queue;
 import java.util.Set;
 
 import com.jsrc.app.analysis.CallGraph;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.MethodCall;
 import com.jsrc.app.parser.model.MethodReference;
 
@@ -172,7 +173,13 @@ public class DiffImpactCommand implements Command {
             return allAffected.size();
         }
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read CHANGED", "Read a changed class"),
+            new CommandHint("test-for CHANGED.METHOD", "Find tests for changes"),
+            new CommandHint("breaking-changes CHANGED", "Check breaking changes")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return allAffected.size();
     }
 

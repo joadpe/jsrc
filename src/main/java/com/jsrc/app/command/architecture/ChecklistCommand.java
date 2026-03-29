@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.jsrc.app.analysis.CallGraph;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.MethodCall;
 import com.jsrc.app.parser.model.MethodReference;
 import com.jsrc.app.util.MethodResolver;
@@ -135,7 +136,13 @@ public class ChecklistCommand implements Command {
             return steps.size();
         }
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read CLASS.METHOD", "Read a method to review"),
+            new CommandHint("smells CLASS", "Check for code smells"),
+            new CommandHint("lint CLASS", "Pre-compile checks")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return steps.size();
     }
 

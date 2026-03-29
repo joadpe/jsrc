@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.util.ClassLookup;
 
@@ -116,7 +117,12 @@ public class BreakingChangesCommand implements Command {
         result.put("breakingIf", breakingIf);
         result.put("riskLevel", risk);
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read AFFECTED", "Read an affected class"),
+            new CommandHint("test-for CLASS.METHOD", "Check test coverage")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return total;
     }
 }

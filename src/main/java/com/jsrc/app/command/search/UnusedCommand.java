@@ -10,8 +10,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.analysis.CallGraph;
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodReference;
 
@@ -77,7 +78,12 @@ public class UnusedCommand implements Command {
         result.put("unimplementedInterfaces", unimplemented);
         result.put("total", unusedMethods.size() + unusedClasses.size() + unimplemented.size());
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("callers UNUSED", "Verify it's truly unused"),
+            new CommandHint("read UNUSED", "Read the unused class")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return unusedMethods.size() + unusedClasses.size() + unimplemented.size();
     }
 }

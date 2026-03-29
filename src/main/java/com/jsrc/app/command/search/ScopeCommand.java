@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 
 /**
@@ -119,7 +120,12 @@ public class ScopeCommand implements Command {
         result.put("estimatedTokens", estimatedChars / 4);
         result.put("totalMatches", scored.size());
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read SCOPE_CLASS", "Read a relevant class"),
+            new CommandHint("mini SCOPE_CLASS", "Quick overview")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return scored.size();
     }
 

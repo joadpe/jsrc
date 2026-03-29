@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.jsrc.app.analysis.CallGraph;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
 
@@ -89,7 +90,12 @@ public class MapCommand implements Command {
             result.put("truncatedAt", budgetTokens);
         }
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read CLASS", "Read a class from the map"),
+            new CommandHint("hotspots", "See most-used classes")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return mapEntries.size();
     }
 

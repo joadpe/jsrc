@@ -14,6 +14,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
@@ -94,8 +95,15 @@ public class SearchCommand implements Command {
             compact.put("matches", results.subList(0, 30));
             compact.put("truncated", true);
             compact.put("hint", "Use --full to see all " + results.size() + " matches");
-            ctx.formatter().printResult(compact);
+
+            var hints = java.util.List.of(
+                new CommandHint("read MATCH_CLASS", "Read the matching class"),
+                new CommandHint("find \"keyword\"", "Semantic search instead")
+            );
+
+            ctx.formatter().printResultWithHints(compact, hints);
         } else {
+            // Full output: return list directly to preserve existing JSON contract
             ctx.formatter().printResult(results);
         }
         return results.size();

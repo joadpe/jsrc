@@ -3,8 +3,10 @@ package com.jsrc.app.command.navigate;
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.model.HierarchyResult;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.util.ClassLookup;
@@ -34,9 +36,25 @@ public class HierarchyCommand implements Command {
                         .map(ClassInfo::qualifiedName).toList()
                 : List.of();
 
-        ctx.formatter().printHierarchy(new HierarchyResult(
+        var hierarchyResult = new HierarchyResult(
                 target.qualifiedName(), target.superClass(),
-                target.interfaces(), subClasses, implementors));
+                target.interfaces(), subClasses, implementors);
+
+        // Convert to Map to preserve existing JSON contract
+        var result = new LinkedHashMap<String, Object>();
+        result.put("target", hierarchyResult.target());
+        result.put("superClass", hierarchyResult.superClass());
+        result.put("interfaces", hierarchyResult.interfaces());
+        result.put("subClasses", hierarchyResult.subClasses());
+        result.put("implementors", hierarchyResult.implementors());
+
+        var hints = java.util.List.of(
+            new CommandHint("read SUBCLASS", "Read a subclass"),
+            new CommandHint("implements INTERFACE", "Find all implementors"),
+            new CommandHint("breaking-changes CLASS", "Impact of changing this class")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return 1;
     }
 }

@@ -7,6 +7,7 @@ import com.jsrc.app.jfr.JfrCorrelator.CorrelatedMethod;
 import com.jsrc.app.jfr.JfrCorrelator.Correlation;
 import com.jsrc.app.jfr.JfrCorrelator.CorrelationResult;
 import com.jsrc.app.jfr.JfrProfile.*;
+import com.jsrc.app.model.CommandHint;
 
 import java.nio.file.Path;
 import java.util.*;
@@ -83,7 +84,12 @@ public class ProfileCommand implements Command {
                 result.put("exceptions", formatExceptions(profile.exceptions()));
             }
 
-            ctx.formatter().printResult(result);
+            var hints = java.util.List.of(
+                new CommandHint("read CLASS.METHOD", "Read the hot method"),
+                new CommandHint("perf CLASS", "Static performance analysis")
+            );
+
+            ctx.formatter().printResultWithHints(result, hints);
             return profile.hotMethods().size();
 
         } catch (JfrToolNotFoundException e) {

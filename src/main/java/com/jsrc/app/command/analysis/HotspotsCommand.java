@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.jsrc.app.analysis.CallGraph;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 
 /**
@@ -128,7 +129,14 @@ public class HotspotsCommand implements Command {
         if (!untestedHotspots.isEmpty()) {
             result.put("untestedHotspots", untestedHotspots);
         }
-        ctx.formatter().printResult(result);
+
+        var hints = java.util.List.of(
+            new CommandHint("read HOTSPOT", "Read the most-used class"),
+            new CommandHint("smells HOTSPOT", "Check for code smells"),
+            new CommandHint("debt", "Technical debt overview")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return top.size();
     }
 }

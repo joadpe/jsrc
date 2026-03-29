@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
@@ -79,7 +80,12 @@ public class SimilarCommand implements Command {
         // Sort by similarity descending
         similar.sort((a, b) -> Long.compare((long) b.get("similarity"), (long) a.get("similarity")));
 
-        ctx.formatter().printResult(similar);
+        var hints = java.util.List.of(
+            new CommandHint("read SIMILAR", "Read the similar class"),
+            new CommandHint("related CLASS", "Find coupled classes")
+        );
+
+        ctx.formatter().printResultWithHints(similar, hints);
         return similar.size();
     }
 }

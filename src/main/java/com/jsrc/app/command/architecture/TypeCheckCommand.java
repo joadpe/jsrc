@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.jsrc.app.analysis.CallGraph;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.MethodReference;
 
 /**
@@ -92,7 +93,13 @@ public class TypeCheckCommand implements Command {
                 }
                 if (!closest.isEmpty()) result.put("closest", closest);
             }
-            ctx.formatter().printResult(result);
+
+            var hintsErr = java.util.List.of(
+                new CommandHint("read CLASS.METHOD", "Read the problematic method"),
+                new CommandHint("lint CLASS", "Pre-compile checks")
+            );
+
+            ctx.formatter().printResultWithHints(result, hintsErr);
             return 0;
         }
 
@@ -105,7 +112,12 @@ public class TypeCheckCommand implements Command {
             result.put("warning", "Method returns void — cannot assign to variable");
         }
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read CLASS.METHOD", "Read the problematic method"),
+            new CommandHint("lint CLASS", "Pre-compile checks")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return 1;
     }
 }

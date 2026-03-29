@@ -7,6 +7,7 @@ import java.util.*;
 
 import com.jsrc.app.analysis.PatternDetector;
 import com.jsrc.app.analysis.SourceResolver;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 
 /**
@@ -120,7 +121,12 @@ public class CompatCommand implements Command {
             result.put("issues", allIssues);
         }
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("migrate", "Find modernization opportunities"),
+            new CommandHint("read CLASS", "Read an affected class")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return allIssues.size();
     }
 }

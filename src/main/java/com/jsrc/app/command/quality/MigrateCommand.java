@@ -7,6 +7,7 @@ import java.util.*;
 import java.util.regex.Pattern;
 
 import com.jsrc.app.analysis.SourceResolver;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.util.ClassLookup;
 
@@ -182,7 +183,13 @@ public class MigrateCommand implements Command {
 
         String source = SourceResolver.loadClassSource(ci.name(), ctx);
         var result = scanClass(ci, source);
-        ctx.formatter().printResult(result);
+
+        var hints = java.util.List.of(
+            new CommandHint("read CLASS.METHOD", "Read the method to modernize"),
+            new CommandHint("compat VERSION", "Check compatibility for target version")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
 
         @SuppressWarnings("unchecked")
         var suggestions = (List<?>) result.get("suggestions");
@@ -309,7 +316,12 @@ public class MigrateCommand implements Command {
             result.put("classes", allResults);
         }
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read CLASS.METHOD", "Read the method to modernize"),
+            new CommandHint("compat VERSION", "Check compatibility for target version")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return totalSuggestions;
     }
 

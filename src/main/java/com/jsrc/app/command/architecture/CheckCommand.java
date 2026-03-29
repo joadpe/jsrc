@@ -10,6 +10,7 @@ import java.util.Map;
 
 import com.jsrc.app.architecture.RuleEngine;
 import com.jsrc.app.architecture.Violation;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 
 public class CheckCommand implements Command {
@@ -41,7 +42,13 @@ public class CheckCommand implements Command {
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("violations", 0);
             result.put("hint", "Add architecture rules to .jsrc.yaml for custom checks. Built-in: internal-import.");
-            ctx.formatter().printResult(result);
+
+            var hints = java.util.List.of(
+                new CommandHint("read VIOLATION_CLASS", "Read the violating class"),
+                new CommandHint("layer LAYER", "List classes in a layer")
+            );
+
+            ctx.formatter().printResultWithHints(result, hints);
             return 0;
         }
 

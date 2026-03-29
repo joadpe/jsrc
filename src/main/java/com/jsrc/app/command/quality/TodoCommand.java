@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.*;
 
 import com.jsrc.app.analysis.SourceResolver;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.util.GitHelper;
 import com.jsrc.app.parser.model.ClassInfo;
 
@@ -99,7 +100,11 @@ public class TodoCommand implements Command {
             result.put("items", items);
         }
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read CLASS.METHOD", "Read the method with TODO")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return items.size();
     }
 

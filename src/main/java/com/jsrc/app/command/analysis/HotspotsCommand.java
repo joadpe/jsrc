@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import com.jsrc.app.analysis.CallGraph;
@@ -130,9 +131,10 @@ public class HotspotsCommand implements Command {
             result.put("untestedHotspots", untestedHotspots);
         }
 
+        String topClass = top.isEmpty() ? "CLASS" : Objects.toString(top.getFirst().get("class"), "CLASS");
         var hints = java.util.List.of(
-            new CommandHint("read HOTSPOT", "Read the most-used class"),
-            new CommandHint("smells HOTSPOT", "Check for code smells"),
+            new CommandHint("read " + topClass, "Read the most-used class"),
+            new CommandHint("smells " + topClass, "Check for code smells"),
             new CommandHint("debt", "Technical debt overview")
         );
 

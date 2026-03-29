@@ -96,8 +96,10 @@ public class SearchCommand implements Command {
             compact.put("truncated", true);
             compact.put("hint", "Use --full to see all " + results.size() + " matches");
 
+            String firstClass = results.isEmpty() ? "CLASS" 
+                : (String) results.getFirst().getOrDefault("class", "CLASS");
             var hints = java.util.List.of(
-                new CommandHint("read MATCH_CLASS", "Read the matching class"),
+                new CommandHint("read " + firstClass, "Read the matching class"),
                 new CommandHint("find \"keyword\"", "Semantic search instead")
             );
 

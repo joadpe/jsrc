@@ -118,8 +118,8 @@ public class BreakingChangesCommand implements Command {
         result.put("riskLevel", risk);
 
         var hints = java.util.List.of(
-            new CommandHint("read AFFECTED", "Read an affected class"),
-            new CommandHint("test-for CLASS.METHOD", "Check test coverage")
+            new CommandHint("read " + className, "Read an affected class"),
+            new CommandHint("test-for " + className + ".METHOD", "Check test coverage")
         );
 
         ctx.formatter().printResultWithHints(result, hints);

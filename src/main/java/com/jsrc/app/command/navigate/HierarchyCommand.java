@@ -49,9 +49,9 @@ public class HierarchyCommand implements Command {
         result.put("implementors", hierarchyResult.implementors());
 
         var hints = java.util.List.of(
-            new CommandHint("read SUBCLASS", "Read a subclass"),
-            new CommandHint("implements INTERFACE", "Find all implementors"),
-            new CommandHint("breaking-changes CLASS", "Impact of changing this class")
+            new CommandHint("read " + className, "Read a subclass"),
+            new CommandHint("implements " + className, "Find all implementors"),
+            new CommandHint("breaking-changes " + className, "Impact of changing this class")
         );
 
         ctx.formatter().printResultWithHints(result, hints);

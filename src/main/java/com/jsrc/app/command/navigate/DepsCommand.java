@@ -49,9 +49,9 @@ public class DepsCommand implements Command {
                     .distinct().toList());
 
             var hints = java.util.List.of(
-                new CommandHint("read DEPENDENCY", "Read a dependency"),
-                new CommandHint("related CLASS", "Find coupled classes"),
-                new CommandHint("imports CLASS", "Who imports this class?")
+                new CommandHint("read " + className, "Read a dependency"),
+                new CommandHint("related " + className, "Find coupled classes"),
+                new CommandHint("imports " + className, "Who imports this class?")
             );
 
             ctx.formatter().printResultWithHints(compact, hints);

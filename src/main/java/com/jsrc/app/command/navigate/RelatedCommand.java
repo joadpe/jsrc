@@ -127,8 +127,8 @@ public class RelatedCommand implements Command {
         result.put("ranked", ranked);
 
         var hints = java.util.List.of(
-            new CommandHint("read RELATED_CLASS", "Read a related class"),
-            new CommandHint("deps CLASS", "See dependencies")
+            new CommandHint("read " + className, "Read a related class"),
+            new CommandHint("deps " + className, "See dependencies")
         );
 
         ctx.formatter().printResultWithHints(result, hints);

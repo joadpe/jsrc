@@ -115,7 +115,7 @@ public class ComplexityCommand implements Command {
 
     private List<CommandHint> buildHints() {
         return java.util.List.of(
-            new CommandHint("read CLASS.METHOD", "Read the most complex method"),
+            new CommandHint("read " + input + ".METHOD", "Read the most complex method"),
             new CommandHint("smells " + input, "Check for code smells")
         );
     }

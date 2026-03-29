@@ -462,8 +462,8 @@ public class PerfCommand implements Command {
 
     private List<CommandHint> buildHints() {
         return java.util.List.of(
-            new CommandHint("read CLASS.METHOD", "Read the bottleneck method"),
-            new CommandHint("callers METHOD", "Who triggers this bottleneck?")
+            new CommandHint("read " + target + ".METHOD", "Read the bottleneck method"),
+            new CommandHint("callers " + target, "Who triggers this bottleneck?")
         );
     }
 }

@@ -218,8 +218,8 @@ public class LintCommand implements Command {
 
     private List<CommandHint> buildHints() {
         return java.util.List.of(
-            new CommandHint("read CLASS.METHOD", "Read the problematic method"),
-            new CommandHint("validate METHOD(types)", "Validate method reference")
+            new CommandHint("read " + className + ".METHOD", "Read the problematic method"),
+            new CommandHint("validate " + className + ".METHOD(types)", "Validate method reference")
         );
     }
 }

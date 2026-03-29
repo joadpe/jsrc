@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.jsrc.app.analysis.CallGraph;
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.FieldInfo;
 import com.jsrc.app.parser.model.MethodInfo;
@@ -96,7 +97,21 @@ public class MiniCommand implements Command {
         result.put("deps", deps);
         result.put("calledBy", calledBy);
 
-        ctx.formatter().printResult(result);
+        // Extract method name from signature like "public void findMethods(Path, String)"
+        String firstMethod = "METHOD";
+        if (!keyMethods.isEmpty()) {
+            String sig = keyMethods.getFirst().split("\\(")[0]; // "public void findMethods"
+            String[] parts = sig.split("\\s+");
+            firstMethod = parts[parts.length - 1]; // last word = method name
+        }
+        var hints = java.util.List.of(
+            new CommandHint("read " + ci.name() + "." + firstMethod, "Read a specific method"),
+            new CommandHint("read " + ci.name(), "Read full class source"),
+            new CommandHint("hierarchy " + ci.name(), "See inheritance tree"),
+            new CommandHint("deps " + ci.name(), "See dependencies")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return 1;
     }
 

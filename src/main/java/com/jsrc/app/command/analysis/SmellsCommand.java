@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.util.MethodResolver;
 import com.jsrc.app.util.SignatureUtils;
 import com.jsrc.app.util.TargetResolver;
@@ -239,7 +240,9 @@ public class SmellsCommand implements Command {
         if (!isMethodRef) {
             List<Path> directMatches = TargetResolver.findFileMatches(ctx.javaFiles(), target);
             if (!directMatches.isEmpty()) {
-                return scanFiles(ctx, directMatches);
+                int result = scanFiles(ctx, directMatches);
+                printTargetHints(ctx, target);
+                return result;
             }
         }
 
@@ -255,7 +258,9 @@ public class SmellsCommand implements Command {
                 List<Path> fileMatches = TargetResolver.resolveClassesToFiles(
                         ctx.javaFiles(), result.matchingClasses());
                 if (!fileMatches.isEmpty()) {
-                    return scanFilesWithLineFilter(ctx, fileMatches, result.methodMatches());
+                    int scanResult = scanFilesWithLineFilter(ctx, fileMatches, result.methodMatches());
+                    printTargetHints(ctx, target);
+                    return scanResult;
                 }
             }
         }
@@ -266,6 +271,17 @@ public class SmellsCommand implements Command {
             System.err.printf("No files matching '%s' found in codebase%n", target);
         }
         return 0;
+    }
+
+    private void printTargetHints(CommandContext ctx, String target) {
+        String firstMethod = target.contains(".") ? target.split("\\.")[1] : "METHOD";
+        var hints = java.util.List.of(
+            new CommandHint("read " + target + (firstMethod.equals("METHOD") ? ".METHOD" : ""), "Read the problematic method"),
+            new CommandHint("complexity " + target, "Check cyclomatic complexity"),
+            new CommandHint("lint " + target, "Pre-compile checks")
+        );
+        // Formatter doesn't support hints here since it's after scan, but we log them for visibility
+        System.err.println("Next commands: " + hints);
     }
 
     private int reportAmbiguity(CommandContext ctx, MethodResolver.MethodRef ref,

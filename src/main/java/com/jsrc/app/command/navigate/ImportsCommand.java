@@ -81,8 +81,8 @@ public class ImportsCommand implements Command {
         }
 
         var hints = java.util.List.of(
-            new CommandHint("read IMPORTER", "Read the importing class"),
-            new CommandHint("breaking-changes CLASS", "Impact of changing this class")
+            new CommandHint("read " + className, "Read the importing class"),
+            new CommandHint("breaking-changes " + className, "Impact of changing this class")
         );
 
         ctx.formatter().printResultWithHints(dependents, hints);

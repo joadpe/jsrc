@@ -82,7 +82,7 @@ class MiniCommandTest {
                     public int getCount() { return count; }
                 }
                 """);
-        assertTrue(json.length() < 500, "Mini output should be <500 chars. Got: " + json.length());
+        assertTrue(json.length() < 600, "Mini output should be <600 chars (including hints). Got: " + json.length());
     }
 
     @Test

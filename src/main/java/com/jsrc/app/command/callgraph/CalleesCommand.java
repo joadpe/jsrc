@@ -74,16 +74,19 @@ public class CalleesCommand implements Command {
                     .map(e -> Objects.toString(e.get("class"), "?") + "." + Objects.toString(e.get("method"), "?"))
                     .distinct()
                     .toList());
-            ctx.formatter().printResultWithHints(compact, buildHints());
+            ctx.formatter().printResultWithHints(compact, buildHints(callees));
         } else {
             ctx.formatter().printRefs(callees, "Callees", methodName);
         }
         return callees.size();
     }
 
-    private List<CommandHint> buildHints() {
+    private List<CommandHint> buildHints(List<Map<String, Object>> callees) {
+        String firstCallee = callees.isEmpty() ? "CLASS.METHOD" 
+            : Objects.toString(callees.getFirst().get("class"), "CLASS") + "." 
+              + Objects.toString(callees.getFirst().get("method"), "METHOD");
         return java.util.List.of(
-            new CommandHint("read CALLEE_CLASS.CALLEE_METHOD", "Read the called method"),
+            new CommandHint("read " + firstCallee, "Read the called method"),
             new CommandHint("callers " + methodInput, "Who calls the original method?"),
             new CommandHint("flow " + methodInput, "Trace execution flow downward")
         );

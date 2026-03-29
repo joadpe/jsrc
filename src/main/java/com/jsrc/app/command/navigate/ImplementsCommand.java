@@ -39,8 +39,8 @@ public class ImplementsCommand implements Command {
         result.put("implementors", hierarchyResult.implementors());
 
         var hints = java.util.List.of(
-            new CommandHint("read IMPLEMENTOR", "Read an implementor"),
-            new CommandHint("hierarchy INTERFACE", "See full inheritance tree")
+            new CommandHint("read " + ifaceName, "Read an implementor"),
+            new CommandHint("hierarchy " + ifaceName, "See full inheritance tree")
         );
 
         ctx.formatter().printResultWithHints(result, hints);

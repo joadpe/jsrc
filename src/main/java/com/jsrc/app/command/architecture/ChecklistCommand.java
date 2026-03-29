@@ -137,9 +137,9 @@ public class ChecklistCommand implements Command {
         }
 
         var hints = java.util.List.of(
-            new CommandHint("read CLASS.METHOD", "Read a method to review"),
-            new CommandHint("smells CLASS", "Check for code smells"),
-            new CommandHint("lint CLASS", "Pre-compile checks")
+            new CommandHint("read " + methodInput + ".METHOD", "Read a method to review"),
+            new CommandHint("smells " + methodInput, "Check for code smells"),
+            new CommandHint("lint " + methodInput, "Pre-compile checks")
         );
 
         ctx.formatter().printResultWithHints(result, hints);

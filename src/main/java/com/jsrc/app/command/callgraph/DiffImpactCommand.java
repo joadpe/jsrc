@@ -173,10 +173,14 @@ public class DiffImpactCommand implements Command {
             return allAffected.size();
         }
 
+        String firstChanged = details.isEmpty() ? "CLASS" 
+            : (String) details.getFirst().getOrDefault("class", "CLASS");
+        String firstMethod = details.isEmpty() || ((List<?>) details.getFirst().get("changedMethods")).isEmpty() 
+            ? "METHOD" : ((List<?>) details.getFirst().get("changedMethods")).getFirst().toString();
         var hints = java.util.List.of(
-            new CommandHint("read CHANGED", "Read a changed class"),
-            new CommandHint("test-for CHANGED.METHOD", "Find tests for changes"),
-            new CommandHint("breaking-changes CHANGED", "Check breaking changes")
+            new CommandHint("read " + firstChanged, "Read a changed class"),
+            new CommandHint("test-for " + firstChanged + "." + firstMethod, "Find tests for changes"),
+            new CommandHint("breaking-changes " + firstChanged, "Check breaking changes")
         );
 
         ctx.formatter().printResultWithHints(result, hints);

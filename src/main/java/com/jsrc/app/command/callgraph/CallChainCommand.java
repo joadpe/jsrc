@@ -128,7 +128,7 @@ public class CallChainCommand implements Command {
                         return entry;
                     }).toList());
             compact.put("hint", "Use --full for all " + chains.size() + " chains with Mermaid diagrams");
-            ctx.formatter().printResultWithHints(compact, buildHints());
+            ctx.formatter().printResultWithHints(compact, buildHints(chains));
         } else {
             ctx.formatter().printCallChains(
                     new com.jsrc.app.model.CallChainOutput(chains, methodName, signatures, deadEndRoots));
@@ -148,9 +148,11 @@ public class CallChainCommand implements Command {
         return chains.size();
     }
 
-    private List<CommandHint> buildHints() {
+    private List<CommandHint> buildHints(List<CallChain> chains) {
+        String firstRoot = chains.isEmpty() ? "ROOT.METHOD" 
+            : chains.getFirst().root().className() + "." + chains.getFirst().root().methodName();
         return java.util.List.of(
-            new CommandHint("read ROOT.METHOD", "Read a root caller"),
+            new CommandHint("read " + firstRoot, "Read a root caller"),
             new CommandHint("impact " + methodName, "Change risk assessment"),
             new CommandHint("test-for " + methodName, "Find tests covering this chain")
         );

@@ -110,7 +110,7 @@ public class CallersCommand implements Command {
             mermaid.put("callers", callers.stream()
                     .map(e -> Objects.toString(e.get("class"), "?") + "." + Objects.toString(e.get("method"), "?"))
                     .distinct().toList());
-            ctx.formatter().printResultWithHints(mermaid, buildHints());
+            ctx.formatter().printResultWithHints(mermaid, buildHints(callers));
         } else if (!ctx.fullOutput() && callers.size() > 0) {
             var compact = new java.util.LinkedHashMap<String, Object>();
             compact.put("method", methodInput);
@@ -119,16 +119,19 @@ public class CallersCommand implements Command {
                     .map(e -> Objects.toString(e.get("class"), "?") + "." + Objects.toString(e.get("method"), "?"))
                     .distinct()
                     .toList());
-            ctx.formatter().printResultWithHints(compact, buildHints());
+            ctx.formatter().printResultWithHints(compact, buildHints(callers));
         } else {
             ctx.formatter().printRefs(callers, "Callers", methodName);
         }
         return callers.size();
     }
 
-    private List<CommandHint> buildHints() {
+    private List<CommandHint> buildHints(List<Map<String, Object>> callers) {
+        String firstCaller = callers.isEmpty() ? "CLASS.METHOD"
+                : Objects.toString(callers.getFirst().get("class"), "?") + "."
+                + Objects.toString(callers.getFirst().get("method"), "?");
         return java.util.List.of(
-            new CommandHint("read CALLER_CLASS.CALLER_METHOD", "Read the calling method"),
+            new CommandHint("read " + firstCaller, "Read the calling method"),
             new CommandHint("impact " + methodInput, "Full change risk assessment"),
             new CommandHint("call-chain " + methodInput, "Trace full call chain to roots"),
             new CommandHint("breaking-changes " + methodInput, "Impact of changing this class")

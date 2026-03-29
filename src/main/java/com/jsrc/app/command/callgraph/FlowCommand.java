@@ -87,13 +87,15 @@ public class FlowCommand implements Command {
         if (!boundaries.isEmpty()) result.put("crossesBoundaries", boundaries);
         result.put("dbQueries", dbQueries[0]);
 
-        ctx.formatter().printResultWithHints(result, buildHints());
+        ctx.formatter().printResultWithHints(result, buildHints(flowSteps));
         return flowSteps.size();
     }
 
-    private List<CommandHint> buildHints() {
+    private List<CommandHint> buildHints(List<Map<String, Object>> flowSteps) {
+        String firstMethod = flowSteps.isEmpty() ? "CLASS.METHOD" 
+            : Objects.toString(flowSteps.getFirst().get("method"), "CLASS.METHOD");
         return java.util.List.of(
-            new CommandHint("read CLASS.METHOD", "Read a method in the flow"),
+            new CommandHint("read " + firstMethod, "Read a method in the flow"),
             new CommandHint("callers " + target, "Who triggers this flow?"),
             new CommandHint("callees " + target, "What does this method call?")
         );

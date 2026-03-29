@@ -44,8 +44,8 @@ public class ContractCommand implements Command {
                 .collect(Collectors.toList()));
 
         var hints = java.util.List.of(
-            new CommandHint("read CLASS.METHOD", "Read the method source"),
-            new CommandHint("test-for CLASS.METHOD", "Find tests")
+            new CommandHint("read " + className + ".METHOD", "Read the method source"),
+            new CommandHint("test-for " + className + ".METHOD", "Find tests")
         );
 
         ctx.formatter().printResultWithHints(result, hints);

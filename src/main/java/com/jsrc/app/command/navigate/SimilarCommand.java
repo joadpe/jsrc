@@ -81,8 +81,8 @@ public class SimilarCommand implements Command {
         similar.sort((a, b) -> Long.compare((long) b.get("similarity"), (long) a.get("similarity")));
 
         var hints = java.util.List.of(
-            new CommandHint("read SIMILAR", "Read the similar class"),
-            new CommandHint("related CLASS", "Find coupled classes")
+            new CommandHint("read " + className, "Read the similar class"),
+            new CommandHint("related " + className, "Find coupled classes")
         );
 
         ctx.formatter().printResultWithHints(similar, hints);

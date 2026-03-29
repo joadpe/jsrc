@@ -156,7 +156,7 @@ public class TestForCommand implements Command {
             result.put("suggestedCommand", "mvn test -Dtest=" + String.join(",", highMedium));
         }
 
-        ctx.formatter().printResultWithHints(result, buildHints());
+        ctx.formatter().printResultWithHints(result, buildHints(tests));
         return tests.size();
     }
 
@@ -236,9 +236,17 @@ if (methods != null && !methods.isEmpty()) entry.put("methods", methods);
         return entry;
     }
 
-    private List<CommandHint> buildHints() {
+    private List<CommandHint> buildHints(List<Map<String, Object>> tests) {
+        String firstTest = "TEST_CLASS.TEST_METHOD";
+        if (!tests.isEmpty()) {
+            String cls = (String) tests.getFirst().get("class");
+            if (cls != null) {
+                String simple = cls.contains(".") ? cls.substring(cls.lastIndexOf('.') + 1) : cls;
+                firstTest = simple;
+            }
+        }
         return java.util.List.of(
-            new CommandHint("read TEST_CLASS.TEST_METHOD", "Read the test"),
+            new CommandHint("read " + firstTest, "Read the test"),
             new CommandHint("read " + methodInput, "Read the method being tested")
         );
     }

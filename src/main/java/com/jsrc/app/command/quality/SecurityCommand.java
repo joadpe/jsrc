@@ -255,9 +255,9 @@ public class SecurityCommand implements Command {
 
     private List<CommandHint> buildHints() {
         return java.util.List.of(
-            new CommandHint("read CLASS.METHOD", "Read the vulnerable method"),
-            new CommandHint("callers METHOD", "Who calls this vulnerable code?"),
-            new CommandHint("impact METHOD", "Change risk for fixing this")
+            new CommandHint("read " + target + ".METHOD", "Read the vulnerable method"),
+            new CommandHint("callers " + target, "Who calls this vulnerable code?"),
+            new CommandHint("impact " + target, "Change risk for fixing this")
         );
     }
 }

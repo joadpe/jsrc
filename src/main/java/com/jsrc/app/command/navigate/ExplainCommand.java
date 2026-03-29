@@ -104,8 +104,8 @@ public class ExplainCommand implements Command {
         result.put("summary", summary.toString().trim());
 
         var hints = java.util.List.of(
-            new CommandHint("read CLASS", "Read the source code"),
-            new CommandHint("hierarchy CLASS", "See inheritance")
+            new CommandHint("read " + className, "Read the source code"),
+            new CommandHint("hierarchy " + className, "See inheritance")
         );
 
         ctx.formatter().printResultWithHints(result, hints);

@@ -184,15 +184,16 @@ public class MigrateCommand implements Command {
         String source = SourceResolver.loadClassSource(ci.name(), ctx);
         var result = scanClass(ci, source);
 
+        @SuppressWarnings("unchecked")
+        var suggestions = (List<Map<String, Object>>) result.get("suggestions");
+        String firstMethod = suggestions == null || suggestions.isEmpty() ? "METHOD" : "METHOD";
         var hints = java.util.List.of(
-            new CommandHint("read CLASS.METHOD", "Read the method to modernize"),
-            new CommandHint("compat VERSION", "Check compatibility for target version")
+            new CommandHint("read " + ci.name() + "." + firstMethod, "Read the method to modernize"),
+            new CommandHint("compat " + targetVersion, "Check compatibility for target version")
         );
 
         ctx.formatter().printResultWithHints(result, hints);
 
-        @SuppressWarnings("unchecked")
-        var suggestions = (List<?>) result.get("suggestions");
         return suggestions != null ? suggestions.size() : 0;
     }
 
@@ -316,9 +317,11 @@ public class MigrateCommand implements Command {
             result.put("classes", allResults);
         }
 
+        String firstClass = allResults.isEmpty() ? "CLASS" 
+            : (String) allResults.getFirst().getOrDefault("class", "CLASS");
         var hints = java.util.List.of(
-            new CommandHint("read CLASS.METHOD", "Read the method to modernize"),
-            new CommandHint("compat VERSION", "Check compatibility for target version")
+            new CommandHint("read " + firstClass + ".METHOD", "Read the method to modernize"),
+            new CommandHint("compat " + targetVersion, "Check compatibility for target version")
         );
 
         ctx.formatter().printResultWithHints(result, hints);

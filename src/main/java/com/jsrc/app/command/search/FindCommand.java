@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.parser.model.ClassInfo;
 
 /**
@@ -107,16 +108,22 @@ public class FindCommand implements Command {
         result.put("expanded", expanded.entrySet().stream()
                 .map(e -> e.getKey() + "→" + e.getValue().subList(0, Math.min(3, e.getValue().size())))
                 .toList());
-        result.put("matches", scored.stream().limit(15).map(s -> {
+        var matches = scored.stream().limit(15).map(s -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("name", s.name);
             m.put("score", s.score);
             m.put("matchedConcepts", s.concepts);
             return m;
-        }).toList());
+        }).toList();
+        result.put("matches", matches);
         result.put("totalMatches", scored.size());
 
-        ctx.formatter().printResult(result);
+        var hints = java.util.List.of(
+            new CommandHint("read " + (scored.isEmpty() ? "CLASS" : scored.getFirst().name), "Read this class"),
+            new CommandHint("mini " + (scored.isEmpty() ? "CLASS" : scored.getFirst().name), "Quick overview of this class")
+        );
+
+        ctx.formatter().printResultWithHints(result, hints);
         return scored.size();
     }
 

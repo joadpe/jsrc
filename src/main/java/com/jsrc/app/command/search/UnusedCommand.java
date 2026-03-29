@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import com.jsrc.app.analysis.CallGraph;
@@ -78,9 +79,12 @@ public class UnusedCommand implements Command {
         result.put("unimplementedInterfaces", unimplemented);
         result.put("total", unusedMethods.size() + unusedClasses.size() + unimplemented.size());
 
+        String firstUnused = !unusedClasses.isEmpty() ? unusedClasses.getFirst()
+                : !unusedMethods.isEmpty() ? Objects.toString(unusedMethods.getFirst().get("method"), "METHOD")
+                : "CLASS";
         var hints = java.util.List.of(
-            new CommandHint("callers UNUSED", "Verify it's truly unused"),
-            new CommandHint("read UNUSED", "Read the unused class")
+            new CommandHint("callers " + firstUnused, "Verify it's truly unused"),
+            new CommandHint("read " + firstUnused, "Read the unused class/method")
         );
 
         ctx.formatter().printResultWithHints(result, hints);

@@ -6,6 +6,7 @@ import com.jsrc.app.command.CommandContext;
 import java.util.List;
 
 import com.jsrc.app.architecture.EndpointMapper;
+import java.util.Objects;
 import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.output.JsonWriter;
 
@@ -18,9 +19,20 @@ public class EndpointsCommand implements Command {
         var mapper = new EndpointMapper(epAnnotations);
         var endpoints = mapper.findEndpoints(allClasses);
 
+        String firstEndpoint = "CONTROLLER.ENDPOINT";
+        String firstMethod = "ENDPOINT";
+        if (!endpoints.isEmpty()) {
+            var ep = endpoints.getFirst();
+            String ctrl = Objects.toString(ep.get("controller"), "CONTROLLER");
+            String mthd = Objects.toString(ep.get("method"), "ENDPOINT");
+            // Use simple class name
+            if (ctrl.contains(".")) ctrl = ctrl.substring(ctrl.lastIndexOf('.') + 1);
+            firstEndpoint = ctrl + "." + mthd;
+            firstMethod = ctrl + "." + mthd;
+        }
         var hints = java.util.List.of(
-            new CommandHint("read CONTROLLER.ENDPOINT", "Read the endpoint"),
-            new CommandHint("flow ENDPOINT", "Trace execution from endpoint")
+            new CommandHint("read " + firstEndpoint, "Read the endpoint"),
+            new CommandHint("flow " + firstMethod, "Trace execution from endpoint")
         );
 
         // Compact mode (default): limit to 25 endpoints + total count

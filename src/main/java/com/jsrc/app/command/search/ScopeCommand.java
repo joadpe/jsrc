@@ -120,9 +120,10 @@ public class ScopeCommand implements Command {
         result.put("estimatedTokens", estimatedChars / 4);
         result.put("totalMatches", scored.size());
 
+        String firstClass = scored.isEmpty() ? "CLASS" : scored.getFirst().ci().name();
         var hints = java.util.List.of(
-            new CommandHint("read SCOPE_CLASS", "Read a relevant class"),
-            new CommandHint("mini SCOPE_CLASS", "Quick overview")
+            new CommandHint("read " + firstClass, "Read a relevant class"),
+            new CommandHint("mini " + firstClass, "Quick overview")
         );
 
         ctx.formatter().printResultWithHints(result, hints);

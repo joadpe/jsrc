@@ -62,8 +62,13 @@ public class SummaryCommand implements Command {
 
         String filePath = ctx.indexed() != null
                 ? ctx.indexed().findFileForClass(ci.name()).orElse("") : "";
-        ctx.formatter().printClassSummary(ci, Path.of(filePath),
-                publicCount, protectedCount, privateCount);
+
+        var hints = java.util.List.of(
+            new CommandHint("read " + ci.name() + ".METHOD", "Read a specific method"),
+            new CommandHint("smells " + ci.name(), "Check for code smells"),
+            new CommandHint("hierarchy " + ci.name(), "See inheritance tree")
+        );
+        ctx.formatter().printClassSummary(ci, Path.of(filePath), hints);
         return 1;
     }
 

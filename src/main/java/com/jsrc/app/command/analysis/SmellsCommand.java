@@ -236,13 +236,13 @@ public class SmellsCommand implements Command {
         var ref = MethodResolver.parse(target);
         boolean isMethodRef = ref.hasParamTypes() || ref.hasClassName();
 
+        var hints = buildTargetHints(target);
+
         // 1. Try direct file/class match first (skip for method refs with parens)
         if (!isMethodRef) {
             List<Path> directMatches = TargetResolver.findFileMatches(ctx.javaFiles(), target);
             if (!directMatches.isEmpty()) {
-                int result = scanFiles(ctx, directMatches);
-                printTargetHints(ctx, target);
-                return result;
+                return scanFilesWithHints(ctx, directMatches, hints);
             }
         }
 
@@ -259,7 +259,6 @@ public class SmellsCommand implements Command {
                         ctx.javaFiles(), result.matchingClasses());
                 if (!fileMatches.isEmpty()) {
                     int scanResult = scanFilesWithLineFilter(ctx, fileMatches, result.methodMatches());
-                    printTargetHints(ctx, target);
                     return scanResult;
                 }
             }
@@ -273,15 +272,31 @@ public class SmellsCommand implements Command {
         return 0;
     }
 
-    private void printTargetHints(CommandContext ctx, String target) {
-        String firstMethod = target.contains(".") ? target.split("\\.")[1] : "METHOD";
-        var hints = java.util.List.of(
-            new CommandHint("read " + target + (firstMethod.equals("METHOD") ? ".METHOD" : ""), "Read the problematic method"),
+    private java.util.List<CommandHint> buildTargetHints(String target) {
+        return java.util.List.of(
+            new CommandHint("read " + target + ".METHOD", "Read the problematic method"),
             new CommandHint("complexity " + target, "Check cyclomatic complexity"),
             new CommandHint("lint " + target, "Pre-compile checks")
         );
-        // Formatter doesn't support hints here since it's after scan, but we log them for visibility
-        System.err.println("Next commands: " + hints);
+    }
+
+    private int scanFilesWithHints(CommandContext ctx, List<Path> files,
+                                    java.util.List<CommandHint> hints) {
+        int totalSmells = 0;
+        for (int i = 0; i < files.size(); i++) {
+            Path file = files.get(i);
+            var smells = ctx.parser().detectSmells(file);
+            totalSmells += smells.size();
+            // Append hints only to the last file's output
+            if (!ctx.mdOutput()) {
+                if (i == files.size() - 1 && hints != null && !hints.isEmpty()) {
+                    ctx.formatter().printSmells(smells, file, hints);
+                } else {
+                    ctx.formatter().printSmells(smells, file);
+                }
+            }
+        }
+        return totalSmells;
     }
 
     private int reportAmbiguity(CommandContext ctx, MethodResolver.MethodRef ref,

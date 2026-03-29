@@ -37,6 +37,14 @@ public interface OutputFormatter {
     void printSmells(List<CodeSmell> smells, Path file);
 
     /**
+     * Prints smells with appended hints.
+     */
+    default void printSmells(List<CodeSmell> smells, Path file,
+                              java.util.List<com.jsrc.app.model.CommandHint> hints) {
+        printSmells(smells, file);
+    }
+
+    /**
      * Prints class listing results.
      *
      * @param classes discovered classes
@@ -121,6 +129,11 @@ public interface OutputFormatter {
     void printClassSummary(ClassInfo classInfo, Path file);
 
     /** Summary with visibility breakdown. Default delegates to base method. */
+    default void printClassSummary(ClassInfo classInfo, Path file,
+                                     java.util.List<com.jsrc.app.model.CommandHint> hints) {
+        printClassSummary(classInfo, file);
+    }
+
     default void printClassSummary(ClassInfo classInfo, Path file,
                                    long publicMethods, long protectedMethods, long privateMethods) {
         printClassSummary(classInfo, file);

@@ -58,7 +58,18 @@ public class JsonFormatter implements OutputFormatter {
     }
 
     @Override
+    public void printSmells(List<CodeSmell> smells, Path file,
+                             java.util.List<com.jsrc.app.model.CommandHint> hints) {
+        printSmellsInternal(smells, file, hints);
+    }
+
+    @Override
     public void printSmells(List<CodeSmell> smells, Path file) {
+        printSmellsInternal(smells, file, null);
+    }
+
+    private void printSmellsInternal(List<CodeSmell> smells, Path file,
+                                      java.util.List<com.jsrc.app.model.CommandHint> hints) {
         List<Map<String, Object>> findings = smells.stream()
                 .map(this::smellToMap)
                 .toList();
@@ -78,7 +89,11 @@ public class JsonFormatter implements OutputFormatter {
         result.put("findings", findings);
         result.put("summary", summary);
 
-        out.println(JsonWriter.toJson(result));
+        if (hints != null && !hints.isEmpty()) {
+            printResultWithHints(result, hints);
+        } else {
+            out.println(JsonWriter.toJson(result));
+        }
     }
 
     @Override
@@ -237,9 +252,19 @@ public class JsonFormatter implements OutputFormatter {
 
     @Override
     public void printClassSummary(ClassInfo ci, Path file,
+                                   java.util.List<com.jsrc.app.model.CommandHint> hints) {
+        printClassSummaryInternal(ci, file, -1, -1, -1, hints);
+    }
+
+    @Override
+    public void printClassSummary(ClassInfo ci, Path file,
                                    long publicMethods, long protectedMethods, long privateMethods) {
-        // Delegate to base, then we'll add visibility in the same output
-        // Actually, rebuild the map with visibility info
+        printClassSummaryInternal(ci, file, publicMethods, protectedMethods, privateMethods, null);
+    }
+
+    private void printClassSummaryInternal(ClassInfo ci, Path file,
+                                            long publicMethods, long protectedMethods, long privateMethods,
+                                            java.util.List<com.jsrc.app.model.CommandHint> hints) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("name", ci.name());
         map.put("packageName", ci.packageName());
@@ -253,7 +278,9 @@ public class JsonFormatter implements OutputFormatter {
         if (!ci.annotations().isEmpty()) {
             map.put("annotations", ci.annotations().stream().map(this::annotationToMap).toList());
         }
-        map.put("visibility", Map.of("public", publicMethods, "protected", protectedMethods, "private", privateMethods));
+        if (publicMethods >= 0) {
+            map.put("visibility", Map.of("public", publicMethods, "protected", protectedMethods, "private", privateMethods));
+        }
         if (!ci.fields().isEmpty()) {
             map.put("fields", ci.fields().stream()
                     .map(f -> {
@@ -275,7 +302,11 @@ public class JsonFormatter implements OutputFormatter {
                     return mmap;
                 }).toList();
         map.put("methods", methods);
-        out.println(JsonWriter.toJson(map));
+        if (hints != null && !hints.isEmpty()) {
+            printResultWithHints(map, hints);
+        } else {
+            out.println(JsonWriter.toJson(map));
+        }
     }
 
     @Override

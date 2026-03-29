@@ -3,6 +3,8 @@ package com.jsrc.app.command.quality;
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.analysis.PerfCommand;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 
 import java.util.*;
 
@@ -107,7 +109,7 @@ public class DebtCommand implements Command {
                 "testability", untestedCount
         ));
 
-        ctx.formatter().printResult(result);
+        ctx.formatter().printResultWithHints(result, buildHints(scores));
         return scores.size();
     }
 
@@ -165,5 +167,14 @@ public class DebtCommand implements Command {
         if (score < 50) return "C";
         if (score < 75) return "D";
         return "F";
+    }
+
+    private List<CommandHint> buildHints(List<Map<String, Object>> scores) {
+        String topClass = scores.isEmpty() ? "TOP_CLASS" : (String) scores.get(0).get("class");
+        return java.util.List.of(
+            new CommandHint("smells " + topClass, "Analyze the highest-debt class"),
+            new CommandHint("read " + topClass, "Read the highest-debt class"),
+            new CommandHint("complexity " + topClass, "Check complexity of highest-debt class")
+        );
     }
 }

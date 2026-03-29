@@ -2,6 +2,8 @@ package com.jsrc.app.command.callgraph;
 
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 
 import java.util.*;
 
@@ -85,8 +87,16 @@ public class FlowCommand implements Command {
         if (!boundaries.isEmpty()) result.put("crossesBoundaries", boundaries);
         result.put("dbQueries", dbQueries[0]);
 
-        ctx.formatter().printResult(result);
+        ctx.formatter().printResultWithHints(result, buildHints());
         return flowSteps.size();
+    }
+
+    private List<CommandHint> buildHints() {
+        return java.util.List.of(
+            new CommandHint("read CLASS.METHOD", "Read a method in the flow"),
+            new CommandHint("callers " + target, "Who triggers this flow?"),
+            new CommandHint("callees " + target, "What does this method call?")
+        );
     }
 
     private void traceFlow(String className, String methodName, CallGraph graph,

@@ -3,6 +3,8 @@ package com.jsrc.app.command.callgraph;
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -154,7 +156,7 @@ public class TestForCommand implements Command {
             result.put("suggestedCommand", "mvn test -Dtest=" + String.join(",", highMedium));
         }
 
-        ctx.formatter().printResult(result);
+        ctx.formatter().printResultWithHints(result, buildHints());
         return tests.size();
     }
 
@@ -227,10 +229,17 @@ public class TestForCommand implements Command {
                                            String confidence, String reason, int depth) {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("class", className);
-        if (methods != null && !methods.isEmpty()) entry.put("methods", methods);
+if (methods != null && !methods.isEmpty()) entry.put("methods", methods);
         entry.put("confidence", confidence);
         entry.put("reason", reason);
         entry.put("depth", depth);
         return entry;
+    }
+
+    private List<CommandHint> buildHints() {
+        return java.util.List.of(
+            new CommandHint("read TEST_CLASS.TEST_METHOD", "Read the test"),
+            new CommandHint("read " + methodInput, "Read the method being tested")
+        );
     }
 }

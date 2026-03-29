@@ -2,6 +2,8 @@ package com.jsrc.app.command.callgraph;
 
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 
 import java.util.ArrayList;
 import java.util.Objects;
@@ -72,10 +74,18 @@ public class CalleesCommand implements Command {
                     .map(e -> Objects.toString(e.get("class"), "?") + "." + Objects.toString(e.get("method"), "?"))
                     .distinct()
                     .toList());
-            ctx.formatter().printResult(compact);
+            ctx.formatter().printResultWithHints(compact, buildHints());
         } else {
             ctx.formatter().printRefs(callees, "Callees", methodName);
         }
         return callees.size();
+    }
+
+    private List<CommandHint> buildHints() {
+        return java.util.List.of(
+            new CommandHint("read CALLEE_CLASS.CALLEE_METHOD", "Read the called method"),
+            new CommandHint("callers " + methodInput, "Who calls the original method?"),
+            new CommandHint("flow " + methodInput, "Trace execution flow downward")
+        );
     }
 }

@@ -2,6 +2,8 @@ package com.jsrc.app.command.callgraph;
 
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -126,7 +128,7 @@ public class CallChainCommand implements Command {
                         return entry;
                     }).toList());
             compact.put("hint", "Use --full for all " + chains.size() + " chains with Mermaid diagrams");
-            ctx.formatter().printResult(compact);
+            ctx.formatter().printResultWithHints(compact, buildHints());
         } else {
             ctx.formatter().printCallChains(
                     new com.jsrc.app.model.CallChainOutput(chains, methodName, signatures, deadEndRoots));
@@ -144,5 +146,13 @@ public class CallChainCommand implements Command {
             }
         }
         return chains.size();
+    }
+
+    private List<CommandHint> buildHints() {
+        return java.util.List.of(
+            new CommandHint("read ROOT.METHOD", "Read a root caller"),
+            new CommandHint("impact " + methodName, "Change risk assessment"),
+            new CommandHint("test-for " + methodName, "Find tests covering this chain")
+        );
     }
 }

@@ -3,6 +3,8 @@ package com.jsrc.app.command.quality;
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 import java.util.*;
 
 import com.jsrc.app.analysis.DeepAnalyzer;
@@ -93,7 +95,7 @@ public class SecurityCommand implements Command {
 
         String sourceCode = SourceResolver.loadClassSource(ci.name(), ctx);
         Map<String, Object> result = scanClass(ci, sourceCode, ctx);
-        ctx.formatter().printResult(result);
+        ctx.formatter().printResultWithHints(result, buildHints());
 
         @SuppressWarnings("unchecked")
         var findings = (List<?>) result.get("findings");
@@ -249,5 +251,13 @@ public class SecurityCommand implements Command {
     static boolean hasLdapInjection(String line) {
         return (line.contains(".search(") || line.contains("SearchControls"))
                 && (line.contains("\" +") || line.contains("+ \""));
+    }
+
+    private List<CommandHint> buildHints() {
+        return java.util.List.of(
+            new CommandHint("read CLASS.METHOD", "Read the vulnerable method"),
+            new CommandHint("callers METHOD", "Who calls this vulnerable code?"),
+            new CommandHint("impact METHOD", "Change risk for fixing this")
+        );
     }
 }

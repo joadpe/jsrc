@@ -2,6 +2,8 @@ package com.jsrc.app.command.callgraph;
 
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -158,8 +160,16 @@ public class ImpactCommand implements Command {
             return allAffected.size();
         }
 
-        ctx.formatter().printResult(result);
+        ctx.formatter().printResultWithHints(result, buildHints());
         return allAffected.size();
+    }
+
+    private List<CommandHint> buildHints() {
+        return java.util.List.of(
+            new CommandHint("test-for " + methodInput, "Check test coverage"),
+            new CommandHint("breaking-changes " + methodInput, "Full breaking change analysis"),
+            new CommandHint("read " + methodInput, "Read the method source")
+        );
     }
 
     private String toMarkdown(String target, int direct, java.util.Set<String> affected, String risk) {

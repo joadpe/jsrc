@@ -3,6 +3,8 @@ package com.jsrc.app.command.analysis;
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 import java.nio.file.Path;
 import java.util.*;
 
@@ -148,11 +150,11 @@ public class PerfCommand implements Command {
                 return 0;
             }
             Map<String, Object> result = analyzeMethod(ci, mi, sourceCode, graph, ctx, 0);
-            ctx.formatter().printResult(result);
+            ctx.formatter().printResultWithHints(result, buildHints());
             return 1;
         } else {
             Map<String, Object> result = analyzeClass(ci, sourceCode, graph, ctx);
-            ctx.formatter().printResult(result);
+            ctx.formatter().printResultWithHints(result, buildHints());
             return ci.methods().size();
         }
     }
@@ -456,5 +458,12 @@ public class PerfCommand implements Command {
                 }
             }
         }
+    }
+
+    private List<CommandHint> buildHints() {
+        return java.util.List.of(
+            new CommandHint("read CLASS.METHOD", "Read the bottleneck method"),
+            new CommandHint("callers METHOD", "Who triggers this bottleneck?")
+        );
     }
 }

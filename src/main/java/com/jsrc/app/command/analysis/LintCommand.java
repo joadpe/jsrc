@@ -3,6 +3,8 @@ package com.jsrc.app.command.analysis;
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -202,7 +204,7 @@ public class LintCommand implements Command {
         result.put("diagnostics", diagnostics);
         result.put("summary", Map.of("errors", errors, "warnings", warnings, "infos", infos,
                 "total", diagnostics.size()));
-        ctx.formatter().printResult(result);
+        ctx.formatter().printResultWithHints(result, buildHints());
         return diagnostics.size();
     }
 
@@ -212,5 +214,12 @@ public class LintCommand implements Command {
         if (line > 0) d.put("line", line);
         d.put("message", message);
         return d;
+    }
+
+    private List<CommandHint> buildHints() {
+        return java.util.List.of(
+            new CommandHint("read CLASS.METHOD", "Read the problematic method"),
+            new CommandHint("validate METHOD(types)", "Validate method reference")
+        );
     }
 }

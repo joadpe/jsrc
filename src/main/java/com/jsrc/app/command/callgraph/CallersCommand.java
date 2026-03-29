@@ -2,6 +2,8 @@ package com.jsrc.app.command.callgraph;
 
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 
 import java.util.ArrayList;
 import java.util.Objects;
@@ -108,7 +110,7 @@ public class CallersCommand implements Command {
             mermaid.put("callers", callers.stream()
                     .map(e -> Objects.toString(e.get("class"), "?") + "." + Objects.toString(e.get("method"), "?"))
                     .distinct().toList());
-            ctx.formatter().printResult(mermaid);
+            ctx.formatter().printResultWithHints(mermaid, buildHints());
         } else if (!ctx.fullOutput() && callers.size() > 0) {
             var compact = new java.util.LinkedHashMap<String, Object>();
             compact.put("method", methodInput);
@@ -117,10 +119,19 @@ public class CallersCommand implements Command {
                     .map(e -> Objects.toString(e.get("class"), "?") + "." + Objects.toString(e.get("method"), "?"))
                     .distinct()
                     .toList());
-            ctx.formatter().printResult(compact);
+            ctx.formatter().printResultWithHints(compact, buildHints());
         } else {
             ctx.formatter().printRefs(callers, "Callers", methodName);
         }
         return callers.size();
+    }
+
+    private List<CommandHint> buildHints() {
+        return java.util.List.of(
+            new CommandHint("read CALLER_CLASS.CALLER_METHOD", "Read the calling method"),
+            new CommandHint("impact " + methodInput, "Full change risk assessment"),
+            new CommandHint("call-chain " + methodInput, "Trace full call chain to roots"),
+            new CommandHint("breaking-changes " + methodInput, "Impact of changing this class")
+        );
     }
 }

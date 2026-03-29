@@ -2,6 +2,8 @@ package com.jsrc.app.command.analysis;
 
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.model.CommandHint;
+import com.jsrc.app.model.HintContext;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -107,7 +109,14 @@ public class ComplexityCommand implements Command {
         result.put("estimatedEffort", effort);
         result.put("methods", methodMetrics);
 
-        ctx.formatter().printResult(result);
+        ctx.formatter().printResultWithHints(result, buildHints());
         return target.methods().size();
+    }
+
+    private List<CommandHint> buildHints() {
+        return java.util.List.of(
+            new CommandHint("read CLASS.METHOD", "Read the most complex method"),
+            new CommandHint("smells " + input, "Check for code smells")
+        );
     }
 }

@@ -430,6 +430,12 @@ public class HybridJavaParser implements CodeParser {
             if (current instanceof ClassOrInterfaceDeclaration cid) {
                 return cid.getNameAsString();
             }
+            if (current instanceof com.github.javaparser.ast.body.RecordDeclaration rd) {
+                return rd.getNameAsString();
+            }
+            if (current instanceof com.github.javaparser.ast.body.EnumDeclaration ed) {
+                return ed.getNameAsString();
+            }
             current = current.getParentNode().orElse(null);
         }
         return "";

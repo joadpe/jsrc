@@ -85,6 +85,13 @@ public interface OutputFormatter {
     }
 
     /**
+     * Print overview with package count and top classes for navigation.
+     */
+    default void printOverview(OverviewResult result, int packageCount, List<String> topClasses) {
+        printOverview(result, packageCount);
+    }
+
+    /**
      * Prints class dependency results.
      *
      * @param result dependency data for the queried class

@@ -40,23 +40,60 @@ public class ReadCommand implements Command {
         if (result != null) {
             // Compact mode: if content is large and it's a full-class read, truncate
             boolean isClassRead = !ref.hasClassName() && !target.contains("(");
-            // Only truncate truly large classes (>750 LOC / ~25000 chars)
-            // Smaller classes are shown in full — agents need source for reasoning
-            if (!ctx.fullOutput() && isClassRead && result.content() != null
-                    && result.content().length() > 25000) {
-                var compact = new java.util.LinkedHashMap<String, Object>();
-                compact.put("class", result.className());
-                compact.put("file", result.file().toString());
-                compact.put("lines", result.startLine() + "-" + result.endLine());
-                compact.put("chars", result.content().length());
-                compact.put("hint", "Large class. Use --read Class.method for specific methods, or --full for complete source.");
-                String[] lines = result.content().split("\n");
-                int previewLines = Math.min(100, lines.length);
-                compact.put("preview", String.join("\n", java.util.Arrays.copyOf(lines, previewLines)));
-                compact.put("truncated", lines.length > previewLines);
-                ctx.formatter().printResult(compact);
+            if (isClassRead) {
+                // Extract method list so agents know what to drill into
+                List<String> methodNames = extractMethodNames(ctx, result);
+
+                // Only truncate truly large classes (>750 LOC / ~25000 chars)
+                // Smaller classes are shown in full — agents need source for reasoning
+                if (!ctx.fullOutput() && result.content() != null
+                        && result.content().length() > 25000) {
+                    var compact = new java.util.LinkedHashMap<String, Object>();
+                    compact.put("class", result.className());
+                    compact.put("file", result.file().toString());
+                    compact.put("lines", result.startLine() + "-" + result.endLine());
+                    compact.put("chars", result.content().length());
+                    if (!methodNames.isEmpty()) {
+                        compact.put("methods", methodNames);
+                    }
+                    compact.put("hint", "Large class. Use 'read " + result.className()
+                            + ".methodName' for specific methods, or --full for complete source.");
+                    String[] lines = result.content().split("\n");
+                    int previewLines = Math.min(100, lines.length);
+                    compact.put("preview", String.join("\n", java.util.Arrays.copyOf(lines, previewLines)));
+                    compact.put("truncated", lines.length > previewLines);
+                    ctx.formatter().printResult(compact);
+                } else {
+                    // Full class output — still include method names for discoverability
+                    var enriched = new java.util.LinkedHashMap<String, Object>();
+                    enriched.put("class", result.className());
+                    enriched.put("file", result.file().toString());
+                    enriched.put("line", result.startLine());
+                    if (!methodNames.isEmpty()) {
+                        enriched.put("methods", methodNames);
+                        enriched.put("hint", "Use 'read " + result.className()
+                                + ".methodName' to read individual methods.");
+                    }
+                    enriched.put("content", result.content());
+                    ctx.formatter().printResult(enriched);
+                }
             } else {
-                ctx.formatter().printReadResult(result);
+                // Method read — include sibling methods for navigation
+                List<String> siblings = extractSiblingMethods(ctx, result);
+                if (!siblings.isEmpty()) {
+                    var enriched = new java.util.LinkedHashMap<String, Object>();
+                    enriched.put("class", result.className());
+                    enriched.put("method", result.methodName());
+                    enriched.put("file", result.file().toString());
+                    enriched.put("line", result.startLine());
+                    enriched.put("content", result.content());
+                    enriched.put("siblingMethods", siblings);
+                    enriched.put("hint", "Use 'read " + result.className()
+                            + ".methodName' to read other methods in this class.");
+                    ctx.formatter().printResult(enriched);
+                } else {
+                    ctx.formatter().printReadResult(result);
+                }
             }
             return 1;
         }
@@ -119,6 +156,45 @@ public class ReadCommand implements Command {
             }
         }
         return null;
+    }
+
+    /**
+     * Extracts sibling method names (other methods in the same class, excluding the current one).
+     * Helps agents navigate to related methods without reading the whole file.
+     */
+    private List<String> extractSiblingMethods(CommandContext ctx, SourceReader.ReadResult result) {
+        try {
+            Path file = result.file();
+            if (file == null || result.className() == null) return List.of();
+            List<MethodInfo> allMethods = ctx.parser().findAllMethods(file);
+            return allMethods.stream()
+                    .filter(m -> m.className().equals(result.className()))
+                    .map(MethodInfo::name)
+                    .filter(name -> !name.equals(result.methodName()))
+                    .distinct()
+                    .toList();
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * Extracts method names from the class for discoverability.
+     * Agents can use these to drill into specific methods with 'read Class.method'.
+     */
+    private List<String> extractMethodNames(CommandContext ctx, SourceReader.ReadResult result) {
+        try {
+            Path file = result.file();
+            if (file == null) return List.of();
+            List<MethodInfo> allMethods = ctx.parser().findAllMethods(file);
+            return allMethods.stream()
+                    .filter(m -> m.className().equals(result.className()))
+                    .map(MethodInfo::name)
+                    .distinct()
+                    .toList();
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 
     private static Path findFileByPath(List<Path> files, String indexPath) {

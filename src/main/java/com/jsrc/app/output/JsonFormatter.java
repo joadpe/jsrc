@@ -132,6 +132,11 @@ public class JsonFormatter implements OutputFormatter {
 
     @Override
     public void printOverview(OverviewResult result, int packageCount) {
+        printOverview(result, packageCount, List.of());
+    }
+
+    @Override
+    public void printOverview(OverviewResult result, int packageCount, List<String> topClasses) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("totalFiles", result.totalFiles());
         map.put("totalClasses", result.totalClasses());
@@ -140,6 +145,9 @@ public class JsonFormatter implements OutputFormatter {
         map.put("totalPackages", packageCount);
         if (!result.packages().isEmpty()) {
             map.put("packages", result.packages());
+        }
+        if (!topClasses.isEmpty()) {
+            map.put("topClasses", topClasses);
         }
         out.println(JsonWriter.toJson(map));
     }

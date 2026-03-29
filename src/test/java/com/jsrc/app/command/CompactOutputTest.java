@@ -41,8 +41,8 @@ class CompactOutputTest {
         assertTrue(result.containsKey("totalFiles"));
         assertTrue(result.containsKey("totalClasses"));
         assertTrue(result.containsKey("totalPackages"));
-        assertFalse(result.containsKey("packages"),
-                "Compact overview should NOT include packages array");
+        assertTrue(result.containsKey("packages"),
+                "Overview should always include packages for navigation");
     }
 
     @Test
@@ -74,8 +74,8 @@ class CompactOutputTest {
     void compact_isDefault() throws Exception {
         // When fullOutput is not set (default constructor), should be compact
         var result = runOverview(false);
-        assertFalse(result.containsKey("packages"),
-                "Default should be compact (no packages)");
+        assertTrue(result.containsKey("packages"),
+                "Default overview should include packages for navigation");
     }
 
     @Test

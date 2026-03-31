@@ -42,3 +42,4 @@ Thumbs.db
 # === jsrc cache ===
 .jsrc/
 call-chains/
+AGENTS.md

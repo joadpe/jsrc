@@ -150,3 +150,12 @@ For more details, see README.md and docs/QUICKSTART.md.
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
+
+
+## 🚫 Dependencias Externas (OBLIGATORIO)
+
+**NO agregar nuevas dependencias** (pip, npm, bun add, Maven) sin aprobación explícita de Joaquín.
+- Usar las librerías que ya existen en el proyecto
+- Si necesitas algo nuevo, reportar en el bead/PR por qué es necesario y esperar aprobación
+- Las versiones están pineadas — NO cambiar versiones existentes
+- Violación = revert inmediato

@@ -58,6 +58,7 @@ public class BudgetPolicy {
 
     /**
      * Core commands visible under TINY budget (for describe filtering).
+     * Frozen for release 1.1 slice A based on issue #9.
      */
     private static final Set<String> TINY_CORE_COMMANDS = Set.of(
         "index", "overview", "mini", "read", "scope", "callers", 
@@ -66,6 +67,7 @@ public class BudgetPolicy {
 
     /**
      * Core commands visible under SMALL budget (for describe filtering).
+     * Frozen for release 1.1 slice A based on issue #9.
      */
     private static final Set<String> SMALL_CORE_COMMANDS = Set.of(
         "index", "overview", "mini", "summary", "read", "hierarchy", "deps",
@@ -87,6 +89,21 @@ public class BudgetPolicy {
             return profile == BudgetProfile.TINY ? Action.DENY : Action.ALLOW;
         }
         return profileActions.getOrDefault(profile, Action.ALLOW);
+    }
+
+    /**
+     * Returns the budget surface: set of command names visible for the given profile.
+     * This is the single source of truth for describe and skill command filtering.
+     * 
+     * @param profile the budget profile
+     * @return immutable set of command names visible under this profile
+     */
+    public static Set<String> budgetSurface(BudgetProfile profile) {
+        return switch (profile) {
+            case TINY -> TINY_CORE_COMMANDS;
+            case SMALL -> SMALL_CORE_COMMANDS;
+            case STANDARD -> null; // null signals "all commands" for standard
+        };
     }
 
     /**

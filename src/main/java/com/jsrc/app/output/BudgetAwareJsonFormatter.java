@@ -35,15 +35,29 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
     @Override
     @SuppressWarnings("unchecked")
     public void printResultWithHints(Object data, java.util.List<com.jsrc.app.model.CommandHint> hints) {
+        // Apply budget limits and metadata
         Object processed = applyBudgetLimitsAndInjectMeta(data);
+        
+        // Merge hints into the processed data if provided
+        if (hints != null && !hints.isEmpty()) {
+            if (processed instanceof Map<?, ?> map) {
+                var merged = new java.util.LinkedHashMap<>((Map<String, Object>) map);
+                merged.put("nextCommands", hints.stream()
+                        .map(h -> {
+                            var m = new java.util.LinkedHashMap<String, String>();
+                            m.put("command", h.command());
+                            m.put("description", h.description());
+                            return m;
+                        })
+                        .toList());
+                processed = merged;
+            }
+        }
+        
+        // Serialize and apply max-bytes
         String json = com.jsrc.app.output.JsonWriter.toJson(processed);
         String truncated = applyMaxBytes(json);
         out.println(truncated);
-        
-        // Print hints if provided
-        if (hints != null && !hints.isEmpty()) {
-            super.printHints(hints);
-        }
     }
 
     @Override

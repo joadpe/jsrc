@@ -52,7 +52,21 @@ public abstract class PicocliAdapter implements Callable<Integer> {
     @Override
     public Integer call() {
         try {
-
+            // B1: Budget enforcement gate - check DENY actions before execution
+            BudgetContext budgetCtx = parent.buildBudgetContext();
+            BudgetPolicy.Action action = BudgetPolicy.getAction(commandName(), budgetCtx.profile());
+            
+            if (action == BudgetPolicy.Action.DENY) {
+                // Command is denied by budget policy - return structured error
+                String suggestion = suggestAlternative(commandName(), budgetCtx.profile());
+                var deniedCmd = new com.jsrc.app.command.BudgetDeniedCommand(
+                    commandName(), 
+                    budgetCtx.profile(), 
+                    suggestion
+                );
+                return deniedCmd.execute(null);
+            }
+            
             var timer = StopWatch.start();
             CommandContext ctx = parent.buildContext(skipIndex());
             Command cmd = createCommand();
@@ -71,10 +85,30 @@ public abstract class PicocliAdapter implements Callable<Integer> {
                 System.err.println(metrics);
             }
 
+            // Special handling for error codes: BAD_USAGE and other errors pass through
+            if (result == ExitCode.BAD_USAGE || result < 0) {
+                return result;
+            }
+            
+            // Standard success/not-found logic
             return result > 0 ? ExitCode.OK : ExitCode.NOT_FOUND;
         } catch (JsrcException e) {
             System.err.println("Error: " + e.getMessage());
             return e.exitCode();
         }
+    }
+    
+    /**
+     * Suggests alternative command when a command is denied by budget.
+     */
+    private String suggestAlternative(String deniedCommand, BudgetProfile profile) {
+        return switch (deniedCommand) {
+            case "context" -> "jsrc mini <Class> --json (for summary)";
+            case "dump" -> "Not available under " + profile + " profile";
+            case "tour" -> "jsrc overview --json (for project overview)";
+            case "call-chain" -> "jsrc callers <Class.method> --json (for single-level callers)";
+            case "map" -> "jsrc overview --json (for project overview)";
+            default -> "Try jsrc describe --json to see available commands";
+        };
     }
 }

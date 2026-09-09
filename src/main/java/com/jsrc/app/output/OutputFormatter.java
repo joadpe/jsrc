@@ -204,4 +204,25 @@ public interface OutputFormatter {
                                    java.io.PrintStream out) {
         return json ? new JsonFormatter(signatureOnly, fields, out) : new TextFormatter(signatureOnly, out);
     }
+
+    /**
+     * Factory method with budget context for budget-aware formatting.
+     *
+     * @param json           true for JSON output, false for human-readable text
+     * @param signatureOnly  true to emit only method signatures
+     * @param fields         set of field names to include in JSON (null = all)
+     * @param out            output stream to write to
+     * @param budgetContext  budget context for applying limits and metadata
+     * @return formatter instance
+     */
+    static OutputFormatter create(boolean json, boolean signatureOnly, java.util.Set<String> fields,
+                                   java.io.PrintStream out, com.jsrc.app.cli.BudgetContext budgetContext) {
+        if (!json) {
+            return new TextFormatter(signatureOnly, out);
+        }
+        if (budgetContext != null && budgetContext.profile() != com.jsrc.app.cli.BudgetProfile.STANDARD) {
+            return new BudgetAwareJsonFormatter(signatureOnly, fields, out, budgetContext);
+        }
+        return new JsonFormatter(signatureOnly, fields, out);
+    }
 }

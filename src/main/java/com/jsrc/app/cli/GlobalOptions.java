@@ -51,6 +51,22 @@ public class GlobalOptions {
             scope = ScopeType.INHERIT)
     String outDir;
 
+    @Option(names = "--budget", description = "Budget profile: tiny|small|standard (default: standard)",
+            scope = ScopeType.INHERIT)
+    String budget;
+
+    @Option(names = "--limit", description = "Maximum number of items in output lists",
+            scope = ScopeType.INHERIT)
+    Integer limit;
+
+    @Option(names = "--max-bytes", description = "Maximum output size in bytes",
+            scope = ScopeType.INHERIT)
+    Integer maxBytes;
+
+    @Option(names = "--no-budget-meta", description = "Omit _budget metadata from JSON output",
+            scope = ScopeType.INHERIT)
+    boolean noBudgetMeta;
+
     public boolean jsonOutput() { return jsonOutput; }
     public boolean mdOutput() { return mdOutput; }
     public boolean fullOutput() { return fullOutput; }
@@ -60,4 +76,8 @@ public class GlobalOptions {
     public Set<String> fields() { return fields; }
     public String configPath() { return configPath; }
     public String outDir() { return outDir; }
+    public String budget() { return budget; }
+    public Integer limit() { return limit; }
+    public Integer maxBytes() { return maxBytes; }
+    public boolean noBudgetMeta() { return noBudgetMeta; }
 }

@@ -31,6 +31,7 @@ public final class CommandContext {
     private final String outDir;
     private final boolean fullOutput;
     private final boolean noTest;
+    private final com.jsrc.app.cli.BudgetContext budgetContext;
 
     private CallGraph callGraphCache;
     private DependencyAnalyzer dependencyAnalyzerCache;
@@ -38,24 +39,31 @@ public final class CommandContext {
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser) {
-        this(javaFiles, rootPath, config, formatter, indexed, parser, false, null, false, false);
+        this(javaFiles, rootPath, config, formatter, indexed, parser, false, null, false, false, null);
     }
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
                           boolean mdOutput, String outDir) {
-        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, false, false);
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, false, false, null);
     }
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
                           boolean mdOutput, String outDir, boolean fullOutput) {
-        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, fullOutput, false);
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, fullOutput, false, null);
     }
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
                           boolean mdOutput, String outDir, boolean fullOutput, boolean noTest) {
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, fullOutput, noTest, null);
+    }
+
+    public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
+                          OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
+                          boolean mdOutput, String outDir, boolean fullOutput, boolean noTest,
+                          com.jsrc.app.cli.BudgetContext budgetContext) {
         this.javaFiles = javaFiles;
         this.rootPath = rootPath;
         this.config = config;
@@ -66,6 +74,7 @@ public final class CommandContext {
         this.outDir = outDir;
         this.fullOutput = fullOutput;
         this.noTest = noTest;
+        this.budgetContext = budgetContext;
     }
 
     public List<Path> javaFiles() { return javaFiles; }
@@ -78,6 +87,7 @@ public final class CommandContext {
     public String outDir() { return outDir; }
     public boolean fullOutput() { return fullOutput; }
     public boolean noTest() { return noTest; }
+    public com.jsrc.app.cli.BudgetContext budgetContext() { return budgetContext; }
 
     private java.util.Map<String, String> qualifiedNameCache;
 

@@ -73,10 +73,10 @@ class InputValidatorTest {
     @Test
     @DisplayName("Should accept known commands")
     void shouldAcceptKnownCommands() {
-        assertNull(InputValidator.validateCommand("--overview"));
-        assertNull(InputValidator.validateCommand("--classes"));
-        assertNull(InputValidator.validateCommand("--index"));
-        assertNull(InputValidator.validateCommand("--smells"));
+        assertNull(InputValidator.validateCommand("overview"));
+        assertNull(InputValidator.validateCommand("classes"));
+        assertNull(InputValidator.validateCommand("index"));
+        assertNull(InputValidator.validateCommand("smells"));
     }
 
     @Test
@@ -89,19 +89,19 @@ class InputValidatorTest {
     @Test
     @DisplayName("Should reject unknown flag commands with suggestion")
     void shouldRejectUnknownWithSuggestion() {
-        String error = InputValidator.validateCommand("--calsses");
+        String error = InputValidator.validateCommand("calsses");
         assertNotNull(error);
         assertTrue(error.contains("Did you mean"), "Should suggest a similar command: " + error);
 
-        error = InputValidator.validateCommand("--summry");
+        error = InputValidator.validateCommand("summry");
         assertNotNull(error);
-        assertTrue(error.contains("Did you mean --summary"));
+        assertTrue(error.contains("Did you mean summary"));
     }
 
     @Test
     @DisplayName("Should reject totally unknown commands")
     void shouldRejectTotallyUnknown() {
-        String error = InputValidator.validateCommand("--xyzzy");
+        String error = InputValidator.validateCommand("xyzzy");
         assertNotNull(error);
         assertTrue(error.contains("Unknown command"));
     }

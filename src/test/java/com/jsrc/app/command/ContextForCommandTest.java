@@ -32,8 +32,8 @@ class ContextForCommandTest {
         assertEquals("OrderService.validate", result.get("detectedMethod"));
         @SuppressWarnings("unchecked")
         var plan = (List<Map<String, Object>>) result.get("readPlan");
-        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("--read")));
-        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("--impact")));
+        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("read")));
+        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("impact")));
     }
 
     @Test
@@ -42,8 +42,8 @@ class ContextForCommandTest {
         assertEquals("feature", result.get("intent"));
         @SuppressWarnings("unchecked")
         var plan = (List<Map<String, Object>>) result.get("readPlan");
-        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("--scope")));
-        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("--style")));
+        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("scope")));
+        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("style")));
     }
 
     @Test
@@ -52,8 +52,8 @@ class ContextForCommandTest {
         assertEquals("explore", result.get("intent"));
         @SuppressWarnings("unchecked")
         var plan = (List<Map<String, Object>>) result.get("readPlan");
-        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("--overview")
-                || s.get("command").toString().contains("--scope")));
+        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("overview")
+                || s.get("command").toString().contains("scope")));
     }
 
     @Test
@@ -62,8 +62,8 @@ class ContextForCommandTest {
         assertEquals("change", result.get("intent"));
         @SuppressWarnings("unchecked")
         var plan = (List<Map<String, Object>>) result.get("readPlan");
-        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("--impact")
-                || s.get("command").toString().contains("--callers")));
+        assertTrue(plan.stream().anyMatch(s -> s.get("command").toString().contains("impact")
+                || s.get("command").toString().contains("callers")));
     }
 
     @Test

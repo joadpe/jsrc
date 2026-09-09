@@ -298,7 +298,7 @@ class TestHelpers {
             null, // outDir
             false, // fullOutput
             false, // noTest
-            new com.jsrc.app.cli.BudgetContext(com.jsrc.app.cli.BudgetProfile.STANDARD, null, null, false, null)
+            new com.jsrc.app.cli.BudgetContext(com.jsrc.app.cli.BudgetProfile.STANDARD, null, null, false, false, null)
         );
     }
     
@@ -315,7 +315,7 @@ class TestHelpers {
             null, // outDir
             false, // fullOutput
             false, // noTest
-            new com.jsrc.app.cli.BudgetContext(com.jsrc.app.cli.BudgetProfile.STANDARD, null, null, false, null)
+            new com.jsrc.app.cli.BudgetContext(com.jsrc.app.cli.BudgetProfile.STANDARD, null, null, false, false, null)
         );
     }
 }

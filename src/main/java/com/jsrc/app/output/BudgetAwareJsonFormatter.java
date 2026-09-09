@@ -27,14 +27,23 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
     @SuppressWarnings("unchecked")
     public void printResult(Object data) {
         Object processed = applyBudgetLimitsAndInjectMeta(data);
-        super.printResult(processed);
+        String json = com.jsrc.app.output.JsonWriter.toJson(processed);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public void printResultWithHints(Object data, java.util.List<com.jsrc.app.model.CommandHint> hints) {
         Object processed = applyBudgetLimitsAndInjectMeta(data);
-        super.printResultWithHints(processed, hints);
+        String json = com.jsrc.app.output.JsonWriter.toJson(processed);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
+        
+        // Print hints if provided
+        if (hints != null && !hints.isEmpty()) {
+            super.printHints(hints);
+        }
     }
 
     @Override
@@ -44,7 +53,41 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
             budgetContext.setTruncated(true);
             budgetContext.addTransform("limit:" + budgetContext.effectiveLimit());
         }
+        
+        // Apply field set filtering for budget profiles
+        var fieldSet = com.jsrc.app.cli.BudgetPolicy.getFieldsForProfile("class", budgetContext.profile());
+        if (fieldSet != null) {
+            budgetContext.addTransform("fields:" + budgetContext.profile().fieldSet());
+        }
+        
         super.printClasses(limited, sourceRoot);
+    }
+
+    @Override
+    public void printClassSummary(com.jsrc.app.parser.model.ClassInfo classInfo, Path file) {
+        // Apply field set if under budget
+        var fieldSet = com.jsrc.app.cli.BudgetPolicy.getFieldsForProfile("class", budgetContext.profile());
+        if (fieldSet != null) {
+            budgetContext.addTransform("fields:" + budgetContext.profile().fieldSet());
+        }
+        super.printClassSummary(classInfo, file);
+    }
+
+    @Override
+    public void printMethods(List<com.jsrc.app.parser.model.MethodInfo> methods, Path file, String methodName) {
+        List<com.jsrc.app.parser.model.MethodInfo> limited = applyListLimit(methods);
+        if (limited.size() < methods.size()) {
+            budgetContext.setTruncated(true);
+            budgetContext.addTransform("limit:" + budgetContext.effectiveLimit());
+        }
+        
+        // Apply field set filtering for methods
+        var fieldSet = com.jsrc.app.cli.BudgetPolicy.getFieldsForProfile("method", budgetContext.profile());
+        if (fieldSet != null) {
+            budgetContext.addTransform("fields:" + budgetContext.profile().fieldSet());
+        }
+        
+        super.printMethods(limited, file, methodName);
     }
 
     @Override
@@ -58,23 +101,23 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
     }
 
     @Override
-    public void printMethods(List<com.jsrc.app.parser.model.MethodInfo> methods, Path file, String methodName) {
-        List<com.jsrc.app.parser.model.MethodInfo> limited = applyListLimit(methods);
-        if (limited.size() < methods.size()) {
-            budgetContext.setTruncated(true);
-            budgetContext.addTransform("limit:" + budgetContext.effectiveLimit());
-        }
-        super.printMethods(limited, file, methodName);
+    public void printOverview(com.jsrc.app.model.OverviewResult result) {
+        super.printOverview(result);
     }
 
     @Override
-    public void printAnnotationMatches(List<com.jsrc.app.model.AnnotationMatch> matches) {
-        List<com.jsrc.app.model.AnnotationMatch> limited = applyListLimit(matches);
-        if (limited.size() < matches.size()) {
-            budgetContext.setTruncated(true);
-            budgetContext.addTransform("limit:" + budgetContext.effectiveLimit());
-        }
-        super.printAnnotationMatches(limited);
+    public void printOverview(com.jsrc.app.model.OverviewResult result, int packageCount) {
+        super.printOverview(result, packageCount);
+    }
+
+    @Override
+    public void printOverview(com.jsrc.app.model.OverviewResult result, int packageCount, java.util.List<String> topClasses) {
+        super.printOverview(result, packageCount, topClasses);
+    }
+
+    @Override
+    public void printReadResult(com.jsrc.app.parser.SourceReader.ReadResult result) {
+        super.printReadResult(result);
     }
 
     @SuppressWarnings("unchecked")
@@ -140,5 +183,23 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
         withMeta.put("_budget", metadata);
         withMeta.putAll(map);
         return withMeta;
+    }
+
+    /**
+     * Apply max-bytes truncation if configured.
+     * @param json the JSON string to truncate
+     * @return truncated JSON or original if under limit
+     */
+    private String applyMaxBytes(String json) {
+        int maxBytes = budgetContext.effectiveMaxBytes();
+        if (maxBytes <= 0 || json.length() <= maxBytes) {
+            return json;
+        }
+        
+        budgetContext.setTruncated(true);
+        budgetContext.addTransform("max-bytes:" + maxBytes);
+        
+        // Truncate with ellipsis to indicate truncation
+        return json.substring(0, maxBytes - 20) + "...\"truncated\":true}";
     }
 }

@@ -13,7 +13,7 @@ class BudgetContextTest {
     @Test
     @DisplayName("Should use profile default limits when not overridden")
     void shouldUseProfileDefaults() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         assertEquals(10, ctx.effectiveLimit());
         assertEquals(2048, ctx.effectiveMaxBytes());
     }
@@ -21,7 +21,7 @@ class BudgetContextTest {
     @Test
     @DisplayName("Should override profile limits when provided")
     void shouldOverrideLimits() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, 50, 4096, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, 50, 4096, false, false, null);
         assertEquals(50, ctx.effectiveLimit());
         assertEquals(4096, ctx.effectiveMaxBytes());
     }
@@ -29,7 +29,7 @@ class BudgetContextTest {
     @Test
     @DisplayName("Should track degradation")
     void shouldTrackDegradation() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ctx.setDegradedFrom("summary");
         
         Map<String, Object> meta = ctx.buildMetadata();
@@ -40,7 +40,7 @@ class BudgetContextTest {
     @Test
     @DisplayName("Should track applied transforms")
     void shouldTrackTransforms() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ctx.addTransform("limit:10");
         ctx.addTransform("fields:tiny");
         
@@ -52,7 +52,7 @@ class BudgetContextTest {
     @Test
     @DisplayName("Should track truncation")
     void shouldTrackTruncation() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.SMALL, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.SMALL, null, null, false, false, null);
         ctx.setTruncated(true);
         
         Map<String, Object> meta = ctx.buildMetadata();
@@ -63,7 +63,7 @@ class BudgetContextTest {
     @Test
     @DisplayName("Should return null metadata when noBudgetMeta is true")
     void shouldReturnNullWhenOptOut() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, true, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, true, false, null);
         ctx.setDegradedFrom("summary");
         
         Map<String, Object> meta = ctx.buildMetadata();
@@ -73,7 +73,7 @@ class BudgetContextTest {
     @Test
     @DisplayName("Should return null metadata for standard profile")
     void shouldReturnNullForStandard() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.STANDARD, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.STANDARD, null, null, false, false, null);
         ctx.setDegradedFrom("summary");
         
         Map<String, Object> meta = ctx.buildMetadata();
@@ -97,7 +97,7 @@ class BudgetContextTest {
     @DisplayName("Should track field overrides")
     void shouldTrackFieldOverrides() {
         Set<String> fields = Set.of("name", "methodCount");
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, fields);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, fields);
         
         Map<String, Object> meta = ctx.buildMetadata();
         assertNotNull(meta);

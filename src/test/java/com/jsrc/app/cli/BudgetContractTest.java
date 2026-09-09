@@ -52,7 +52,7 @@ class BudgetContractTest {
     @DisplayName("A1: TINY profile field set actually filters JSON output for classes")
     void a1_tinyProfileFieldSetFiltersClassOutput() {
         // Given: BudgetContext with TINY profile
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -95,7 +95,7 @@ class BudgetContractTest {
     @Test
     @DisplayName("A1: TINY profile field filtering does not just add metadata - it actually removes fields")
     void a1_tinyFieldFilteringRemovesFieldsNotJustMetadata() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -131,7 +131,7 @@ class BudgetContractTest {
     @Test
     @DisplayName("A2: printClasses honors effectiveMaxBytes under TINY")
     void a2_printClassesHonorsMaxBytes() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 500, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 500, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -168,7 +168,7 @@ class BudgetContractTest {
     @Test
     @DisplayName("A2: printMethods honors effectiveMaxBytes under TINY")
     void a2_printMethodsHonorsMaxBytes() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 300, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 300, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -199,7 +199,7 @@ class BudgetContractTest {
     @Test
     @DisplayName("A2: printClassSummary honors effectiveMaxBytes under TINY")
     void a2_printClassSummaryHonorsMaxBytes() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 400, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 400, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -243,7 +243,7 @@ class BudgetContractTest {
     @Test
     @DisplayName("A3: Top-level JSON arrays remain arrays (not wrapped)")
     void a3_topLevelArraysRemainArrays() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -346,7 +346,7 @@ class BudgetContractTest {
     @Test
     @DisplayName("A8: deps command applies budget limits via formatter")
     void a8_depsCommandAppliesBudgetLimits() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -386,7 +386,7 @@ class BudgetContractTest {
     @Test
     @DisplayName("A8: hierarchy command applies budget limits via formatter")
     void a8_hierarchyCommandAppliesBudgetLimits() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -425,7 +425,7 @@ class BudgetContractTest {
     @Test
     @DisplayName("A8: annotations command applies budget limits")
     void a8_annotationsCommandAppliesBudgetLimits() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -458,7 +458,7 @@ class BudgetContractTest {
     @Test
     @DisplayName("A8: smells command output respects budget limits")
     void a8_smellsCommandAppliesBudgetLimits() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         

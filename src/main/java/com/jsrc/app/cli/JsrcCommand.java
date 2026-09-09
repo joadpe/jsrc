@@ -197,6 +197,7 @@ public class JsrcCommand implements Runnable {
             globalOptions.limit(),
             globalOptions.maxBytes(),
             globalOptions.noBudgetMeta(),
+            globalOptions.noNextCommands(),
             globalOptions.fields()
         );
     }

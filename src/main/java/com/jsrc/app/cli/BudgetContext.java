@@ -15,6 +15,7 @@ public class BudgetContext {
     private final int effectiveLimit;
     private final int effectiveMaxBytes;
     private final boolean noBudgetMeta;
+    private final boolean noNextCommands;
     private final Set<String> overriddenFields;
     
     private String degradedFrom;
@@ -22,11 +23,12 @@ public class BudgetContext {
     private boolean truncated = false;
 
     public BudgetContext(BudgetProfile profile, Integer limit, Integer maxBytes, 
-                         boolean noBudgetMeta, Set<String> overriddenFields) {
+                         boolean noBudgetMeta, boolean noNextCommands, Set<String> overriddenFields) {
         this.profile = profile;
         this.effectiveLimit = limit != null ? limit : profile.defaultLimit();
         this.effectiveMaxBytes = maxBytes != null ? maxBytes : profile.defaultMaxBytes();
         this.noBudgetMeta = noBudgetMeta;
+        this.noNextCommands = noNextCommands;
         this.overriddenFields = overriddenFields;
     }
 
@@ -44,6 +46,10 @@ public class BudgetContext {
 
     public boolean noBudgetMeta() {
         return noBudgetMeta;
+    }
+
+    public boolean noNextCommands() {
+        return noNextCommands;
     }
 
     public void setDegradedFrom(String from) {

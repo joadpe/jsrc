@@ -94,6 +94,8 @@ public final class CommandRegistry {
                     List.of(), List.of("--json"), "array"),
             new CommandDef("describe", "List available commands and their metadata",
                     List.of("[commandName]"), List.of("--json"), "array or object"),
+            new CommandDef("skill", "JSON playbook describing jsrc capabilities and suggested workflows",
+                    List.of(), List.of("--json"), "object"),
             new CommandDef("validate", "Verify if a method exists, suggest closest if not (anti-hallucination)",
                     List.of("<Class.method>"), List.of("--json"), "object"),
             new CommandDef("mini", "Ultra-compact class summary (<500 chars) for small context windows",

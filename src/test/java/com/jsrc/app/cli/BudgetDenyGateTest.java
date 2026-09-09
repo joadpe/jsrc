@@ -62,14 +62,10 @@ class BudgetDenyGateTest {
 
         try {
             JsrcCommand jsrcCmd = new JsrcCommand();
-            jsrcCmd.rootPath = rootDir.toString();
-            jsrcCmd.jsonOutput = true;
-            jsrcCmd.budgetProfile = BudgetProfile.TINY;
-            
             CommandLine cli = new CommandLine(jsrcCmd);
             
-            // When: context command is invoked
-            int exitCode = cli.execute("context", "TestClass");
+            // When: context command is invoked with TINY budget
+            int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "context", "TestClass");
             
             // Then: Should exit with BAD_USAGE (2) and output budget_denied JSON
             assertEquals(ExitCode.BAD_USAGE, exitCode, 
@@ -97,12 +93,8 @@ class BudgetDenyGateTest {
 
         try {
             JsrcCommand jsrcCmd = new JsrcCommand();
-            jsrcCmd.rootPath = rootDir.toString();
-            jsrcCmd.jsonOutput = true;
-            jsrcCmd.budgetProfile = BudgetProfile.TINY;
-            
             CommandLine cli = new CommandLine(jsrcCmd);
-            int exitCode = cli.execute("call-chain", "TestClass.method1");
+            int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "call-chain", "TestClass.method1");
             
             assertEquals(ExitCode.BAD_USAGE, exitCode);
             
@@ -124,12 +116,8 @@ class BudgetDenyGateTest {
 
         try {
             JsrcCommand jsrcCmd = new JsrcCommand();
-            jsrcCmd.rootPath = rootDir.toString();
-            jsrcCmd.jsonOutput = true;
-            jsrcCmd.budgetProfile = BudgetProfile.TINY;
-            
             CommandLine cli = new CommandLine(jsrcCmd);
-            int exitCode = cli.execute("dump");
+            int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "dump");
             
             assertEquals(ExitCode.BAD_USAGE, exitCode);
             
@@ -151,12 +139,8 @@ class BudgetDenyGateTest {
 
         try {
             JsrcCommand jsrcCmd = new JsrcCommand();
-            jsrcCmd.rootPath = rootDir.toString();
-            jsrcCmd.jsonOutput = true;
-            jsrcCmd.budgetProfile = BudgetProfile.TINY;
-            
             CommandLine cli = new CommandLine(jsrcCmd);
-            int exitCode = cli.execute("tour", "com.example");
+            int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "tour");
             
             assertEquals(ExitCode.BAD_USAGE, exitCode);
             
@@ -178,12 +162,8 @@ class BudgetDenyGateTest {
 
         try {
             JsrcCommand jsrcCmd = new JsrcCommand();
-            jsrcCmd.rootPath = rootDir.toString();
-            jsrcCmd.jsonOutput = true;
-            jsrcCmd.budgetProfile = BudgetProfile.TINY;
-            
             CommandLine cli = new CommandLine(jsrcCmd);
-            int exitCode = cli.execute("map", "com.example");
+            int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "map");
             
             assertEquals(ExitCode.BAD_USAGE, exitCode);
             
@@ -205,12 +185,8 @@ class BudgetDenyGateTest {
 
         try {
             JsrcCommand jsrcCmd = new JsrcCommand();
-            jsrcCmd.rootPath = rootDir.toString();
-            jsrcCmd.jsonOutput = true;
-            jsrcCmd.budgetProfile = BudgetProfile.SMALL;
-            
             CommandLine cli = new CommandLine(jsrcCmd);
-            int exitCode = cli.execute("context", "TestClass");
+            int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "small", "context", "TestClass");
             
             assertEquals(ExitCode.BAD_USAGE, exitCode);
             
@@ -236,13 +212,9 @@ class BudgetDenyGateTest {
 
         try {
             JsrcCommand jsrcCmd = new JsrcCommand();
-            jsrcCmd.rootPath = rootDir.toString();
-            jsrcCmd.jsonOutput = true;
-            jsrcCmd.budgetProfile = BudgetProfile.TINY;
-            
             CommandLine cli = new CommandLine(jsrcCmd);
             // mini is ALLOW under TINY, should not be denied
-            int exitCode = cli.execute("mini", "TestClass");
+            int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "mini", "TestClass");
             
             // Should either succeed (exit 0 or NOT_FOUND) or fail for other reasons, 
             // but NOT exit with BAD_USAGE=2 from budget denial

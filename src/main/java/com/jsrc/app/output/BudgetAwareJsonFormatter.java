@@ -289,6 +289,176 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
     public void printReadResult(com.jsrc.app.parser.SourceReader.ReadResult result) {
         super.printReadResult(result);
     }
+    
+    @Override
+    public void printDependencies(com.jsrc.app.model.DependencyResult result) {
+        // B2: Apply budget limits to dependency lists
+        List<String> limitedImports = applyListLimit(new ArrayList<>(result.imports()));
+        List<com.jsrc.app.model.DependencyResult.FieldDep> limitedFields = 
+            applyListLimit(new ArrayList<>(result.fieldDependencies()));
+        List<com.jsrc.app.model.DependencyResult.FieldDep> limitedConstructor = 
+            applyListLimit(new ArrayList<>(result.constructorDependencies()));
+        
+        if (limitedImports.size() < result.imports().size() ||
+            limitedFields.size() < result.fieldDependencies().size() ||
+            limitedConstructor.size() < result.constructorDependencies().size()) {
+            budgetContext.setTruncated(true);
+            budgetContext.addTransform("limit:" + budgetContext.effectiveLimit());
+        }
+        
+        // Create limited result
+        var limitedResult = new com.jsrc.app.model.DependencyResult(
+            result.className(),
+            limitedImports,
+            limitedFields,
+            limitedConstructor
+        );
+        
+        // Serialize with budget metadata injection
+        Object processed = applyBudgetLimitsAndInjectMeta(buildDependenciesMap(limitedResult));
+        String json = com.jsrc.app.output.JsonWriter.toJson(processed);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
+    }
+    
+    private Map<String, Object> buildDependenciesMap(com.jsrc.app.model.DependencyResult result) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("class", result.className());
+        map.put("imports", result.imports());
+        map.put("fieldDependencies", result.fieldDependencies().stream()
+                .map(d -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("type", d.type());
+                    m.put("name", d.name());
+                    return m;
+                }).toList());
+        map.put("constructorDependencies", result.constructorDependencies().stream()
+                .map(d -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("type", d.type());
+                    m.put("name", d.name());
+                    return m;
+                }).toList());
+        return map;
+    }
+    
+    @Override
+    public void printHierarchy(com.jsrc.app.model.HierarchyResult result) {
+        // B2: Apply budget limits to hierarchy lists
+        List<String> limitedInterfaces = applyListLimit(new ArrayList<>(result.interfaces()));
+        List<String> limitedSubClasses = applyListLimit(new ArrayList<>(result.subClasses()));
+        List<String> limitedImplementors = applyListLimit(new ArrayList<>(result.implementors()));
+        
+        if (limitedInterfaces.size() < result.interfaces().size() ||
+            limitedSubClasses.size() < result.subClasses().size() ||
+            limitedImplementors.size() < result.implementors().size()) {
+            budgetContext.setTruncated(true);
+            budgetContext.addTransform("limit:" + budgetContext.effectiveLimit());
+        }
+        
+        // Create limited result
+        var limitedResult = new com.jsrc.app.model.HierarchyResult(
+            result.target(),
+            result.superClass(),
+            limitedInterfaces,
+            limitedSubClasses,
+            limitedImplementors
+        );
+        
+        // Serialize with budget metadata injection
+        Object processed = applyBudgetLimitsAndInjectMeta(buildHierarchyMap(limitedResult));
+        String json = com.jsrc.app.output.JsonWriter.toJson(processed);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
+    }
+    
+    private Map<String, Object> buildHierarchyMap(com.jsrc.app.model.HierarchyResult result) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("target", result.target());
+        map.put("superClass", result.superClass());
+        map.put("interfaces", result.interfaces());
+        map.put("subClasses", result.subClasses());
+        map.put("implementors", result.implementors());
+        return map;
+    }
+    
+    @Override
+    public void printSmells(List<com.jsrc.app.parser.model.CodeSmell> smells, Path file,
+                             java.util.List<com.jsrc.app.model.CommandHint> hints) {
+        printSmellsWithBudget(smells, file, hints);
+    }
+
+    @Override
+    public void printSmells(List<com.jsrc.app.parser.model.CodeSmell> smells, Path file) {
+        printSmellsWithBudget(smells, file, null);
+    }
+    
+    private void printSmellsWithBudget(List<com.jsrc.app.parser.model.CodeSmell> smells, Path file,
+                                        java.util.List<com.jsrc.app.model.CommandHint> hints) {
+        // B2: Apply budget limits to smells list
+        List<com.jsrc.app.parser.model.CodeSmell> limitedSmells = applyListLimit(new ArrayList<>(smells));
+        
+        if (limitedSmells.size() < smells.size()) {
+            budgetContext.setTruncated(true);
+            budgetContext.addTransform("limit:" + budgetContext.effectiveLimit());
+        }
+        
+        // Build findings from limited smells
+        List<Map<String, Object>> findings = limitedSmells.stream()
+                .map(this::smellToMap)
+                .toList();
+
+        // Calculate summary from limited smells (reflects what's shown)
+        long errors = limitedSmells.stream()
+            .filter(s -> s.severity() == com.jsrc.app.parser.model.CodeSmell.Severity.ERROR).count();
+        long warnings = limitedSmells.stream()
+            .filter(s -> s.severity() == com.jsrc.app.parser.model.CodeSmell.Severity.WARNING).count();
+        long infos = limitedSmells.stream()
+            .filter(s -> s.severity() == com.jsrc.app.parser.model.CodeSmell.Severity.INFO).count();
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("total", limitedSmells.size());
+        summary.put("errors", errors);
+        summary.put("warnings", warnings);
+        summary.put("infos", infos);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("file", file.toString());
+        result.put("findings", findings);
+        result.put("summary", summary);
+
+        if (hints != null && !hints.isEmpty()) {
+            result.put("nextCommands", hints.stream()
+                    .map(h -> {
+                        var m = new LinkedHashMap<String, String>();
+                        m.put("command", h.command());
+                        m.put("description", h.description());
+                        return m;
+                    })
+                    .toList());
+        }
+        
+        // Apply budget metadata injection
+        Object processed = applyBudgetLimitsAndInjectMeta(result);
+        String json = com.jsrc.app.output.JsonWriter.toJson(processed);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
+    }
+    
+    private Map<String, Object> smellToMap(com.jsrc.app.parser.model.CodeSmell smell) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("type", smell.ruleId());
+        map.put("severity", smell.severity().toString().toLowerCase());
+        map.put("message", smell.message());
+        map.put("line", smell.line());
+        if (smell.methodName() != null && !smell.methodName().isEmpty()) {
+            map.put("method", smell.methodName());
+        }
+        if (smell.className() != null && !smell.className().isEmpty()) {
+            map.put("class", smell.className());
+        }
+        return map;
+    }
 
     @SuppressWarnings("unchecked")
     private Object applyBudgetLimitsAndInjectMeta(Object data) {

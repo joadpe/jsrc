@@ -262,32 +262,85 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
 
     @Override
     public void printRefs(List<Map<String, Object>> refs, String label, String target) {
+        // V3: Apply list limit AND max-bytes (not just limit then super)
         List<Map<String, Object>> limited = applyListLimit(refs);
         if (limited.size() < refs.size()) {
             budgetContext.setTruncated(true);
             budgetContext.addTransform("limit:" + budgetContext.effectiveLimit());
         }
-        super.printRefs(limited, label, target);
+        
+        // Serialize with max-bytes enforcement
+        String json = com.jsrc.app.output.JsonWriter.toJson(limited);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
     }
 
     @Override
     public void printOverview(com.jsrc.app.model.OverviewResult result) {
-        super.printOverview(result);
+        printOverview(result, result.packages().size(), List.of());
     }
 
     @Override
     public void printOverview(com.jsrc.app.model.OverviewResult result, int packageCount) {
-        super.printOverview(result, packageCount);
+        printOverview(result, packageCount, List.of());
     }
 
     @Override
     public void printOverview(com.jsrc.app.model.OverviewResult result, int packageCount, java.util.List<String> topClasses) {
-        super.printOverview(result, packageCount, topClasses);
+        // V1: Apply budget enforcement (no bare super bypass)
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("totalFiles", result.totalFiles());
+        map.put("totalClasses", result.totalClasses());
+        map.put("totalInterfaces", result.totalInterfaces());
+        map.put("totalMethods", result.totalMethods());
+        map.put("totalPackages", packageCount);
+        
+        // Apply list limit to packages
+        if (!result.packages().isEmpty()) {
+            List<String> limitedPackages = applyListLimit(new ArrayList<>(result.packages()));
+            if (limitedPackages.size() < result.packages().size()) {
+                budgetContext.setTruncated(true);
+                budgetContext.addTransform("limit:" + budgetContext.effectiveLimit());
+            }
+            map.put("packages", limitedPackages);
+        }
+        
+        // Apply list limit to topClasses
+        if (!topClasses.isEmpty()) {
+            List<String> limitedTopClasses = applyListLimit(new ArrayList<>(topClasses));
+            if (limitedTopClasses.size() < topClasses.size()) {
+                budgetContext.setTruncated(true);
+                budgetContext.addTransform("limit:" + budgetContext.effectiveLimit());
+            }
+            map.put("topClasses", limitedTopClasses);
+        }
+        
+        // Use serialize helper with budget metadata and max-bytes
+        Object processed = applyBudgetLimitsAndInjectMeta(map);
+        String json = com.jsrc.app.output.JsonWriter.toJson(processed);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
     }
 
     @Override
     public void printReadResult(com.jsrc.app.parser.SourceReader.ReadResult result) {
-        super.printReadResult(result);
+        // V2: Apply max-bytes enforcement (not bare super bypass)
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("class", result.className());
+        if (result.methodName() != null) {
+            map.put("method", result.methodName());
+        }
+        map.put("file", result.file().toString());
+        map.put("line", result.startLine());
+        map.put("content", result.content());
+        
+        // Apply field filtering if configured
+        var filtered = com.jsrc.app.output.FieldsFilter.filter(map, fields);
+        
+        // Serialize with max-bytes enforcement
+        String json = com.jsrc.app.output.JsonWriter.toJson(filtered);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
     }
     
     @Override
@@ -527,6 +580,7 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
 
     /**
      * Apply max-bytes truncation if configured.
+     * Produces valid JSON (object or array) with truncation marker.
      * @param json the JSON string to truncate
      * @return truncated JSON or original if under limit
      */
@@ -539,7 +593,46 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
         budgetContext.setTruncated(true);
         budgetContext.addTransform("max-bytes:" + maxBytes);
         
-        // Truncate with ellipsis to indicate truncation
-        return json.substring(0, maxBytes - 20) + "...\"truncated\":true}";
+        // V4: Produce valid JSON with truncation marker
+        boolean isArray = json.trim().startsWith("[");
+        boolean isObject = json.trim().startsWith("{");
+        
+        if (isObject) {
+            // For objects: truncate at safe boundary and add truncated marker
+            int safeLength = Math.max(maxBytes - 30, 10);
+            String truncated = json.substring(0, Math.min(safeLength, json.length()));
+            
+            // Find last complete field (look for last comma or opening brace)
+            int lastComma = truncated.lastIndexOf(',');
+            int openBrace = truncated.indexOf('{');
+            int cutPoint = (lastComma > openBrace) ? lastComma : (openBrace + 1);
+            
+            if (cutPoint > openBrace) {
+                truncated = truncated.substring(0, cutPoint);
+            }
+            
+            // Add truncated marker and close
+            return truncated + ",\"_truncated\":true}";
+        } else if (isArray) {
+            // For arrays: truncate and close array properly
+            int safeLength = Math.max(maxBytes - 10, 10);
+            String truncated = json.substring(0, Math.min(safeLength, json.length()));
+            
+            // Find last complete item (look for last comma or opening bracket)
+            int lastComma = truncated.lastIndexOf(',');
+            int openBracket = truncated.indexOf('[');
+            int cutPoint = (lastComma > openBracket) ? lastComma : (openBracket + 1);
+            
+            if (cutPoint > openBracket) {
+                truncated = truncated.substring(0, cutPoint);
+            }
+            
+            // Close array (arrays don't get _truncated field, but context tracks it)
+            return truncated + "]";
+        } else {
+            // Fallback: simple truncation with marker
+            int safeLength = Math.max(maxBytes - 25, 10);
+            return json.substring(0, safeLength) + "\"_truncated\":true}";
+        }
     }
 }

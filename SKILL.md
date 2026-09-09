@@ -151,6 +151,42 @@ jsrc overview --json --metrics
 - `--signature-only` — compact method output (1 line per method)
 - `--fields name,packageName` — limit JSON to specific fields (saves tokens)
 - `--config path` — use custom config file instead of `.jsrc.yaml`
+- `--budget <profile>` — budget profile: tiny|small|standard (default: standard)
+- `--limit N` — maximum items in output lists
+- `--no-budget-meta` — omit _budget metadata from JSON output
+
+## Budget Profiles for Small/Local Agents
+
+For models with limited context (4-8K tokens), use budget profiles to enforce hard output limits:
+
+```bash
+# Set budget via flag (highest priority)
+jsrc --budget tiny overview --json
+
+# Or via environment variable
+export JSRC_BUDGET=small
+
+# Or in .jsrc.yaml
+# budget: tiny
+```
+
+**Profiles:**
+- `tiny`: ~4K context, 10-item limit, core commands only (index, overview, mini, read, scope, callers, validate)
+- `small`: ~8K context, 30-item limit, most commands except heavy ones (context, call-chain, dump)
+- `standard`: No restrictions (default)
+
+**Behavior:**
+- Tiny/small force `--json` output automatically
+- Denied commands exit with code 2 + structured error JSON
+- All output includes `_budget` metadata showing applied limits
+
+**Quick start for tiny budget:**
+```bash
+export JSRC_BUDGET=tiny
+jsrc skill --json  # Get slim command guide for tiny budget
+jsrc overview --json
+jsrc mini ClassName --json
+```
 
 ## Exit codes
 
@@ -263,12 +299,20 @@ What do you need to do?
 
 ### Rules for small models (≤8K)
 
-1. **NEVER `cat` a Java file** — use `jsrc read Class.method` for specific methods
-2. **NEVER `jsrc summary`** on large classes — use `jsrc mini` instead (10× smaller)
-3. **NEVER `jsrc context`** — too expensive. Use mini + read method
-4. **ALWAYS start with scope** when you don't know where code is
-5. **ALWAYS validate** method names before generating code
-6. **Read methods, not classes** — `read Class.method` not `read Class`
+**For 4K context (use --budget tiny or export JSRC_BUDGET=tiny):**
+1. NEVER `cat` a Java file — use `jsrc read Class.method` for specific methods
+2. NEVER `jsrc summary` — use `jsrc mini` instead (10× smaller)
+3. NEVER `jsrc context`, `call-chain`, `dump`, `tour`, or `map` — denied under tiny budget
+4. ALWAYS start with `jsrc scope` when you don't know where code is
+5. ALWAYS validate method names before generating code
+6. Read methods, not classes — `read Class.method` not `read Class`
+7. All list outputs automatically limited to 10 items
+
+**For 8K context (use --budget small or export JSRC_BUDGET=small):**
+1. Can use `jsrc summary` for moderate-sized classes
+2. List outputs limited to 30 items
+3. Heavy commands still denied (context, call-chain, etc.)
+4. Use `jsrc skill --json` to see available commands for your budget
 
 ## AI Agent Commands (new)
 

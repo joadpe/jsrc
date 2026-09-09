@@ -20,6 +20,7 @@ public record ProjectConfig(
         List<String> sourceRoots,
         List<String> excludes,
         String javaVersion,
+        String budget,
         ArchitectureConfig architecture,
         PerformanceConfig performance,
         SecurityConfig security,
@@ -30,7 +31,7 @@ public record ProjectConfig(
     /** Backward-compatible constructor for configs without new sections. */
     public ProjectConfig(List<String> sourceRoots, List<String> excludes,
                           String javaVersion, ArchitectureConfig architecture) {
-        this(sourceRoots, excludes, javaVersion, architecture,
+        this(sourceRoots, excludes, javaVersion, null, architecture,
                 PerformanceConfig.empty(), SecurityConfig.empty(),
                 MigrationConfig.empty(), DebtConfig.empty(), ProjectInfo.empty());
     }
@@ -123,6 +124,7 @@ public record ProjectConfig(
         List<String> sourceRoots = getStringList(root, "sourceRoots");
         List<String> excludes = getStringList(root, "excludes");
         String javaVersion = getString(root, "javaVersion", "");
+        String budget = getString(root, "budget", null);
         ArchitectureConfig arch = parseArchitecture((Map<String, Object>) root.get("architecture"));
 
         // New sections — all optional
@@ -132,7 +134,7 @@ public record ProjectConfig(
         DebtConfig debt = parseDebt((Map<String, Object>) root.get("debt"));
         ProjectInfo proj = parseProject((Map<String, Object>) root.get("project"));
 
-        return new ProjectConfig(sourceRoots, excludes, javaVersion, arch, perf, sec, mig, debt, proj);
+        return new ProjectConfig(sourceRoots, excludes, javaVersion, budget, arch, perf, sec, mig, debt, proj);
     }
 
     @SuppressWarnings("unchecked")

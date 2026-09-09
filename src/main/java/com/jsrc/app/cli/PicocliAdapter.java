@@ -9,6 +9,7 @@ import com.jsrc.app.exception.JsrcException;
 import com.jsrc.app.model.ExecutionMetrics;
 import com.jsrc.app.util.StopWatch;
 
+import java.util.Map;
 import java.util.concurrent.Callable;
 
 /**
@@ -52,6 +53,25 @@ public abstract class PicocliAdapter implements Callable<Integer> {
     @Override
     public Integer call() {
         try {
+            String cmdName = commandName();
+            
+            // Budget policy enforcement
+            BudgetContext budgetCtx = parent.buildBudgetContext();
+            BudgetProfile profile = budgetCtx.profile();
+            
+            // Check if command is denied under budget
+            BudgetPolicy.Action action = BudgetPolicy.getAction(cmdName, profile);
+            if (action == BudgetPolicy.Action.DENY) {
+                String suggestion = getSuggestionForDeniedCommand(cmdName);
+                Map<String, Object> error = BudgetContext.createDenialError(cmdName, profile, suggestion);
+                System.err.println(com.jsrc.app.output.JsonWriter.toJson(error));
+                return ExitCode.BAD_USAGE;
+            }
+            
+            // Mark degradation if applicable
+            if (action == BudgetPolicy.Action.DEGRADE) {
+                budgetCtx.setDegradedFrom(cmdName);
+            }
 
             var timer = StopWatch.start();
             CommandContext ctx = parent.buildContext(skipIndex());
@@ -76,5 +96,19 @@ public abstract class PicocliAdapter implements Callable<Integer> {
             System.err.println("Error: " + e.getMessage());
             return e.exitCode();
         }
+    }
+    
+    /**
+     * Returns a suggested alternative command for denied commands.
+     */
+    private String getSuggestionForDeniedCommand(String cmdName) {
+        return switch (cmdName) {
+            case "context" -> "jsrc mini <ClassName> --json";
+            case "call-chain" -> "jsrc callers <method> --json";
+            case "dump" -> "jsrc overview --json";
+            case "tour" -> "jsrc scope <keywords> --json";
+            case "map" -> "jsrc overview --json";
+            default -> null;
+        };
     }
 }

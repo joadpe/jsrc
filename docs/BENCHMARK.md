@@ -5,19 +5,20 @@
 **Codebase:** jsrc itself (51 Java files, 53 classes, 342 methods)
 **Machine:** Intel NUC, Linux 6.17, OpenJDK 22 (Semeru)
 **Note:** Includes JVM startup + Tree-sitter native library loading (~500ms overhead)
+**CLI:** All commands use Picocli subcommand syntax (e.g., `jsrc overview` not `jsrc --overview`)
 
 | Command | Time | Files | Results |
 |---------|------|-------|---------|
-| `--overview` | 1728ms | 51 | 56 types |
-| `--classes` | 1599ms | 51 | 56 types |
-| `--smells` | 957ms | 51 | 81 smells |
-| `--summary App` | 671ms | 51 | 1 class |
-| `--hierarchy CodeParser` | 2715ms | 51 | 1 class |
-| `--implements CodeParser` | 1460ms | 51 | 0 (interface search) |
-| `--annotations Override` | 1715ms | 51 | 21 matches |
-| `--deps TreeSitterParser` | 708ms | 51 | 1 class |
-| `findMethods` (search) | 646ms | 51 | 6 methods |
-| `--call-chain detectSmells` | 877ms | 51 | 22 chains |
+| `overview` | 1728ms | 51 | 56 types |
+| `classes` | 1599ms | 51 | 56 types |
+| `smells` | 957ms | 51 | 81 smells |
+| `summary App` | 671ms | 51 | 1 class |
+| `hierarchy CodeParser` | 2715ms | 51 | 1 class |
+| `implements CodeParser` | 1460ms | 51 | 0 (interface search) |
+| `annotations Override` | 1715ms | 51 | 21 matches |
+| `deps TreeSitterParser` | 708ms | 51 | 1 class |
+| `search findMethods` | 646ms | 51 | 6 methods |
+| `call-chain detectSmells` | 877ms | 51 | 22 chains |
 
 ### Observations
 
@@ -33,24 +34,24 @@
 
 | Command | Time | Files | Results |
 |---------|------|-------|---------|
-| `run` (method search) | 6.7s | 1,621 | 31 methods |
-| `--deps SpringApplication` | 5.2s | 1,621 | 1 class |
-| `--summary SpringApplication` | 7.3s | 1,621 | 1 class |
-| `--annotations ConditionalOnClass` | 113s | 1,621 | 7 matches |
-| `--overview` | 145s | 1,621 | 3,402 types |
-| `--index` (first run, full) | ~145s | 1,621 | all indexed |
-| `--index` (second run, incremental) | **<1s** | 1,621 | 0 re-indexed |
+| `search run` | 6.7s | 1,621 | 31 methods |
+| `deps SpringApplication` | 5.2s | 1,621 | 1 class |
+| `summary SpringApplication` | 7.3s | 1,621 | 1 class |
+| `annotations ConditionalOnClass` | 113s | 1,621 | 7 matches |
+| `overview` | 145s | 1,621 | 3,402 types |
+| `index` (first run, full) | ~145s | 1,621 | all indexed |
+| `index` (second run, incremental) | **<1s** | 1,621 | 0 re-indexed |
 
-### With index (after `--index`)
+### With index (after `index`)
 
 | Command | Time | Speedup |
 |---------|------|---------|
-| `--overview` | **41ms** | 3,555x |
-| `--classes` | **146ms** | ~993x |
-| `--annotations Override` | **304ms** | 373x |
-| `--hierarchy SpringApplication` | **60ms** | 45x |
-| `--summary SpringApplication` | **39ms** | 188x |
-| `--index` (incremental, 0 changes) | **993ms** | 146x |
+| `overview` | **41ms** | 3,555x |
+| `classes` | **146ms** | ~993x |
+| `annotations Override` | **304ms** | 373x |
+| `hierarchy SpringApplication` | **60ms** | 45x |
+| `summary SpringApplication` | **39ms** | 188x |
+| `index` (incremental, 0 changes) | **993ms** | 146x |
 
 ## Spring Boot full: 2026-03-14
 
@@ -60,13 +61,13 @@
 
 | Command | Time | Results |
 |---------|------|---------|
-| `--overview` | **77ms** | 13,335 types |
-| `--classes` | **227ms** | 13,335 types |
-| `--annotations ConditionalOnClass` | **857ms** | 420 matches |
-| `--hierarchy SpringApplication` | **78ms** | 1 class |
-| `--summary SpringApplication` | **85ms** | 1 class |
-| `--index` (incremental, 0 changes) | **1,924ms** | 0 re-indexed |
-| `--index` (first run, full build) | ~14min | 8,323 indexed |
+| `overview` | **77ms** | 13,335 types |
+| `classes` | **227ms** | 13,335 types |
+| `annotations ConditionalOnClass` | **857ms** | 420 matches |
+| `hierarchy SpringApplication` | **78ms** | 1 class |
+| `summary SpringApplication` | **85ms** | 1 class |
+| `index` (incremental, 0 changes) | **1,924ms** | 0 re-indexed |
+| `index` (first run, full build) | ~14min | 8,323 indexed |
 
 ### Key insight
 

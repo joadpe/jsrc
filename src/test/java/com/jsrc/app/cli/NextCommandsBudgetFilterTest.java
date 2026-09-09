@@ -57,7 +57,7 @@ class NextCommandsBudgetFilterTest {
             new CommandHint("mini Foo", "Mini"),
             new CommandHint("read Bar", "Read"),
             new CommandHint("classes", "Classes"),
-            new CommandHint("find keyword", "Find")
+            new CommandHint("scope Baz", "Scope")
         );
 
         var filtered = NextCommandsBudgetFilter.apply(hints, ctx);
@@ -153,17 +153,19 @@ class NextCommandsBudgetFilterTest {
     void commandTokenExtraction() {
         var ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         var hints = List.of(
-            new CommandHint("read Foo.bar", "Read method"),
-            new CommandHint("call-chain method", "Trace"),  // DENY
-            new CommandHint("find \"keyword\"", "Search")
+            new CommandHint("read Foo.bar", "Read method"),      // in surface
+            new CommandHint("call-chain method", "Trace"),       // DENY
+            new CommandHint("find \"keyword\"", "Search"),       // NOT in tiny surface
+            new CommandHint("scope Bar", "Show scope")           // in surface
         );
 
         var filtered = NextCommandsBudgetFilter.apply(hints, ctx);
 
         assertNotNull(filtered);
-        // Should filter out call-chain (DENY), keep read and find, cap at 2
+        // Should filter out call-chain (DENY) and find (not in surface), keep read and scope, cap at 2
         assertEquals(2, filtered.size());
         assertFalse(filtered.stream().anyMatch(h -> h.command().startsWith("call-chain")));
+        assertFalse(filtered.stream().anyMatch(h -> h.command().startsWith("find")));
     }
 
     @Test
@@ -202,5 +204,60 @@ class NextCommandsBudgetFilterTest {
         var filtered = NextCommandsBudgetFilter.apply(hints, ctx);
 
         assertNull(filtered, "Should return null when all hints are filtered");
+    }
+
+    @Test
+    @DisplayName("F1: Under tiny, crafted hints with find token should not emit find")
+    void tinyProfileFiltersFind() {
+        var ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
+        var hints = List.of(
+            new CommandHint("read Foo", "Read class"),      // in surface
+            new CommandHint("find keyword", "Search code"), // NOT in TINY surface
+            new CommandHint("scope Bar", "Show scope")      // in surface
+        );
+
+        var filtered = NextCommandsBudgetFilter.apply(hints, ctx);
+
+        assertNotNull(filtered);
+        // Should filter out 'find' (not in TINY_CORE_COMMANDS)
+        assertFalse(filtered.stream().anyMatch(h -> h.command().startsWith("find")),
+            "find should be filtered under tiny profile (not in budgetSurface)");
+    }
+
+    @Test
+    @DisplayName("F2: Under tiny, crafted hints with impact token should not emit impact")
+    void tinyProfileFiltersImpact() {
+        var ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
+        var hints = List.of(
+            new CommandHint("mini Foo", "Quick view"),         // in surface
+            new CommandHint("impact Foo.method", "Impact"),    // NOT in TINY surface
+            new CommandHint("overview", "Overview")            // in surface
+        );
+
+        var filtered = NextCommandsBudgetFilter.apply(hints, ctx);
+
+        assertNotNull(filtered);
+        // Should filter out 'impact' (not in TINY_CORE_COMMANDS)
+        assertFalse(filtered.stream().anyMatch(h -> h.command().startsWith("impact")),
+            "impact should be filtered under tiny profile (not in budgetSurface)");
+    }
+
+    @Test
+    @DisplayName("F3: Surface tokens (read/mini/scope) remain under tiny")
+    void surfaceTokensRemainUnderTiny() {
+        var ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
+        var hints = List.of(
+            new CommandHint("read Foo.bar", "Read method"),
+            new CommandHint("mini Foo", "Mini view"),
+            new CommandHint("scope Bar", "Show scope")
+        );
+
+        var filtered = NextCommandsBudgetFilter.apply(hints, ctx);
+
+        assertNotNull(filtered);
+        assertEquals(2, filtered.size(), "Should cap at 2 after keeping surface tokens");
+        // All are in TINY_CORE_COMMANDS
+        assertTrue(filtered.stream().anyMatch(h -> h.command().startsWith("read")));
+        assertTrue(filtered.stream().anyMatch(h -> h.command().startsWith("mini")));
     }
 }

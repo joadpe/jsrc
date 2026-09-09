@@ -99,9 +99,23 @@ class InputValidatorTest {
     }
 
     @Test
-    @DisplayName("Should reject totally unknown commands")
-    void shouldRejectTotallyUnknown() {
-        String error = InputValidator.validateCommand("xyzzy");
+    @DisplayName("Should accept valid identifiers as method names")
+    void shouldAcceptValidMethodNames() {
+        // Valid Java identifiers that aren't known commands should be accepted as method names
+        assertNull(InputValidator.validateCommand("xyzzy"));
+        assertNull(InputValidator.validateCommand("myCustomMethod"));
+        assertNull(InputValidator.validateCommand("process"));
+    }
+
+    @Test
+    @DisplayName("Should reject invalid identifiers")
+    void shouldRejectInvalidIdentifiers() {
+        // Invalid identifiers should be rejected even if not similar to known commands
+        String error = InputValidator.validateCommand("123invalid");
+        assertNotNull(error);
+        assertTrue(error.contains("Unknown command"));
+        
+        error = InputValidator.validateCommand("my-method");
         assertNotNull(error);
         assertTrue(error.contains("Unknown command"));
     }

@@ -24,7 +24,6 @@ public class BudgetPolicy {
         Map.entry("type-check", Map.of(BudgetProfile.TINY, Action.ALLOW, BudgetProfile.SMALL, Action.ALLOW)),
         Map.entry("describe", Map.of(BudgetProfile.TINY, Action.ALLOW, BudgetProfile.SMALL, Action.ALLOW)),
         Map.entry("skill", Map.of(BudgetProfile.TINY, Action.ALLOW, BudgetProfile.SMALL, Action.ALLOW)),
-        Map.entry("doctor", Map.of(BudgetProfile.TINY, Action.ALLOW, BudgetProfile.SMALL, Action.ALLOW)),
 
         // List commands - allow with limits
         Map.entry("classes", Map.of(BudgetProfile.TINY, Action.ALLOW, BudgetProfile.SMALL, Action.ALLOW)),

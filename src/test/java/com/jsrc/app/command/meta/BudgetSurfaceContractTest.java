@@ -288,22 +288,34 @@ class TestHelpers {
         PrintStream ps = new PrintStream(out, true, StandardCharsets.UTF_8);
         var formatter = new JsonFormatter(false, null, ps);
         return new com.jsrc.app.command.CommandContext(
-            null, // indexedCodebase - not needed for describe/skill
-            formatter,
-            false, // metricsEnabled
+            null, // javaFiles
+            null, // rootPath
             null, // config
-            com.jsrc.app.cli.BudgetContext.standard() // budget context
+            formatter,
+            null, // indexedCodebase - not needed for describe/skill
+            null, // parser
+            false, // mdOutput
+            null, // outDir
+            false, // fullOutput
+            false, // noTest
+            new com.jsrc.app.cli.BudgetContext(com.jsrc.app.cli.BudgetProfile.STANDARD, null, null, false, null)
         );
     }
     
     static com.jsrc.app.command.CommandContext buildContextWithTextOutput() {
         var formatter = new com.jsrc.app.output.TextFormatter(false, System.out);
         return new com.jsrc.app.command.CommandContext(
-            null,
+            null, // javaFiles
+            null, // rootPath
+            null, // config
             formatter,
-            false,
-            null,
-            com.jsrc.app.cli.BudgetContext.standard()
+            null, // indexedCodebase
+            null, // parser
+            false, // mdOutput
+            null, // outDir
+            false, // fullOutput
+            false, // noTest
+            new com.jsrc.app.cli.BudgetContext(com.jsrc.app.cli.BudgetProfile.STANDARD, null, null, false, null)
         );
     }
 }

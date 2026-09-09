@@ -598,41 +598,73 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
         boolean isObject = json.trim().startsWith("{");
         
         if (isObject) {
-            // For objects: truncate at safe boundary and add truncated marker
-            int safeLength = Math.max(maxBytes - 30, 10);
-            String truncated = json.substring(0, Math.min(safeLength, json.length()));
+            // For objects: Reserve space for truncation suffix
+            String suffix = ",\"_truncated\":true}";
+            int suffixLen = suffix.length();
+            
+            // If maxBytes is too small to fit even the minimal object, return safe fallback
+            if (maxBytes < suffixLen + 1) {
+                return "{\"_truncated\":true}";
+            }
+            
+            // Calculate safe truncation point, reserving space for suffix
+            int safeLength = Math.min(maxBytes - suffixLen, json.length());
+            if (safeLength <= 1) {
+                return "{\"_truncated\":true}";
+            }
+            
+            String truncated = json.substring(0, safeLength);
             
             // Find last complete field (look for last comma or opening brace)
             int lastComma = truncated.lastIndexOf(',');
             int openBrace = truncated.indexOf('{');
-            int cutPoint = (lastComma > openBrace) ? lastComma : (openBrace + 1);
             
-            if (cutPoint > openBrace) {
-                truncated = truncated.substring(0, cutPoint);
+            // CRITICAL FIX: If no comma found, we can't preserve any field safely
+            // Return minimal valid object with just the truncation marker
+            if (lastComma <= openBrace) {
+                return "{\"_truncated\":true}";
             }
             
+            // Cut at the last comma (removes incomplete field)
+            truncated = truncated.substring(0, lastComma);
+            
             // Add truncated marker and close
-            return truncated + ",\"_truncated\":true}";
+            return truncated + suffix;
         } else if (isArray) {
-            // For arrays: truncate and close array properly
-            int safeLength = Math.max(maxBytes - 10, 10);
-            String truncated = json.substring(0, Math.min(safeLength, json.length()));
+            // For arrays: Reserve space for closing bracket
+            String suffix = "]";
+            int suffixLen = suffix.length();
+            
+            // If maxBytes is too small, return empty array
+            if (maxBytes < suffixLen + 1) {
+                return "[]";
+            }
+            
+            // Calculate safe truncation point
+            int safeLength = Math.min(maxBytes - suffixLen, json.length());
+            if (safeLength <= 1) {
+                return "[]";
+            }
+            
+            String truncated = json.substring(0, safeLength);
             
             // Find last complete item (look for last comma or opening bracket)
             int lastComma = truncated.lastIndexOf(',');
             int openBracket = truncated.indexOf('[');
-            int cutPoint = (lastComma > openBracket) ? lastComma : (openBracket + 1);
             
-            if (cutPoint > openBracket) {
-                truncated = truncated.substring(0, cutPoint);
+            // If no comma found, return empty array (safer than partial element)
+            if (lastComma <= openBracket) {
+                return "[]";
             }
             
-            // Close array (arrays don't get _truncated field, but context tracks it)
-            return truncated + "]";
+            // Cut at the last comma
+            truncated = truncated.substring(0, lastComma);
+            
+            // Close array
+            return truncated + suffix;
         } else {
             // Fallback: simple truncation with marker
-            int safeLength = Math.max(maxBytes - 25, 10);
-            return json.substring(0, safeLength) + "\"_truncated\":true}";
+            return "{\"_truncated\":true}";
         }
     }
 }

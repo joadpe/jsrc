@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.jsrc.app.output.BudgetAwareJsonFormatter;
 import com.jsrc.app.output.JsonWriter;
+import com.jsrc.app.output.JsonReader;
 import com.jsrc.app.model.OverviewResult;
 import com.jsrc.app.parser.SourceReader;
 
@@ -132,8 +133,8 @@ class BudgetFormatterContractTest {
         assertTrue(json.length() <= 330,
             "V2 FAIL: printReadResult does not enforce max-bytes. Got " + json.length() + " bytes");
         
-        // Must still be valid JSON (V4)
-        assertDoesNotThrow(() -> JsonWriter.toJson(parseJsonSimple(json)),
+        // Must still be valid JSON (V4) - use real parser
+        assertDoesNotThrow(() -> JsonReader.parse(json),
             "V2/V4 FAIL: Truncated output is not valid JSON");
     }
 
@@ -193,11 +194,9 @@ class BudgetFormatterContractTest {
         
         String json = out.toString().trim();
         
-        // Then: Must be valid JSON that can be parsed
-        assertDoesNotThrow(() -> {
-            // Simple JSON validation
-            parseJsonSimple(json);
-        }, "V4 FAIL: applyMaxBytes produces invalid JSON: " + json);
+        // Must parse as valid JSON - use real parser
+        assertDoesNotThrow(() -> JsonReader.parse(json),
+            "V4 FAIL: applyMaxBytes produces invalid JSON: " + json);
         
         // Should not end with broken structure like: ..."truncated":true}
         // after a substring cut
@@ -225,9 +224,10 @@ class BudgetFormatterContractTest {
         
         String json = out.toString().trim();
         
-        // Must parse as valid JSON
-        Map<String, Object> parsed = parseJsonSimple(json);
-        assertNotNull(parsed, "V4 FAIL: Cannot parse truncated JSON");
+        // Must parse as valid JSON using real parser
+        Object parsed = assertDoesNotThrow(() -> JsonReader.parse(json),
+            "V4 FAIL: Cannot parse truncated JSON");
+        assertNotNull(parsed, "V4 FAIL: Parsed JSON is null");
         
         // If truncated, should have a truncated marker
         if (json.length() <= 100) {
@@ -290,33 +290,87 @@ class BudgetFormatterContractTest {
         }
     }
 
-    // Helper to parse JSON simply (validates structure)
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> parseJsonSimple(String json) {
-        try {
-            if (json.startsWith("{") && json.endsWith("}")) {
-                // Very basic validation - count braces
-                long openBraces = json.chars().filter(ch -> ch == '{').count();
-                long closeBraces = json.chars().filter(ch -> ch == '}').count();
-                long openBrackets = json.chars().filter(ch -> ch == '[').count();
-                long closeBrackets = json.chars().filter(ch -> ch == ']').count();
-                
-                assertTrue(openBraces == closeBraces, "Mismatched braces in JSON");
-                assertTrue(openBrackets == closeBrackets, "Mismatched brackets in JSON");
-                
-                return Map.of("valid", true);
-            } else if (json.startsWith("[") && json.endsWith("]")) {
-                long openBrackets = json.chars().filter(ch -> ch == '[').count();
-                long closeBrackets = json.chars().filter(ch -> ch == ']').count();
-                assertTrue(openBrackets == closeBrackets, "Mismatched brackets in JSON array");
-                return Map.of("valid", true);
-            } else {
-                fail("JSON does not start/end correctly: " + json.substring(0, Math.min(50, json.length())));
-                return null;
-            }
-        } catch (Exception e) {
-            fail("Invalid JSON structure: " + e.getMessage());
-            return null;
-        }
+    @Test
+    @DisplayName("V4 EDGE: Object with very long first key, no comma in truncation window")
+    void v4_objectWithLongFirstKeyNoComma() {
+        // This is the critical edge case: when first field name is very long
+        // and maxBytes is small, cutPoint can become openBrace+1, producing {,"_truncated":true}
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 50, false, null);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
+        
+        // Create object with one very long field name (no comma will fit in safe window)
+        Map<String, Object> data = Map.of(
+            "veryVeryLongFieldNameThatExceedsMaxBytesAlone", "value"
+        );
+        
+        // When
+        formatter.printResult(data);
+        
+        String json = out.toString().trim();
+        
+        // Then: Must still be valid JSON - NOT {,"_truncated":true}
+        assertDoesNotThrow(() -> JsonReader.parse(json),
+            "V4 EDGE FAIL: Long first key produces invalid JSON like {,\"_truncated\":true}. Got: " + json);
+        
+        // Should be valid object (even if truncated to just marker)
+        assertTrue(json.startsWith("{") && json.endsWith("}"),
+            "V4 EDGE FAIL: Invalid object structure. Got: " + json);
+        
+        // Should NOT have invalid {, pattern
+        assertFalse(json.matches("\\{\\s*,.*"),
+            "V4 EDGE FAIL: Produces {, invalid syntax. Got: " + json);
+    }
+
+    @Test
+    @DisplayName("V4 EDGE: Array with large first element, no comma in truncation window")
+    void v4_arrayWithLargeFirstElementNoComma() {
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 60, false, null);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
+        
+        // Create array with one large element
+        List<Map<String, Object>> data = List.of(
+            Map.of("veryLongFieldName1", "veryLongValue1", "field2", "value2")
+        );
+        
+        // When
+        formatter.printResult(data);
+        
+        String json = out.toString().trim();
+        
+        // Then: Must still be valid JSON array
+        assertDoesNotThrow(() -> JsonReader.parse(json),
+            "V4 EDGE FAIL: Large array element produces invalid JSON. Got: " + json);
+        
+        // Should be valid array
+        assertTrue(json.startsWith("[") && json.endsWith("]"),
+            "V4 EDGE FAIL: Invalid array structure. Got: " + json);
+    }
+
+    @Test
+    @DisplayName("V4 EDGE: Multiple fields but maxBytes cuts before first comma")
+    void v4_multipleFieldsCutBeforeFirstComma() {
+        // Tight maxBytes that cuts the JSON before any comma appears
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 35, false, null);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
+        
+        Map<String, Object> data = Map.of(
+            "field1", "value1",
+            "field2", "value2"
+        );
+        
+        // When
+        formatter.printResult(data);
+        
+        String json = out.toString().trim();
+        
+        // Then: Must produce valid JSON
+        assertDoesNotThrow(() -> JsonReader.parse(json),
+            "V4 EDGE FAIL: Cut before comma produces invalid JSON. Got: " + json);
+        
+        assertTrue(json.startsWith("{") && json.endsWith("}"),
+            "V4 EDGE FAIL: Not a valid object. Got: " + json);
     }
 }

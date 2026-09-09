@@ -4,6 +4,8 @@
 
 A CLI tool that lets you navigate and inspect large Java codebases without reading source files. It parses code structure (classes, methods, annotations, inheritance, dependencies) and returns compact JSON optimized for LLM context windows.
 
+**For small/local agents (4-8K context):** Use `jsrc skill --budget tiny` or `jsrc skill --budget small` to get a slim command guide optimized for your budget. This SKILL.md provides comprehensive documentation for all use cases.
+
 ## When to use jsrc
 
 - You need to understand a Java codebase structure without reading every file
@@ -160,6 +162,11 @@ jsrc overview --json --metrics
 For models with limited context (4-8K tokens), use budget profiles to enforce hard output limits:
 
 ```bash
+# Get slim agent guide for your budget (recommended)
+jsrc skill --budget tiny       # ~2KB guide for 4K context
+jsrc skill --budget small      # ~3KB guide for 8K context
+jsrc skill --budget tiny --json  # Machine-readable version
+
 # Set budget via flag (highest priority)
 jsrc --budget tiny overview --json
 
@@ -184,9 +191,9 @@ export JSRC_BUDGET=small
 **Quick start for tiny budget:**
 ```bash
 export JSRC_BUDGET=tiny
-jsrc skill --json  # Get slim command guide for tiny budget
+jsrc skill --json              # Get slim command guide for tiny budget
 jsrc overview --json
-jsrc mini ClassName --json  # summary auto-degrades to this under tiny
+jsrc mini ClassName --json     # summary auto-degrades to this under tiny
 jsrc read ClassName.methodName --json  # whole-class reads denied under tiny
 ```
 

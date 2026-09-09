@@ -108,8 +108,8 @@ class InputValidatorTest {
     }
 
     @Test
-    @DisplayName("Should reject invalid identifiers")
-    void shouldRejectInvalidIdentifiers() {
+    @DisplayName("Should reject invalid command identifiers")
+    void shouldRejectInvalidCommandIdentifiers() {
         // Invalid identifiers should be rejected even if not similar to known commands
         String error = InputValidator.validateCommand("123invalid");
         assertNotNull(error);

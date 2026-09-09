@@ -350,9 +350,9 @@ class BudgetContractTest {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
-        // Create a dependency result with many imports
+        // Create a dependency result with many imports (>10, which is TINY limit)
         List<String> manyImports = new java.util.ArrayList<>();
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 25; i++) {
             manyImports.add("com.example.Import" + i);
         }
         
@@ -367,9 +367,20 @@ class BudgetContractTest {
         
         String json = out.toString().trim();
         
-        // The printDependencies should respect budget limits via max-bytes
-        assertTrue(json.length() < 3000, 
-            "deps output should be reasonable size under budget");
+        // B2 STRENGTHENED: Must enforce actual list limit (10 for TINY)
+        // Parse and verify imports array size
+        assertTrue(json.contains("\"imports\""), "Should have imports field");
+        
+        // Extract imports array and count items
+        int importsStart = json.indexOf("\"imports\":[") + "\"imports\":[".length();
+        int importsEnd = json.indexOf("]", importsStart);
+        String importsArray = json.substring(importsStart, importsEnd);
+        
+        // Count comma-separated items (rough count)
+        int itemCount = importsArray.isEmpty() ? 0 : importsArray.split(",").length;
+        
+        assertTrue(itemCount <= 10, 
+            "deps imports should be limited to 10 items under TINY, got " + itemCount);
     }
 
     @Test
@@ -379,9 +390,9 @@ class BudgetContractTest {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
-        // Create hierarchy with many subclasses
+        // Create hierarchy with many subclasses (>10)
         List<String> manySubclasses = new java.util.ArrayList<>();
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 25; i++) {
             manySubclasses.add("SubClass" + i);
         }
         
@@ -397,9 +408,18 @@ class BudgetContractTest {
         
         String json = out.toString().trim();
         
-        // Should apply limits
-        assertTrue(json.length() < 3000,
-            "hierarchy output should be reasonable size under budget");
+        // B2 STRENGTHENED: Must enforce actual list limit
+        assertTrue(json.contains("\"subClasses\""), "Should have subClasses field");
+        
+        // Extract subClasses array and verify limit
+        int subClassesStart = json.indexOf("\"subClasses\":[") + "\"subClasses\":[".length();
+        int subClassesEnd = json.indexOf("]", subClassesStart);
+        String subClassesArray = json.substring(subClassesStart, subClassesEnd);
+        
+        int itemCount = subClassesArray.isEmpty() ? 0 : subClassesArray.split(",").length;
+        
+        assertTrue(itemCount <= 10,
+            "hierarchy subClasses should be limited to 10 items under TINY, got " + itemCount);
     }
 
     @Test
@@ -442,9 +462,9 @@ class BudgetContractTest {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
-        // Create many smells
+        // Create many smells (>10)
         List<com.jsrc.app.parser.model.CodeSmell> smells = new java.util.ArrayList<>();
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 25; i++) {
             smells.add(new com.jsrc.app.parser.model.CodeSmell(
                 "TEST_SMELL_" + i,
                 com.jsrc.app.parser.model.CodeSmell.Severity.WARNING,
@@ -459,8 +479,22 @@ class BudgetContractTest {
         
         String json = out.toString().trim();
         
-        // Should apply max-bytes
-        assertTrue(json.length() < 3000,
-            "smells output should be reasonable size under budget");
+        // B2 STRENGTHENED: Must enforce actual list limit in findings array
+        assertTrue(json.contains("\"findings\""), "Should have findings field");
+        
+        // Extract findings array and verify limit
+        int findingsStart = json.indexOf("\"findings\":[") + "\"findings\":[".length();
+        int findingsEnd = json.indexOf("],", findingsStart);
+        if (findingsEnd == -1) findingsEnd = json.lastIndexOf("]");
+        String findingsSection = json.substring(findingsStart, findingsEnd);
+        
+        // Count objects in findings (each smell is an object with {})
+        int smellCount = 0;
+        for (int i = 0; i < findingsSection.length(); i++) {
+            if (findingsSection.charAt(i) == '{') smellCount++;
+        }
+        
+        assertTrue(smellCount <= 10,
+            "smells findings should be limited to 10 items under TINY, got " + smellCount);
     }
 }

@@ -157,6 +157,64 @@ Flags work before or after the subcommand: `jsrc --json overview` = `jsrc overvi
 | `--no-test` | Exclude test classes from results |
 | `--fields f1,f2` | Limit JSON to specific fields (saves tokens) |
 | `-d, --dir <path>` | Source root directory (default: current dir) |
+| `--budget <profile>` | Budget profile: tiny\|small\|standard (default: standard) |
+| `--limit N` | Maximum number of items in output lists |
+| `--max-bytes N` | Maximum output size in bytes |
+| `--no-budget-meta` | Omit _budget metadata from JSON output |
+
+## Budget Profiles
+
+Budget profiles enforce hard limits on output size and command complexity for small/local agents (4-8K context windows).
+
+### Profiles
+
+- **tiny** (~4K context): 10-item limit, core commands only, aggressive degradations
+- **small** (~8K context): 30-item limit, most commands, moderate degradations  
+- **standard** (default): No restrictions, full command surface
+
+### Usage
+
+```bash
+# CLI flag (highest priority)
+jsrc --budget tiny overview --json
+
+# Environment variable
+export JSRC_BUDGET=small
+jsrc overview --json
+
+# Config file .jsrc.yaml (lowest priority)
+# budget: tiny
+```
+
+Precedence: CLI flag > env var > config file > standard
+
+### Budget Behavior
+
+Under **tiny** budget:
+- Forces `--json` output (unless `--md` set)
+- Limits list outputs to 10 items  
+- **Degrades**: `summary` → executes as `mini` instead
+- **Denies**: `read Class` (without method) → exits with structured error suggesting `read Class.method`
+- Denies: `context`, `call-chain`, `dump`, `tour`, `map`
+- Visible commands (via `describe --budget tiny`): `index`, `overview`, `mini`, `read`, `scope`, `callers`, `validate`, `describe`, `skill`, `classes`
+
+Under **small** budget:
+- Forces `--json` output (unless `--md` set)
+- Limits list outputs to 30 items
+- Allows `summary` and most navigation/analysis commands
+- Denies heavy commands (same as tiny)
+
+Denied commands exit with code 2 and structured error JSON:
+```json
+{"error":"budget_denied","command":"read","budget":"tiny","suggestion":"jsrc read Class.method --json (see jsrc mini Class for method list)"}
+```
+
+All JSON output under budget includes `_budget` metadata (opt-out: `--no-budget-meta`):
+```json
+{"_budget":{"profile":"tiny","degradedFrom":"summary","applied":["limit:10"],"truncated":true},"name":"OrderService",...}
+```
+
+**Important:** Array-shaped JSON responses preserve their contract (no wrapper object). `_budget` metadata is only added to object roots.
 
 ## CLI Dialect
 
@@ -195,6 +253,7 @@ excludes:
   - "**/test/**"
   - "**/generated/**"
 javaVersion: "22"
+budget: small  # Optional: tiny|small|standard (default: standard)
 
 architecture:
   layers:

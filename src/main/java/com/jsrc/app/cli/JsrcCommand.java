@@ -105,6 +105,9 @@ import com.jsrc.app.parser.HybridJavaParser;
         com.jsrc.app.cli.adapters.TourAdapter.class,
         com.jsrc.app.cli.adapters.DocAdapter.class,
         com.jsrc.app.cli.adapters.ScaffoldAdapter.class,
+        // Budget-aware meta
+        com.jsrc.app.cli.adapters.DescribeAdapter.class,
+        com.jsrc.app.cli.adapters.SkillAdapter.class,
         // JFR integration
         com.jsrc.app.cli.adapters.RecordAdapter.class,
         com.jsrc.app.cli.adapters.ProfileAdapter.class,
@@ -160,6 +163,45 @@ public class JsrcCommand implements Runnable {
     }
 
     /**
+     * Resolves the effective budget profile with precedence: CLI > env > yaml > standard.
+     */
+    public BudgetProfile resolveBudgetProfile() {
+        // Priority 1: CLI flag
+        if (globalOptions.budget() != null) {
+            return BudgetProfile.fromString(globalOptions.budget());
+        }
+        
+        // Priority 2: Environment variable
+        String envBudget = System.getenv("JSRC_BUDGET");
+        if (envBudget != null && !envBudget.isBlank()) {
+            return BudgetProfile.fromString(envBudget);
+        }
+        
+        // Priority 3: .jsrc.yaml config
+        ProjectConfig config = loadConfig();
+        if (config != null && config.budget() != null) {
+            return BudgetProfile.fromString(config.budget());
+        }
+        
+        // Priority 4: Default to standard
+        return BudgetProfile.STANDARD;
+    }
+
+    /**
+     * Builds a BudgetContext from resolved profile and options.
+     */
+    public BudgetContext buildBudgetContext() {
+        BudgetProfile profile = resolveBudgetProfile();
+        return new BudgetContext(
+            profile,
+            globalOptions.limit(),
+            globalOptions.maxBytes(),
+            globalOptions.noBudgetMeta(),
+            globalOptions.fields()
+        );
+    }
+
+    /**
      * Builds a CommandContext from the current global options.
      * This is the bridge between picocli-parsed options and the existing
      * Command infrastructure.
@@ -176,6 +218,12 @@ public class JsrcCommand implements Runnable {
     public CommandContext buildContext(String skipIndex) {
         String rootPath = resolvedRoot();
         ProjectConfig config = loadConfig();
+        BudgetContext budgetContext = buildBudgetContext();
+        BudgetProfile profile = budgetContext.profile();
+
+        // Force JSON output under budget profiles if --md is not set
+        boolean effectiveJson = globalOptions.jsonOutput() || 
+                                (profile.forceJson() && !globalOptions.mdOutput());
 
         var loader = new CodeBaseLoader();
         var javaFiles = new ArrayList<Path>();
@@ -198,15 +246,21 @@ public class JsrcCommand implements Runnable {
         }
 
         var parser = new HybridJavaParser();
+        
+        // Create budget-aware formatter with shared budget context
         OutputFormatter formatter = OutputFormatter.create(
-                globalOptions.jsonOutput(), globalOptions.signatureOnly(), globalOptions.fields());
+                effectiveJson, 
+                globalOptions.signatureOnly(), 
+                globalOptions.fields(),
+                System.out,
+                budgetContext);
 
         IndexedCodebase indexed = skipIndex != null ? null
                 : IndexedCodebase.tryLoad(Paths.get(rootPath), javaFiles);
 
         return new CommandContext(javaFiles, rootPath, config, formatter, indexed, parser,
                 globalOptions.mdOutput(), globalOptions.outDir(),
-                globalOptions.fullOutput(), globalOptions.noTest());
+                globalOptions.fullOutput(), globalOptions.noTest(), budgetContext);
     }
 
     private static List<Path> filterExcludes(List<Path> files, List<String> excludes) {

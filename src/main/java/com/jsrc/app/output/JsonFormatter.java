@@ -26,9 +26,9 @@ import com.jsrc.app.parser.model.MethodReference;
  */
 public class JsonFormatter implements OutputFormatter {
 
-    private final boolean signatureOnly;
-    private final java.util.Set<String> fields;
-    private final PrintStream out;
+    protected final boolean signatureOnly;
+    protected final java.util.Set<String> fields;
+    protected final PrintStream out;
     private java.util.Map<String, String> currentSignatures = java.util.Map.of();
 
     public JsonFormatter() {

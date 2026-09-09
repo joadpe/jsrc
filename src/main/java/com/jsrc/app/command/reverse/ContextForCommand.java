@@ -94,52 +94,52 @@ public class ContextForCommand implements Command {
         switch (intent) {
             case "fix" -> {
                 if (classMethod != null) {
-                    steps.add(step(steps.size() + 1, "--read " + classMethod, 80, "Read failing method"));
-                    steps.add(step(steps.size() + 1, "--mini " + className, 120, "Understand class context"));
-                    steps.add(step(steps.size() + 1, "--impact " + classMethod, 200, "Check who is affected"));
-                    steps.add(step(steps.size() + 1, "--validate <fix>", 55, "Verify fix method exists"));
+                    steps.add(step(steps.size() + 1, "read " + classMethod, 80, "Read failing method"));
+                    steps.add(step(steps.size() + 1, "mini " + className, 120, "Understand class context"));
+                    steps.add(step(steps.size() + 1, "impact " + classMethod, 200, "Check who is affected"));
+                    steps.add(step(steps.size() + 1, "validate <fix>", 55, "Verify fix method exists"));
                 } else if (className != null) {
-                    steps.add(step(steps.size() + 1, "--mini " + className, 120, "Understand class"));
-                    steps.add(step(steps.size() + 1, "--deps " + className, 200, "Check dependencies"));
-                    steps.add(step(steps.size() + 1, "--smells " + className, 150, "Detect code smells"));
+                    steps.add(step(steps.size() + 1, "mini " + className, 120, "Understand class"));
+                    steps.add(step(steps.size() + 1, "deps " + className, 200, "Check dependencies"));
+                    steps.add(step(steps.size() + 1, "smells " + className, 150, "Detect code smells"));
                 } else {
-                    steps.add(step(steps.size() + 1, "--scope " + String.join(" ", keywords.subList(0, Math.min(3, keywords.size()))), 300, "Find relevant classes"));
+                    steps.add(step(steps.size() + 1, "scope " + String.join(" ", keywords.subList(0, Math.min(3, keywords.size()))), 300, "Find relevant classes"));
                 }
             }
             case "feature" -> {
                 String scopeKeywords = keywords.stream()
                         .filter(k -> !FEATURE_KEYWORDS.contains(k))
                         .reduce((a, b) -> a + " " + b).orElse(keywords.isEmpty() ? taskDescription : keywords.getFirst());
-                steps.add(step(steps.size() + 1, "--scope " + scopeKeywords, 300, "Find where feature lives"));
-                steps.add(step(steps.size() + 1, "--style", 50, "Know project conventions"));
+                steps.add(step(steps.size() + 1, "scope " + scopeKeywords, 300, "Find where feature lives"));
+                steps.add(step(steps.size() + 1, "style", 50, "Know project conventions"));
                 if (className != null) {
-                    steps.add(step(steps.size() + 1, "--mini " + className, 120, "Understand target class"));
-                    steps.add(step(steps.size() + 1, "--related " + className, 400, "Find related classes"));
+                    steps.add(step(steps.size() + 1, "mini " + className, 120, "Understand target class"));
+                    steps.add(step(steps.size() + 1, "related " + className, 400, "Find related classes"));
                 }
-                steps.add(step(steps.size() + 1, "--snippet <pattern>", 200, "Get code template"));
-                steps.add(step(steps.size() + 1, "--checklist <method>", 150, "Plan the change"));
+                steps.add(step(steps.size() + 1, "snippet <pattern>", 200, "Get code template"));
+                steps.add(step(steps.size() + 1, "checklist <method>", 150, "Plan the change"));
             }
             case "change" -> {
                 if (classMethod != null) {
-                    steps.add(step(steps.size() + 1, "--read " + classMethod, 80, "Read current implementation"));
-                    steps.add(step(steps.size() + 1, "--impact " + classMethod, 200, "Assess change impact"));
-                    steps.add(step(steps.size() + 1, "--callers " + classMethod, 150, "List all callers"));
-                    steps.add(step(steps.size() + 1, "--checklist " + classMethod, 150, "Step-by-step plan"));
+                    steps.add(step(steps.size() + 1, "read " + classMethod, 80, "Read current implementation"));
+                    steps.add(step(steps.size() + 1, "impact " + classMethod, 200, "Assess change impact"));
+                    steps.add(step(steps.size() + 1, "callers " + classMethod, 150, "List all callers"));
+                    steps.add(step(steps.size() + 1, "checklist " + classMethod, 150, "Step-by-step plan"));
                 } else if (className != null) {
-                    steps.add(step(steps.size() + 1, "--mini " + className, 120, "Understand class"));
-                    steps.add(step(steps.size() + 1, "--related " + className, 400, "Find affected classes"));
+                    steps.add(step(steps.size() + 1, "mini " + className, 120, "Understand class"));
+                    steps.add(step(steps.size() + 1, "related " + className, 400, "Find affected classes"));
                 }
             }
             default -> { // explore
-                steps.add(step(steps.size() + 1, "--overview", 50, "Codebase stats"));
+                steps.add(step(steps.size() + 1, "overview", 50, "Codebase stats"));
                 if (!keywords.isEmpty()) {
-                    steps.add(step(steps.size() + 1, "--scope " + keywords.getFirst(), 300, "Find relevant area"));
+                    steps.add(step(steps.size() + 1, "scope " + keywords.getFirst(), 300, "Find relevant area"));
                 }
                 if (className != null) {
-                    steps.add(step(steps.size() + 1, "--mini " + className, 120, "Quick summary"));
-                    steps.add(step(steps.size() + 1, "--related " + className, 400, "Explore neighborhood"));
+                    steps.add(step(steps.size() + 1, "mini " + className, 120, "Quick summary"));
+                    steps.add(step(steps.size() + 1, "related " + className, 400, "Explore neighborhood"));
                 } else {
-                    steps.add(step(steps.size() + 1, "--map", 500, "Repo overview map"));
+                    steps.add(step(steps.size() + 1, "map", 500, "Repo overview map"));
                 }
             }
         }

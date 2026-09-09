@@ -34,10 +34,11 @@ mvn clean compile
 ### Step 1: Index the codebase (do this FIRST)
 
 ```bash
-jsrc /path/to/codebase --index
+cd /path/to/codebase
+jsrc index
 ```
 
-This parses all Java files and saves a persistent index to `.jsrc/index.json`. Only needed once — subsequent runs auto-refresh changed files.
+This parses all Java files and saves a persistent index to `.jsrc/index.bin`. Only needed once — subsequent runs auto-refresh changed files.
 
 - First run on 8,000 files: ~14 minutes
 - Incremental (after changes): <2 seconds
@@ -46,7 +47,8 @@ This parses all Java files and saves a persistent index to `.jsrc/index.json`. O
 ### Step 2: Orient yourself
 
 ```bash
-jsrc /path/to/codebase --overview --json
+cd /path/to/codebase
+jsrc overview --json
 ```
 
 Returns: total files, classes, interfaces, methods, package list. ~77ms with index.
@@ -61,85 +63,85 @@ Always use `--json`. All commands work with or without explicit source root (def
 
 ```bash
 # List all classes/interfaces
-jsrc --classes --json
+jsrc classes --json
 
 # Class summary (signatures without bodies)
-jsrc --summary ClassName --json
+jsrc summary ClassName --json
 
 # Class hierarchy (extends, implements, subclasses)
-jsrc --hierarchy ClassName --json
+jsrc hierarchy ClassName --json
 
 # Find implementors of an interface
-jsrc --implements InterfaceName --json
+jsrc implements InterfaceName --json
 
 # Class dependencies (imports, fields, constructor params)
-jsrc --deps ClassName --json
+jsrc deps ClassName --json
 
 # Find annotated elements (methods + classes)
-jsrc --annotations AnnotationName --json
+jsrc annotations AnnotationName --json
 ```
 
 ### Read source
 
 ```bash
 # Read a class source
-jsrc --read ClassName --json
+jsrc read ClassName --json
 
 # Read a specific method source
-jsrc --read ClassName.methodName --json
+jsrc read ClassName.methodName --json
 ```
 
 ### Search
 
 ```bash
 # Find methods by name
-jsrc methodName --json
+jsrc search methodName --json
 
-# Find methods — signatures only (compact, saves tokens)
-jsrc methodName --json --signature-only
+# Text search with pattern
+jsrc search "pattern" --json
 ```
 
 ### Call graph
 
 ```bash
 # Who calls this method?
-jsrc --callers methodName --json
+jsrc callers methodName --json
 
 # What does this method call?
-jsrc --callees methodName --json
+jsrc callees methodName --json
 
 # Full call chain trace (generates Mermaid diagrams)
-jsrc --call-chain methodName --json
+jsrc call-chain methodName --json
 ```
 
 ### Analyze
 
 ```bash
 # Detect code smells
-jsrc --smells --json
+jsrc smells --json
 
 # What changed since last index?
-jsrc --diff --json
+jsrc diff --json
 ```
 
 ### Introspect
 
 ```bash
 # List all available commands
-jsrc --describe --json
+jsrc describe --json
 
 # Detail of a specific command
-jsrc --describe --summary --json
+jsrc describe summary --json
 ```
 
 ### Index
 
 ```bash
 # Build/refresh index
-jsrc --index
+jsrc index
 
 # Performance metrics for any command
-jsrc --overview --json --metrics
+jsrc overview --json --metrics
 ```
 
 ## Global flags
@@ -170,40 +172,40 @@ jsrc --overview --json --metrics
 
 All JSON output is compact (no pretty-print) to minimize tokens.
 
-### --overview
+### overview
 ```json
 {"totalFiles":8323,"totalClasses":13335,"totalInterfaces":163,"totalMethods":12680,"totalPackages":124,"packages":["com.app","com.app.service"]}
 ```
 
-### --classes
+### classes
 ```json
 [{"name":"OrderService","packageName":"com.app","qualifiedName":"com.app.OrderService","startLine":10,"endLine":50,"isInterface":false,"isAbstract":false,"methodCount":5}]
 ```
 
-### --summary ClassName
+### summary ClassName
 ```json
 {"name":"OrderService","packageName":"com.app","qualifiedName":"com.app.OrderService","file":"src/main/java/com/app/OrderService.java","modifiers":["public"],"isInterface":false,"methods":[{"name":"create","signature":"public Order create(String name)","startLine":15,"returnType":"Order"}]}
 ```
 
-### method search
+### search
 ```json
 [{"name":"process","className":"Service","file":"Service.java","startLine":10,"endLine":25,"signature":"public void process(String input)","returnType":"void","modifiers":["public"],"parameters":[{"type":"String","name":"input"}]}]
 ```
 
-### --metrics (stderr)
+### metrics (stderr)
 ```json
-{"command":"--overview","elapsedMs":77,"filesScanned":8323,"resultsFound":13335}
+{"command":"overview","elapsedMs":77,"filesScanned":8323,"resultsFound":13335}
 ```
 
 ## Performance (with index)
 
 | Command | 51 files | 1,621 files | 8,323 files |
 |---------|----------|-------------|-------------|
-| --overview | 1.7s | 41ms | 77ms |
-| --classes | 1.5s | 146ms | 227ms |
-| --annotations | 1.7s | 304ms | 857ms |
-| --summary | 671ms | 39ms | 85ms |
-| method search | 646ms | — | — |
+| overview | 1.7s | 41ms | 77ms |
+| classes | 1.5s | 146ms | 227ms |
+| annotations | 1.7s | 304ms | 857ms |
+| summary | 671ms | 39ms | 85ms |
+| search | 646ms | — | — |
 
 Without index, full-parse commands on 8,323 files take 12+ minutes.
 
@@ -215,40 +217,40 @@ Without index, full-parse commands on 8,323 files take 12+ minutes.
 What do you need to do?
 │
 ├─ FIX A BUG (have stacktrace/error)
-│  1. jsrc --read Class.method --json     ← read the failing method
-│  2. jsrc --mini Class --json            ← understand the class (compact)
-│  3. jsrc --impact Class.method --json   ← who else is affected?
-│  4. jsrc --validate Class.fix --json    ← verify fix before writing
+│  1. jsrc read Class.method --json     ← read the failing method
+│  2. jsrc mini Class --json            ← understand the class (compact)
+│  3. jsrc impact Class.method --json   ← who else is affected?
+│  4. jsrc validate Class.fix --json    ← verify fix before writing
 │
 ├─ ADD/EXTEND A FEATURE
-│  1. jsrc --scope "keywords" --json      ← find WHERE the feature lives
-│  2. jsrc --mini TopMatch --json         ← understand the class (compact)
-│  3. jsrc --read Class.existingMethod --json  ← see the PATTERN to follow
-│  4. jsrc --related Class --json         ← what else to read?
-│  5. jsrc --checklist Class.method --json ← plan the change
-│  6. jsrc --validate Class.newMethod --json  ← verify names before writing
+│  1. jsrc scope "keywords" --json      ← find WHERE the feature lives
+│  2. jsrc mini TopMatch --json         ← understand the class (compact)
+│  3. jsrc read Class.existingMethod --json  ← see the PATTERN to follow
+│  4. jsrc related Class --json         ← what else to read?
+│  5. jsrc checklist Class.method --json ← plan the change
+│  6. jsrc validate Class.newMethod --json  ← verify names before writing
 │
 ├─ UNDERSTAND A CODEBASE (new to you)
-│  1. jsrc --overview --json              ← how big? how many packages?
-│  2. jsrc --classes --json               ← list all types
-│  3. jsrc --scope "keyword" --json       ← find area of interest
-│  4. jsrc --mini Class --json            ← quick summary of key classes
-│  5. jsrc --related Class --json         ← explore neighborhood
+│  1. jsrc overview --json              ← how big? how many packages?
+│  2. jsrc classes --json               ← list all types
+│  3. jsrc scope "keyword" --json       ← find area of interest
+│  4. jsrc mini Class --json            ← quick summary of key classes
+│  5. jsrc related Class --json         ← explore neighborhood
 │
 ├─ REVIEW/AUDIT CODE
-│  1. jsrc --smells Class --json          ← code smells
-│  2. jsrc --deps Class --json            ← dependency analysis
-│  3. jsrc --hierarchy Class --json       ← inheritance tree
-│  4. jsrc --check --json                 ← architecture rule violations
+│  1. jsrc smells Class --json          ← code smells
+│  2. jsrc deps Class --json            ← dependency analysis
+│  3. jsrc hierarchy Class --json       ← inheritance tree
+│  4. jsrc check --json                 ← architecture rule violations
 │
 ├─ CHANGE A METHOD SIGNATURE
-│  1. jsrc --impact Class.method --json   ← how many callers?
-│  2. jsrc --callers Class.method --json  ← exact caller list
-│  3. jsrc --checklist Class.method --json ← step-by-step plan
+│  1. jsrc impact Class.method --json   ← how many callers?
+│  2. jsrc callers Class.method --json  ← exact caller list
+│  3. jsrc checklist Class.method --json ← step-by-step plan
 │
 └─ VERIFY BEFORE WRITING CODE
-   1. jsrc --validate Class.method --json ← does it exist?
-   2. jsrc --type-check Class.method --json ← return type correct?
+   1. jsrc validate Class.method --json ← does it exist?
+   2. jsrc type-check Class.method --json ← return type correct?
 ```
 
 ### Token budget guide (for small models)
@@ -261,12 +263,12 @@ What do you need to do?
 
 ### Rules for small models (≤8K)
 
-1. **NEVER `cat` a Java file** — use `jsrc --read Class.method` for specific methods
-2. **NEVER `jsrc --summary`** on large classes — use `jsrc --mini` instead (10× smaller)
-3. **NEVER `jsrc --context`** — too expensive. Use --mini + --read method
-4. **ALWAYS start with --scope** when you don't know where code is
-5. **ALWAYS --validate** method names before generating code
-6. **Read methods, not classes** — `--read Class.method` not `--read Class`
+1. **NEVER `cat` a Java file** — use `jsrc read Class.method` for specific methods
+2. **NEVER `jsrc summary`** on large classes — use `jsrc mini` instead (10× smaller)
+3. **NEVER `jsrc context`** — too expensive. Use mini + read method
+4. **ALWAYS start with scope** when you don't know where code is
+5. **ALWAYS validate** method names before generating code
+6. **Read methods, not classes** — `read Class.method` not `read Class`
 
 ## AI Agent Commands (new)
 
@@ -274,26 +276,26 @@ Commands designed specifically for AI agent workflows:
 
 ```bash
 # Anti-hallucination: verify method exists, suggest closest if not
-jsrc --validate Class.method --json
-jsrc --validate Class.method(Type1,Type2) --json
+jsrc validate Class.method --json
+jsrc validate Class.method(Type1,Type2) --json
 
 # Ultra-compact summary (<500 chars) for small context windows
-jsrc --mini ClassName --json
+jsrc mini ClassName --json
 
 # Related classes ranked by coupling score
-jsrc --related ClassName --json
+jsrc related ClassName --json
 
 # Change impact: transitive callers + risk level
-jsrc --impact Class.method --json
+jsrc impact Class.method --json
 
 # Task planner: find relevant classes by keywords
-jsrc --scope "keyword1 keyword2" --json
+jsrc scope "keyword1 keyword2" --json
 
 # Step-by-step change guide
-jsrc --checklist Class.method --json
+jsrc checklist Class.method --json
 
 # Return type verification
-jsrc --type-check Class.method --json
+jsrc type-check Class.method --json
 ```
 
 ## Configuration (.jsrc.yaml)

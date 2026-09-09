@@ -158,6 +158,32 @@ Flags work before or after the subcommand: `jsrc --json overview` = `jsrc overvi
 | `--fields f1,f2` | Limit JSON to specific fields (saves tokens) |
 | `-d, --dir <path>` | Source root directory (default: current dir) |
 
+## CLI Dialect
+
+### Canonical Syntax (Picocli Subcommands)
+
+**jsrc uses Picocli subcommands as the canonical CLI syntax.** All commands follow the pattern:
+
+```bash
+jsrc <subcommand> [arguments] [--flags]
+```
+
+Examples:
+- `jsrc overview --json`
+- `jsrc summary MyClass --json`
+- `jsrc callers myMethod --json`
+
+### Legacy Flag Syntax (Deprecated)
+
+The old flag-based syntax (`jsrc --overview --json`) is **not supported** in the current Picocli implementation. If you see documentation or code references using this syntax, they refer to an older version.
+
+**Migration:**
+- Old: `jsrc --overview --json` → New: `jsrc overview --json`
+- Old: `jsrc --summary MyClass --json` → New: `jsrc summary MyClass --json`
+- Old: `jsrc --callers myMethod --json` → New: `jsrc callers myMethod --json`
+
+If a command fails with exit code 2, verify you are using the subcommand syntax, not the legacy flag syntax.
+
 ## Configuration
 
 Create `.jsrc.yaml` in your project root:

@@ -38,11 +38,15 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
         // Apply budget limits and metadata
         Object processed = applyBudgetLimitsAndInjectMeta(data);
         
+        // B: Apply budget-aware hint filtering
+        java.util.List<com.jsrc.app.model.CommandHint> filteredHints = 
+            com.jsrc.app.cli.NextCommandsBudgetFilter.apply(hints, budgetContext);
+        
         // Merge hints into the processed data if provided
-        if (hints != null && !hints.isEmpty()) {
+        if (filteredHints != null && !filteredHints.isEmpty()) {
             if (processed instanceof Map<?, ?> map) {
                 var merged = new java.util.LinkedHashMap<>((Map<String, Object>) map);
-                merged.put("nextCommands", hints.stream()
+                merged.put("nextCommands", filteredHints.stream()
                         .map(h -> {
                             var m = new java.util.LinkedHashMap<String, String>();
                             m.put("command", h.command());
@@ -480,8 +484,12 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
         result.put("findings", findings);
         result.put("summary", summary);
 
-        if (hints != null && !hints.isEmpty()) {
-            result.put("nextCommands", hints.stream()
+        // B: Apply budget-aware hint filtering
+        java.util.List<com.jsrc.app.model.CommandHint> filteredHints = 
+            com.jsrc.app.cli.NextCommandsBudgetFilter.apply(hints, budgetContext);
+
+        if (filteredHints != null && !filteredHints.isEmpty()) {
+            result.put("nextCommands", filteredHints.stream()
                     .map(h -> {
                         var m = new LinkedHashMap<String, String>();
                         m.put("command", h.command());

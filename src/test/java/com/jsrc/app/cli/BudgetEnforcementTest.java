@@ -43,7 +43,7 @@ class BudgetEnforcementTest {
     @Test
     @DisplayName("BudgetContext should track degradation independently")
     void budgetContextShouldTrackDegradation() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ctx.setDegradedFrom("summary");
         ctx.addTransform("limit:10");
         ctx.setTruncated(true);
@@ -58,7 +58,7 @@ class BudgetEnforcementTest {
     @Test
     @DisplayName("BudgetContext should not add metadata for STANDARD profile")
     void budgetContextShouldNotAddMetaForStandard() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.STANDARD, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.STANDARD, null, null, false, false, null);
         ctx.setDegradedFrom("summary");
         
         var meta = ctx.buildMetadata();
@@ -83,14 +83,14 @@ class BudgetEnforcementTest {
     @Test
     @DisplayName("List limits should apply correctly under budget")
     void listLimitsShouldApplyUnderBudget() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         assertEquals(10, ctx.effectiveLimit());
         
-        BudgetContext ctxSmall = new BudgetContext(BudgetProfile.SMALL, null, null, false, null);
+        BudgetContext ctxSmall = new BudgetContext(BudgetProfile.SMALL, null, null, false, false, null);
         assertEquals(30, ctxSmall.effectiveLimit());
         
         // Explicit limit overrides profile
-        BudgetContext ctxOverride = new BudgetContext(BudgetProfile.TINY, 50, null, false, null);
+        BudgetContext ctxOverride = new BudgetContext(BudgetProfile.TINY, 50, null, false, false, null);
         assertEquals(50, ctxOverride.effectiveLimit());
     }
 }

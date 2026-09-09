@@ -48,7 +48,7 @@ class BudgetFormatterContractTest {
     @DisplayName("V1: printOverview under TINY enforces budget (not bare super bypass)")
     void v1_printOverviewEnforcesBudget() {
         // Given: TINY profile with small max-bytes
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 200, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 200, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -76,7 +76,7 @@ class BudgetFormatterContractTest {
     @Test
     @DisplayName("V1: printOverview with packageCount under TINY enforces list limit")
     void v1_printOverviewWithPackageCountEnforcesLimit() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -109,7 +109,7 @@ class BudgetFormatterContractTest {
     @Test
     @DisplayName("V2: printReadResult under TINY respects max-bytes with safe JSON truncation")
     void v2_printReadResultRespectsMaxBytes() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 300, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 300, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -141,7 +141,7 @@ class BudgetFormatterContractTest {
     @Test
     @DisplayName("V3: printRefs applies list limit AND max-bytes (not just limit then super)")
     void v3_printRefsAppliesLimitAndMaxBytes() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 400, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 400, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -176,7 +176,7 @@ class BudgetFormatterContractTest {
     @Test
     @DisplayName("V4: applyMaxBytes produces valid JSON (not broken substring + truncated marker)")
     void v4_applyMaxBytesProducesValidJson() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 150, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 150, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -210,7 +210,7 @@ class BudgetFormatterContractTest {
     @Test
     @DisplayName("V4: Truncated JSON with valid structure (object with truncated marker)")
     void v4_truncatedJsonHasValidStructure() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 80, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 80, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -239,7 +239,7 @@ class BudgetFormatterContractTest {
     @Test
     @DisplayName("V5: Array-shaped outputs remain arrays (no _budget wrapper)")
     void v5_arrayOutputsRemainArrays() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -269,7 +269,7 @@ class BudgetFormatterContractTest {
     @Test
     @DisplayName("V5: Object roots can have _budget metadata")
     void v5_objectRootsCanHaveBudget() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, null, false, false, null);
         ctx.setTruncated(true);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
@@ -295,7 +295,7 @@ class BudgetFormatterContractTest {
     void v4_objectWithLongFirstKeyNoComma() {
         // This is the critical edge case: when first field name is very long
         // and maxBytes is small, cutPoint can become openBrace+1, producing {,"_truncated":true}
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 50, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 50, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -325,7 +325,7 @@ class BudgetFormatterContractTest {
     @Test
     @DisplayName("V4 EDGE: Array with large first element, no comma in truncation window")
     void v4_arrayWithLargeFirstElementNoComma() {
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 60, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 60, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         
@@ -352,7 +352,7 @@ class BudgetFormatterContractTest {
     @DisplayName("V4 EDGE: Multiple fields but maxBytes cuts before first comma")
     void v4_multipleFieldsCutBeforeFirstComma() {
         // Tight maxBytes that cuts the JSON before any comma appears
-        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 35, false, null);
+        BudgetContext ctx = new BudgetContext(BudgetProfile.TINY, null, 35, false, false, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         BudgetAwareJsonFormatter formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), ctx);
         

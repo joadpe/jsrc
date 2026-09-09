@@ -67,6 +67,10 @@ public class GlobalOptions {
             scope = ScopeType.INHERIT)
     boolean noBudgetMeta;
 
+    @Option(names = "--no-next-commands", description = "Omit nextCommands hints from JSON output",
+            scope = ScopeType.INHERIT)
+    boolean noNextCommands;
+
     public boolean jsonOutput() { return jsonOutput; }
     public boolean mdOutput() { return mdOutput; }
     public boolean fullOutput() { return fullOutput; }
@@ -80,4 +84,5 @@ public class GlobalOptions {
     public Integer limit() { return limit; }
     public Integer maxBytes() { return maxBytes; }
     public boolean noBudgetMeta() { return noBudgetMeta; }
+    public boolean noNextCommands() { return noNextCommands; }
 }

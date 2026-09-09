@@ -9,9 +9,9 @@
   <url>https://github.com/quimbtc/jsrc</url>
 
   <properties>
-    <jdk.version>21</jdk.version>
-    <maven.compiler.source>21</maven.compiler.source>
-    <maven.compiler.target>21</maven.compiler.target>
+    <jdk.version>22</jdk.version>
+    <maven.compiler.source>22</maven.compiler.source>
+    <maven.compiler.target>22</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <junit.version>6.0.3</junit.version>
     <test.groups></test.groups>
@@ -64,7 +64,7 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.11.0</version>
         <configuration>
-          <release>21</release>
+          <release>22</release>
           <annotationProcessorPaths>
             <path>
               <groupId>info.picocli</groupId>
@@ -74,7 +74,6 @@
           </annotationProcessorPaths>
           <compilerArgs>
             <arg>-Aproject=${project.groupId}/${project.artifactId}</arg>
-            <arg>--enable-preview</arg>
           </compilerArgs>
         </configuration>
       </plugin>
@@ -83,7 +82,7 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.5.5</version>
         <configuration>
-          <argLine>--enable-preview --enable-native-access=ALL-UNNAMED</argLine>
+          <argLine>--enable-native-access=ALL-UNNAMED</argLine>
           <groups>${test.groups}</groups>
           <excludedGroups>${test.excludedGroups}</excludedGroups>
         </configuration>

@@ -357,4 +357,61 @@ class BudgetAwareHintsTest {
         assertFalse(result.containsKey("nextCommands"),
             "Empty hints should not add nextCommands key");
     }
+
+    @Test
+    @DisplayName("F1/F2: Under tiny, find and impact tokens are filtered from emitted hints")
+    void tinyProfile_filtersFindAndImpact() throws Exception {
+        var out = new ByteArrayOutputStream();
+        var budgetContext = new BudgetContext(
+            BudgetProfile.TINY,
+            null, null, false, false, null
+        );
+        var formatter = new BudgetAwareJsonFormatter(false, null, new PrintStream(out), budgetContext);
+
+        var data = new LinkedHashMap<String, Object>();
+        data.put("name", "SomeClass");
+
+        // Mix surface commands with non-surface commands
+        var hints = List.of(
+            new CommandHint("read SomeClass", "Read the class"),           // in TINY surface
+            new CommandHint("find keyword", "Search for keyword"),         // NOT in TINY surface
+            new CommandHint("mini SomeClass", "Mini view"),                // in TINY surface
+            new CommandHint("impact SomeClass.method", "Impact analysis"), // NOT in TINY surface
+            new CommandHint("scope SomeClass", "Show scope")               // in TINY surface
+        );
+
+        formatter.printResultWithHints(data, hints);
+
+        String json = out.toString().trim();
+        Map<?, ?> result = (Map<?, ?>) JsonReader.parse(json);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> nextCommands = (List<Map<String, String>>) result.get("nextCommands");
+        
+        assertNotNull(nextCommands, "Should have nextCommands");
+        
+        // F1: No 'find' token in emitted list
+        for (Map<String, String> hint : nextCommands) {
+            String command = hint.get("command");
+            String commandToken = command.split("\\s+")[0];
+            assertFalse(commandToken.equals("find"), 
+                "find token should not be emitted under tiny (not in budgetSurface)");
+        }
+        
+        // F2: No 'impact' token in emitted list
+        for (Map<String, String> hint : nextCommands) {
+            String command = hint.get("command");
+            String commandToken = command.split("\\s+")[0];
+            assertFalse(commandToken.equals("impact"),
+                "impact token should not be emitted under tiny (not in budgetSurface)");
+        }
+        
+        // F3: Surface tokens may remain (subject to cap)
+        // read, mini, scope are all in TINY_CORE_COMMANDS, so at least some should remain
+        assertTrue(nextCommands.stream().anyMatch(h -> 
+            h.get("command").startsWith("read") || 
+            h.get("command").startsWith("mini") || 
+            h.get("command").startsWith("scope")),
+            "Surface tokens (read/mini/scope) should remain");
+    }
 }

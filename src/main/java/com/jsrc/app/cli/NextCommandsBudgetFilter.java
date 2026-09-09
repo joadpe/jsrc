@@ -46,8 +46,14 @@ public class NextCommandsBudgetFilter {
                 continue;
             }
 
-            // B5: Keep if action is ALLOW or DEGRADE
-            // (budgetSurface is implicitly enforced via DENY check)
+            // B5: Filter out hints whose leading token is not in budgetSurface
+            // when surface is non-null (standard profile has null surface)
+            var surface = BudgetPolicy.budgetSurface(ctx.profile());
+            if (surface != null && !surface.contains(commandToken)) {
+                continue;
+            }
+
+            // Keep if action is ALLOW or DEGRADE and in surface
             filtered.add(hint);
         }
 

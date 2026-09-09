@@ -64,19 +64,32 @@ public final class InputValidator {
         if (command == null || command.isBlank()) {
             return "Command must not be empty";
         }
-        if (command.startsWith("--")) {
-            String[] known = com.jsrc.app.command.meta.CommandRegistry.knownCommandNames();
-            for (String k : known) {
-                if (k.equals(command)) return null;
-            }
-            // Unknown flag-style command — suggest closest
-            String closest = findClosest(command, known);
-            return "Unknown command: " + command
-                    + (closest != null ? ". Did you mean " + closest + "?" : "");
+        
+        // Check if it's a known command (canonical subcommand names)
+        String[] known = com.jsrc.app.command.meta.CommandRegistry.knownCommandNames();
+        for (String k : known) {
+            if (k.equals(command)) return null;
         }
-        // Non-flag commands are method names — may include params like process(int)
+        
+        // Check if there's a close match to a known command (likely typo)
+        String closest = findClosest(command, known);
+        if (closest != null) {
+            // Looks like a typo of a known command
+            return "Unknown command: " + command + ". Did you mean " + closest + "?";
+        }
+        
+        // If not similar to any known command, check if it looks like a method name
+        // (may include params like process(int))
         String methodPart = command.contains("(") ? command.substring(0, command.indexOf('(')) : command;
-        return validateIdentifier(methodPart, "Method name");
+        String identifierError = validateIdentifier(methodPart, "Method name");
+        
+        // If it's a valid method name identifier, accept it as method search
+        if (identifierError == null) {
+            return null;
+        }
+        
+        // Invalid as both command and method name
+        return "Unknown command: " + command;
     }
 
     /**

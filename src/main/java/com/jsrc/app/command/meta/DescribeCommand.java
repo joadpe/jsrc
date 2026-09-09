@@ -6,12 +6,9 @@ import com.jsrc.app.cli.BudgetProfile;
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
 /**
- * Describe command - lists available jsrc commands, budget-aware.
+ * Describe command - lists available jsrc commands using CommandRegistry as source of truth.
+ * Filters by budget profile visibility.
  */
 public class DescribeCommand implements Command {
 
@@ -29,84 +26,23 @@ public class DescribeCommand implements Command {
 
     @Override
     public int execute(CommandContext ctx) {
-        if (specificCommand != null) {
-            describeSpecificCommand(ctx);
-        } else {
-            describeAllCommands(ctx);
+        if (specificCommand != null && !specificCommand.isEmpty()) {
+            return CommandRegistry.describeCommand(specificCommand, ctx.formatter() instanceof com.jsrc.app.output.JsonFormatter) 
+                ? ExitCode.OK : ExitCode.NOT_FOUND;
         }
-        return ExitCode.OK;
-    }
-
-    private void describeAllCommands(CommandContext ctx) {
-        var commands = getCommandsForProfile(profile);
         
-        Map<String, Object> result = new LinkedHashMap<>();
+        // Filter CommandRegistry commands by budget visibility
+        String[] allCommands = CommandRegistry.knownCommandNames();
+        java.util.List<String> visibleCommands = java.util.Arrays.stream(allCommands)
+            .filter(cmd -> BudgetPolicy.isVisibleCommand(cmd, profile))
+            .toList();
+        
+        java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
         result.put("budget", profile.profileName());
-        result.put("commands", commands);
-        result.put("totalCommands", commands.size());
+        result.put("commands", visibleCommands);
+        result.put("totalCommands", visibleCommands.size());
         
         ctx.formatter().printResult(result);
-    }
-
-    private void describeSpecificCommand(CommandContext ctx) {
-        var commandInfo = getCommandInfo(specificCommand);
-        if (commandInfo == null) {
-            System.err.println("Unknown command: " + specificCommand);
-            return;
-        }
-        
-        boolean visible = BudgetPolicy.isVisibleCommand(specificCommand, profile);
-        commandInfo.put("visibleUnderBudget", visible);
-        commandInfo.put("budget", profile.profileName());
-        
-        ctx.formatter().printResult(commandInfo);
-    }
-
-    private List<Map<String, Object>> getCommandsForProfile(BudgetProfile profile) {
-        var allCommands = getAllCommandDefinitions();
-        
-        return allCommands.stream()
-            .filter(cmd -> BudgetPolicy.isVisibleCommand((String) cmd.get("name"), profile))
-            .toList();
-    }
-
-    private List<Map<String, Object>> getAllCommandDefinitions() {
-        return List.of(
-            cmd("index", "Build/refresh persistent index", "meta"),
-            cmd("overview", "Codebase statistics", "navigation"),
-            cmd("mini", "Ultra-compact class summary", "navigation"),
-            cmd("summary", "Class metadata + method signatures", "navigation"),
-            cmd("read", "Read source code", "navigation"),
-            cmd("hierarchy", "Inheritance tree", "navigation"),
-            cmd("deps", "Class dependencies", "navigation"),
-            cmd("classes", "List all classes", "navigation"),
-            cmd("scope", "Find relevant classes by keywords", "search"),
-            cmd("search", "Text search", "search"),
-            cmd("find", "Semantic search", "search"),
-            cmd("callers", "Who calls this method", "call-graph"),
-            cmd("callees", "What this method calls", "call-graph"),
-            cmd("related", "Related classes by coupling", "navigation"),
-            cmd("smells", "Code smells detection", "analysis"),
-            cmd("lint", "Pre-compile checks", "analysis"),
-            cmd("validate", "Verify method exists", "validation"),
-            cmd("type-check", "Return type verification", "validation"),
-            cmd("describe", "List available commands", "meta"),
-            cmd("skill", "Compact skill guide", "meta")
-        );
-    }
-
-    private Map<String, Object> cmd(String name, String description, String category) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("name", name);
-        map.put("description", description);
-        map.put("category", category);
-        return map;
-    }
-
-    private Map<String, Object> getCommandInfo(String cmdName) {
-        return getAllCommandDefinitions().stream()
-            .filter(cmd -> cmdName.equals(cmd.get("name")))
-            .findFirst()
-            .orElse(null);
+        return ExitCode.OK;
     }
 }

@@ -247,7 +247,7 @@ public class JsrcCommand implements Runnable {
 
         var parser = new HybridJavaParser();
         
-        // Create budget-aware formatter
+        // Create budget-aware formatter with shared budget context
         OutputFormatter formatter = OutputFormatter.create(
                 effectiveJson, 
                 globalOptions.signatureOnly(), 
@@ -260,7 +260,7 @@ public class JsrcCommand implements Runnable {
 
         return new CommandContext(javaFiles, rootPath, config, formatter, indexed, parser,
                 globalOptions.mdOutput(), globalOptions.outDir(),
-                globalOptions.fullOutput(), globalOptions.noTest());
+                globalOptions.fullOutput(), globalOptions.noTest(), budgetContext);
     }
 
     private static List<Path> filterExcludes(List<Path> files, List<String> excludes) {

@@ -34,14 +34,8 @@ public class SkillCommand implements Command {
     }
 
     private java.util.List<String> getAllCommandsForProfile(BudgetProfile profile) {
-        var allCommands = java.util.List.of(
-            "index", "overview", "mini", "read", "scope", "callers", "callees",
-            "validate", "type-check", "describe", "skill", "classes", "search",
-            "find", "summary", "hierarchy", "deps", "related", "smells", "lint",
-            "context", "call-chain", "dump", "tour", "map"
-        );
-        
-        return allCommands.stream()
+        String[] allCommands = CommandRegistry.knownCommandNames();
+        return java.util.Arrays.stream(allCommands)
             .filter(cmd -> BudgetPolicy.isVisibleCommand(cmd, profile))
             .toList();
     }

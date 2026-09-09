@@ -192,26 +192,29 @@ Precedence: CLI flag > env var > config file > standard
 
 Under **tiny** budget:
 - Forces `--json` output (unless `--md` set)
-- Limits list outputs to 10 items
+- Limits list outputs to 10 items  
+- **Degrades**: `summary` → executes as `mini` instead
+- **Denies**: `read Class` (without method) → exits with structured error suggesting `read Class.method`
 - Denies: `context`, `call-chain`, `dump`, `tour`, `map`
-- Degrades: `summary` → `mini`, `read Class` → requires method
-- Visible commands: `index`, `overview`, `mini`, `read`, `scope`, `callers`, `validate`, `describe`, `skill`, `classes`
+- Visible commands (via `describe --budget tiny`): `index`, `overview`, `mini`, `read`, `scope`, `callers`, `validate`, `describe`, `skill`, `classes`
 
 Under **small** budget:
 - Forces `--json` output (unless `--md` set)
 - Limits list outputs to 30 items
+- Allows `summary` and most navigation/analysis commands
 - Denies heavy commands (same as tiny)
-- Allows most navigation/analysis commands
 
 Denied commands exit with code 2 and structured error JSON:
 ```json
-{"error":"budget_denied","command":"context","budget":"tiny","suggestion":"jsrc mini <Class> --json"}
+{"error":"budget_denied","command":"read","budget":"tiny","suggestion":"jsrc read Class.method --json (see jsrc mini Class for method list)"}
 ```
 
 All JSON output under budget includes `_budget` metadata (opt-out: `--no-budget-meta`):
 ```json
-{"_budget":{"profile":"tiny","applied":["limit:10"],"truncated":true},"name":"OrderService",...}
+{"_budget":{"profile":"tiny","degradedFrom":"summary","applied":["limit:10"],"truncated":true},"name":"OrderService",...}
 ```
+
+**Important:** Array-shaped JSON responses preserve their contract (no wrapper object). `_budget` metadata is only added to object roots.
 
 ## CLI Dialect
 

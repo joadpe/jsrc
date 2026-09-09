@@ -177,15 +177,17 @@ export JSRC_BUDGET=small
 
 **Behavior:**
 - Tiny/small force `--json` output automatically
+- **Tiny degrades:** `summary` → runs as `mini`, `read Class` → denies with suggestion to read specific method
 - Denied commands exit with code 2 + structured error JSON
-- All output includes `_budget` metadata showing applied limits
+- All object-shaped output includes `_budget` metadata showing applied limits (array outputs preserve contract)
 
 **Quick start for tiny budget:**
 ```bash
 export JSRC_BUDGET=tiny
 jsrc skill --json  # Get slim command guide for tiny budget
 jsrc overview --json
-jsrc mini ClassName --json
+jsrc mini ClassName --json  # summary auto-degrades to this under tiny
+jsrc read ClassName.methodName --json  # whole-class reads denied under tiny
 ```
 
 ## Exit codes

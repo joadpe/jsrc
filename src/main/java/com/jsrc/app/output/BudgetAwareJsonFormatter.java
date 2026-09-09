@@ -74,7 +74,51 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
             budgetContext.addTransform("fields:" + budgetContext.profile().fieldSet());
         }
         
-        super.printClasses(limited, sourceRoot);
+        // Convert to maps with field filtering applied
+        List<java.util.Map<String, Object>> items = limited.stream()
+            .map(ci -> {
+                var map = classToCompactMap(ci);
+                // Apply budget field filtering if set, otherwise use explicit fields
+                var effectiveFields = fieldSet != null ? fieldSet : fields;
+                return com.jsrc.app.output.FieldsFilter.filter(map, effectiveFields);
+            })
+            .toList();
+        
+        // Serialize with max-bytes
+        String json = com.jsrc.app.output.JsonWriter.toJson(items);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
+    }
+    
+    private java.util.Map<String, Object> classToCompactMap(com.jsrc.app.parser.model.ClassInfo ci) {
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+        map.put("name", ci.name());
+        map.put("packageName", ci.packageName());
+        map.put("line", ci.startLine());
+        map.put("modifiers", ci.modifiers());
+        map.put("isInterface", ci.isInterface());
+        map.put("isAbstract", ci.isAbstract());
+        map.put("methodCount", ci.methods().size());
+        if (!ci.superClass().isEmpty()) {
+            map.put("superClass", ci.superClass());
+        }
+        if (!ci.interfaces().isEmpty()) {
+            map.put("interfaces", ci.interfaces());
+        }
+        if (!ci.annotations().isEmpty()) {
+            map.put("annotations", ci.annotations().stream()
+                    .map(this::annotationToMap).toList());
+        }
+        return map;
+    }
+    
+    private java.util.Map<String, Object> annotationToMap(com.jsrc.app.parser.model.AnnotationInfo a) {
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+        map.put("name", a.name());
+        if (!a.isMarker()) {
+            map.put("attributes", a.attributes());
+        }
+        return map;
     }
 
     @Override
@@ -84,7 +128,73 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
         if (fieldSet != null) {
             budgetContext.addTransform("fields:" + budgetContext.profile().fieldSet());
         }
-        super.printClassSummary(classInfo, file);
+        
+        // Build the summary map
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+        map.put("name", classInfo.name());
+        map.put("packageName", classInfo.packageName());
+        map.put("file", file.toString());
+        map.put("line", classInfo.startLine());
+        map.put("modifiers", classInfo.modifiers());
+        map.put("isInterface", classInfo.isInterface());
+        map.put("isAbstract", classInfo.isAbstract());
+        if (!classInfo.superClass().isEmpty()) {
+            map.put("superClass", classInfo.superClass());
+        }
+        if (!classInfo.interfaces().isEmpty()) {
+            map.put("interfaces", classInfo.interfaces());
+        }
+        if (!classInfo.annotations().isEmpty()) {
+            map.put("annotations", classInfo.annotations().stream()
+                    .map(this::annotationToMap).toList());
+        }
+        List<java.util.Map<String, Object>> methods = classInfo.methods().stream()
+                .map(m -> {
+                    java.util.Map<String, Object> mmap = new java.util.LinkedHashMap<>();
+                    mmap.put("name", m.name());
+                    mmap.put("signature", m.signature());
+                    mmap.put("line", m.startLine());
+                    mmap.put("returnType", m.returnType());
+                    return mmap;
+                }).toList();
+        map.put("methods", methods);
+        
+        // Apply field filtering if applicable
+        var effectiveFields = fieldSet != null ? fieldSet : fields;
+        var filtered = com.jsrc.app.output.FieldsFilter.filter(map, effectiveFields);
+        
+        // Serialize with max-bytes
+        String json = com.jsrc.app.output.JsonWriter.toJson(filtered);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
+    }
+    
+    @Override
+    public void printAnnotationMatches(List<com.jsrc.app.model.AnnotationMatch> matches) {
+        // Apply list limit
+        List<com.jsrc.app.model.AnnotationMatch> limited = applyListLimit(matches);
+        if (limited.size() < matches.size()) {
+            budgetContext.setTruncated(true);
+            budgetContext.addTransform("limit:" + budgetContext.effectiveLimit());
+        }
+        
+        // Convert to maps
+        List<java.util.Map<String, Object>> items = limited.stream()
+                .map(m -> {
+                    java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+                    map.put("type", m.type());
+                    map.put("name", m.name());
+                    map.put("class", m.className());
+                    map.put("file", m.file().toString());
+                    map.put("line", m.line());
+                    map.put("annotation", annotationToMap(m.annotation()));
+                    return map;
+                }).toList();
+        
+        // Serialize with max-bytes
+        String json = com.jsrc.app.output.JsonWriter.toJson(items);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
     }
 
     @Override
@@ -101,7 +211,53 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
             budgetContext.addTransform("fields:" + budgetContext.profile().fieldSet());
         }
         
-        super.printMethods(limited, file, methodName);
+        // Convert to maps with field filtering applied
+        List<java.util.Map<String, Object>> items = limited.stream()
+            .map(m -> {
+                var map = methodToMap(m, file);
+                var effectiveFields = fieldSet != null ? fieldSet : fields;
+                return com.jsrc.app.output.FieldsFilter.filter(map, effectiveFields);
+            })
+            .toList();
+        
+        // Serialize with max-bytes
+        String json = com.jsrc.app.output.JsonWriter.toJson(items);
+        String truncated = applyMaxBytes(json);
+        out.println(truncated);
+    }
+    
+    private java.util.Map<String, Object> methodToMap(com.jsrc.app.parser.model.MethodInfo m, Path file) {
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+        map.put("name", m.name());
+        map.put("class", m.className());
+        map.put("file", file.toString());
+        map.put("line", m.startLine());
+        map.put("signature", m.signature());
+
+        if (!signatureOnly) {
+            map.put("returnType", m.returnType());
+            map.put("modifiers", m.modifiers());
+            map.put("parameters", m.parameters().stream().map(this::paramToMap).toList());
+
+            if (!m.annotations().isEmpty()) {
+                map.put("annotations", m.annotations().stream()
+                        .map(this::annotationToMap).toList());
+            }
+            if (!m.thrownExceptions().isEmpty()) {
+                map.put("thrownExceptions", m.thrownExceptions());
+            }
+            if (!m.typeParameters().isEmpty()) {
+                map.put("typeParameters", m.typeParameters());
+            }
+        }
+        return map;
+    }
+    
+    private java.util.Map<String, Object> paramToMap(com.jsrc.app.parser.model.MethodInfo.ParameterInfo p) {
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+        map.put("type", p.type());
+        map.put("name", p.name());
+        return map;
     }
 
     @Override

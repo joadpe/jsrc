@@ -426,13 +426,13 @@ class BudgetContractTest {
         
         String json = out.toString().trim();
         
-        // Count opening braces to estimate number of items
-        // Under TINY (limit 10), we should have at most 10 objects
-        long objectCount = json.chars().filter(ch -> ch == '{').count();
+        // Count top-level array items by counting commas in first level
+        // Under TINY (limit 10), we should have at most 10 items
+        // Each item is separated by comma at top level
+        String[] topLevelItems = json.substring(1, json.length() - 1).split("\\},\\{");
         
-        // Each annotation match creates one object, so we should have ~10 or fewer
-        assertTrue(objectCount <= 12,
-            "annotations output should be limited under TINY, got ~" + objectCount + " objects");
+        assertTrue(topLevelItems.length <= 10,
+            "annotations output should be limited to 10 items under TINY, got " + topLevelItems.length);
     }
 
     @Test

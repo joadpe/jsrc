@@ -76,7 +76,52 @@ public class IndexedCodebase {
      * @return IndexedCodebase if index exists, null otherwise
      */
     public static IndexedCodebase tryLoad(Path sourceRoot, List<Path> currentFiles) {
+        return tryLoad(sourceRoot, currentFiles, false);
+    }
+
+    /**
+     * Tries to load an indexed codebase from disk with optional frozen mode.
+     * 
+     * @param sourceRoot project root where .jsrc/index.json lives
+     * @param currentFiles current list of Java files on disk
+     * @param frozenIndex if true, skip filesystem walk and fail if index missing/corrupt
+     * @return IndexedCodebase if index exists, null otherwise
+     * @throws com.jsrc.app.exception.JsrcIOException if frozenIndex is true and index is missing or corrupt
+     */
+    public static IndexedCodebase tryLoad(Path sourceRoot, List<Path> currentFiles, boolean frozenIndex) {
         Path v2File = sourceRoot.resolve(".jsrc/index.bin");
+        
+        // Frozen mode: load existing index without filesystem walk
+        if (frozenIndex) {
+            if (!Files.exists(v2File)) {
+                throw new com.jsrc.app.exception.JsrcIOException(
+                    "--frozen-index set but index file missing: " + v2File + "\n" +
+                    "Run 'jsrc index' first or omit --frozen-index to rebuild.");
+            }
+            
+            try {
+                BinaryIndexV2Reader.LazyIndexData lazyData = BinaryIndexV2Reader.readLazy(v2File);
+                List<IndexEntry> entries = lazyData.getData().entries();
+                java.util.Map<String, List<CachedMigration>> loadedMigrations = lazyData.getData().migrations();
+                
+                logger.info("Loaded V2 binary index in FROZEN mode (LAZY): {} entries", entries.size());
+                
+                var indexed = new IndexedCodebase(entries);
+                indexed.sourceRoot = sourceRoot;
+                indexed.edgesLoaded = entries.stream().anyMatch(e -> !e.callEdges().isEmpty());
+                indexed.smellsLoaded = entries.stream().anyMatch(e -> !e.smells().isEmpty());
+                indexed.preBuiltCallGraph = null; // Keep lazy until ensureGraph
+                indexed.lazyIndexData = lazyData;
+                indexed.migrationCache = loadedMigrations;
+                return indexed;
+            } catch (IOException e) {
+                throw new com.jsrc.app.exception.JsrcIOException(
+                    "--frozen-index set but index file corrupt: " + e.getMessage() + "\n" +
+                    "Run 'jsrc index' to rebuild or omit --frozen-index.", e);
+            }
+        }
+        
+        // Normal mode: existing refresh logic
         com.jsrc.app.analysis.CallGraph preBuiltGraph = null;
         BinaryIndexV2Reader.LazyIndexData lazyData = null;
         java.util.Map<String, List<CachedMigration>> loadedMigrations = null;

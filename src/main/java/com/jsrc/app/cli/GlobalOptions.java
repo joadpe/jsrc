@@ -71,6 +71,11 @@ public class GlobalOptions {
             scope = ScopeType.INHERIT)
     boolean noNextCommands;
 
+    @Option(names = "--frozen-index",
+            description = "Skip filesystem walk; fail if index missing (use when sources unchanged)",
+            scope = ScopeType.INHERIT)
+    boolean frozenIndex;
+
     public boolean jsonOutput() { return jsonOutput; }
     public boolean mdOutput() { return mdOutput; }
     public boolean fullOutput() { return fullOutput; }
@@ -85,4 +90,5 @@ public class GlobalOptions {
     public Integer maxBytes() { return maxBytes; }
     public boolean noBudgetMeta() { return noBudgetMeta; }
     public boolean noNextCommands() { return noNextCommands; }
+    public boolean frozenIndex() { return frozenIndex; }
 }

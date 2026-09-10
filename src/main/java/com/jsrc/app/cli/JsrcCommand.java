@@ -257,11 +257,11 @@ public class JsrcCommand implements Runnable {
                 budgetContext);
 
         IndexedCodebase indexed = skipIndex != null ? null
-                : IndexedCodebase.tryLoad(Paths.get(rootPath), javaFiles);
+                : IndexedCodebase.tryLoad(Paths.get(rootPath), javaFiles, globalOptions.frozenIndex());
 
         return new CommandContext(javaFiles, rootPath, config, formatter, indexed, parser,
                 globalOptions.mdOutput(), globalOptions.outDir(),
-                globalOptions.fullOutput(), globalOptions.noTest(), budgetContext);
+                globalOptions.fullOutput(), globalOptions.noTest(), budgetContext, globalOptions.frozenIndex());
     }
 
     private static List<Path> filterExcludes(List<Path> files, List<String> excludes) {

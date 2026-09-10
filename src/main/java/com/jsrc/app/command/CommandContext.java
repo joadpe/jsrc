@@ -32,6 +32,7 @@ public final class CommandContext {
     private final boolean fullOutput;
     private final boolean noTest;
     private final com.jsrc.app.cli.BudgetContext budgetContext;
+    private final boolean frozenIndex;
 
     private CallGraph callGraphCache;
     private DependencyAnalyzer dependencyAnalyzerCache;
@@ -39,31 +40,38 @@ public final class CommandContext {
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser) {
-        this(javaFiles, rootPath, config, formatter, indexed, parser, false, null, false, false, null);
+        this(javaFiles, rootPath, config, formatter, indexed, parser, false, null, false, false, null, false);
     }
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
                           boolean mdOutput, String outDir) {
-        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, false, false, null);
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, false, false, null, false);
     }
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
                           boolean mdOutput, String outDir, boolean fullOutput) {
-        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, fullOutput, false, null);
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, fullOutput, false, null, false);
     }
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
                           boolean mdOutput, String outDir, boolean fullOutput, boolean noTest) {
-        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, fullOutput, noTest, null);
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, fullOutput, noTest, null, false);
     }
 
     public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
                           boolean mdOutput, String outDir, boolean fullOutput, boolean noTest,
                           com.jsrc.app.cli.BudgetContext budgetContext) {
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir, fullOutput, noTest, budgetContext, false);
+    }
+
+    public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
+                          OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
+                          boolean mdOutput, String outDir, boolean fullOutput, boolean noTest,
+                          com.jsrc.app.cli.BudgetContext budgetContext, boolean frozenIndex) {
         this.javaFiles = javaFiles;
         this.rootPath = rootPath;
         this.config = config;
@@ -75,6 +83,7 @@ public final class CommandContext {
         this.fullOutput = fullOutput;
         this.noTest = noTest;
         this.budgetContext = budgetContext;
+        this.frozenIndex = frozenIndex;
     }
 
     public List<Path> javaFiles() { return javaFiles; }
@@ -88,6 +97,7 @@ public final class CommandContext {
     public boolean fullOutput() { return fullOutput; }
     public boolean noTest() { return noTest; }
     public com.jsrc.app.cli.BudgetContext budgetContext() { return budgetContext; }
+    public boolean frozenIndex() { return frozenIndex; }
 
     private java.util.Map<String, String> qualifiedNameCache;
 

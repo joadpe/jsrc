@@ -65,6 +65,7 @@ public class DescribeCommand implements Command {
         }
         
         ctx.formatter().printResult(result);
-        return ExitCode.OK;
+        // Return positive count of visible commands (pattern from #18)
+        return visibleCommands.size();
     }
 }

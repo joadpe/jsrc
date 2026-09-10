@@ -85,13 +85,7 @@ public abstract class PicocliAdapter implements Callable<Integer> {
                 System.err.println(metrics);
             }
 
-            // Special handling for error codes: BAD_USAGE and other errors pass through
-            if (result == ExitCode.BAD_USAGE || result < 0) {
-                return result;
-            }
-            
-            // Standard success/not-found logic
-            return result > 0 ? ExitCode.OK : ExitCode.NOT_FOUND;
+            return ExitCodeMapper.mapToExitCode(result);
         } catch (JsrcException e) {
             System.err.println("Error: " + e.getMessage());
             return e.exitCode();

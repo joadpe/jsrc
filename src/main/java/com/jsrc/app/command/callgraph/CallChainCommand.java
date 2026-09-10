@@ -62,7 +62,7 @@ public class CallChainCommand implements Command {
             result.put("candidates", candidates);
             result.put("message", "Multiple methods found. Use Class.method(Type1,Type2) to disambiguate.");
             ctx.formatter().printResult(result);
-            return 0;
+            return Math.max(1, candidates.size());
         }
 
         var targets = resolved.targets();

@@ -1,5 +1,6 @@
 package com.jsrc.app.command.meta;
 
+import com.jsrc.app.cli.ExitCodeMapper;
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandFactory;
 import com.jsrc.app.command.CommandContext;
@@ -76,22 +77,48 @@ public class WatchCommand implements Command {
                         cmd = CommandFactory.createMethodSearch(command);
                     }
                     if (cmd == null) {
+                        Map<String, Object> envelope = new LinkedHashMap<>();
+                        envelope.put("exit", 1);
                         Map<String, Object> error = new LinkedHashMap<>();
                         error.put("error", "Unknown command: " + command);
-                        System.out.println(JsonWriter.toJson(error));
+                        envelope.put("result", error);
+                        System.out.println(JsonWriter.toJson(envelope));
                         System.out.flush();
                         continue;
                     }
 
-                    cmd.execute(freshCtx);
+                    int rawResult = cmd.execute(freshCtx);
                     captureStream.flush();
-                    System.out.println(baos.toString().trim());
+                    
+                    // Parse the captured output as JSON, or wrap as raw string if not parseable
+                    Object resultBody;
+                    String output = baos.toString().trim();
+                    try {
+                        resultBody = JsonReader.parse(output);
+                        if (resultBody == null) {
+                            resultBody = output;
+                        }
+                    } catch (Exception parseEx) {
+                        resultBody = output;
+                    }
+                    
+                    // Map raw result through shared mapper
+                    int exitCode = ExitCodeMapper.mapToExitCode(rawResult);
+                    
+                    // Emit envelope: {"exit": <mapped>, "result": <parsed>}
+                    Map<String, Object> envelope = new LinkedHashMap<>();
+                    envelope.put("exit", exitCode);
+                    envelope.put("result", resultBody);
+                    System.out.println(JsonWriter.toJson(envelope));
                     System.out.flush();
 
                 } catch (Exception e) {
+                    Map<String, Object> envelope = new LinkedHashMap<>();
+                    envelope.put("exit", 3);
                     Map<String, Object> error = new LinkedHashMap<>();
                     error.put("error", e.getMessage());
-                    System.out.println(JsonWriter.toJson(error));
+                    envelope.put("result", error);
+                    System.out.println(JsonWriter.toJson(envelope));
                     System.out.flush();
                 }
             }

@@ -3,6 +3,7 @@ package com.jsrc.app.command;
 import com.jsrc.app.command.meta.WatchCommand;
 import com.jsrc.app.index.IndexedCodebase;
 
+import com.jsrc.app.output.JsonReader;
 import com.jsrc.app.output.OutputFormatter;
 
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Test WatchCommand session cache without relying on tree-sitter native libs.
- * Tests verify A1-A4 contract: cache reuse, refresh detection, quit protocol.
+ * Tests verify A1-A5 contract: cache reuse, refresh detection, quit protocol, envelope format.
  */
 class WatchCommandTest {
 
@@ -204,5 +205,155 @@ class WatchCommandTest {
                 return super.callTryLoad(root, files);
             }
         };
+    }
+
+    /**
+     * A1: Watch command → envelope with exit + result keys (validates envelope structure).
+     * Test validates envelope format regardless of success/failure since the goal is
+     * to ensure all watch responses use the envelope structure with exit and result fields.
+     */
+    @Test
+    void watchCommandReturnsEnvelopeWithExitAndResult(@TempDir Path tempDir) throws Exception {
+        createSimpleJavaFile(tempDir);
+
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var outputCapture = new ByteArrayOutputStream();
+
+        System.setIn(new ByteArrayInputStream("{\"command\":\"overview\"}\n{\"command\":\"quit\"}\n".getBytes()));
+        System.setOut(new PrintStream(outputCapture, true));
+
+        try {
+            var watch = new WatchCommand();
+            var ctx = createContext(tempDir);
+            watch.execute(ctx);
+
+            String output = outputCapture.toString();
+            String[] lines = output.split("\n");
+            
+            boolean foundEnvelope = false;
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty() || !line.startsWith("{")) continue;
+                
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> envelope = (Map<String, Object>) JsonReader.parse(line);
+                    if (envelope != null && envelope.containsKey("exit") && envelope.containsKey("result")) {
+                        foundEnvelope = true;
+                        // Envelope structure validation: exit field must be present and numeric
+                        Object exitObj = envelope.get("exit");
+                        assertNotNull(exitObj, "exit field should not be null");
+                        assertTrue(exitObj instanceof Number, "exit should be numeric");
+                        
+                        // Result field must be present (can be string, map, or other)
+                        assertNotNull(envelope.get("result"), "Result field should not be null");
+                        break;
+                    }
+                } catch (Exception e) {
+                    // Skip non-JSON lines
+                }
+            }
+            
+            assertTrue(foundEnvelope, "Should find envelope with exit and result keys");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
+
+    /**
+     * A2: Watch unknown command → exit != 0 + error field.
+     */
+    @Test
+    void watchUnknownCommandReturnsNonZeroExitWithError(@TempDir Path tempDir) throws Exception {
+        createSimpleJavaFile(tempDir);
+
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var outputCapture = new ByteArrayOutputStream();
+
+        System.setIn(new ByteArrayInputStream("{\"command\":\"unknownXYZ\"}\n{\"command\":\"quit\"}\n".getBytes()));
+        System.setOut(new PrintStream(outputCapture, true));
+
+        try {
+            var watch = new WatchCommand();
+            var ctx = createContext(tempDir);
+            watch.execute(ctx);
+
+            String output = outputCapture.toString();
+            String[] lines = output.split("\n");
+            
+            boolean foundError = false;
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty() || !line.startsWith("{")) continue;
+                
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> envelope = (Map<String, Object>) JsonReader.parse(line);
+                    if (envelope != null && envelope.containsKey("exit")) {
+                        long exitCode = ((Number) envelope.get("exit")).longValue();
+                        if (exitCode != 0) {
+                            foundError = true;
+                            assertNotEquals(0L, exitCode, "Unknown command should have non-zero exit");
+                            
+                            Object result = envelope.get("result");
+                            assertNotNull(result, "Result should not be null");
+                            
+                            if (result instanceof Map) {
+                                @SuppressWarnings("unchecked")
+                                Map<String, Object> resultMap = (Map<String, Object>) result;
+                                assertTrue(resultMap.containsKey("error"), "Result should contain error field");
+                            }
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    // Skip non-JSON lines
+                }
+            }
+            
+            assertTrue(foundError, "Should find envelope with non-zero exit and error");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
+
+    /**
+     * A5: Warm-index cache from #20 still load-once (regression check).
+     */
+    @Test
+    void warmIndexCacheStillLoadsOnce(@TempDir Path tempDir) throws Exception {
+        createSimpleJavaFile(tempDir);
+        tryLoadCounter.set(0);
+
+        var originalIn = System.in;
+        var originalOut = System.out;
+
+        System.setIn(new ByteArrayInputStream(
+                "{\"command\":\"overview\"}\n{\"command\":\"overview\"}\n{\"command\":\"quit\"}\n".getBytes()));
+        System.setOut(new PrintStream(new ByteArrayOutputStream(), true));
+
+        try {
+            var watch = createInstrumentedWatchCommand();
+            var ctx = createContext(tempDir);
+            var executor = Executors.newSingleThreadExecutor();
+            var future = executor.submit(() -> watch.execute(ctx));
+
+            try {
+                future.get(5, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                future.cancel(true);
+            }
+            executor.shutdownNow();
+
+            assertEquals(1, tryLoadCounter.get(),
+                    "Warm cache should still load index exactly once (regression from #20)");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
     }
 }

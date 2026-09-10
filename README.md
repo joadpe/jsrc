@@ -286,6 +286,16 @@ jsrc callers MyMethod --json  # Auto-refreshes changed files + edges
 
 Index uses SHA-256 content hashes. Auto-refresh re-extracts call edges for modified files, so the call graph stays fresh after edits.
 
+### Watch Mode Session Cache
+
+Watch mode (`jsrc watch`) maintains an in-memory cache of the indexed codebase across multiple commands:
+
+- **First command**: Loads index from `.jsrc/index.bin`
+- **Subsequent commands**: Reuses cached index if no file changes detected
+- **Automatic refresh**: Detects file modifications via cheap timestamp stamp (index mtime + max source mtime + file count) and reloads only when necessary
+
+This eliminates redundant index loads during interactive sessions, making back-to-back queries instant even without filesystem changes.
+
 ## Performance
 
 All commands on Spring Boot (8,323 files, 52K methods, native binary):

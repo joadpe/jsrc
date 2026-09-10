@@ -411,6 +411,15 @@ class WatchCommandTest {
                 }
                 """);
         
+        var files = List.of(caller);
+        var formatter = com.jsrc.app.output.OutputFormatter.create(true, false, null);
+        var parser = new com.jsrc.app.parser.HybridJavaParser();
+        
+        // Pre-create index so refresh path triggers lazy load
+        var indexCmd = new com.jsrc.app.command.meta.IndexCommand();
+        var indexCtx = new CommandContext(files, tempDir.toString(), null, formatter, null, parser);
+        indexCmd.execute(indexCtx);
+        
         var originalIn = System.in;
         var originalOut = System.out;
         
@@ -419,9 +428,6 @@ class WatchCommandTest {
         
         try {
             var watch = new WatchCommand();
-            var files = List.of(caller);
-            var formatter = com.jsrc.app.output.OutputFormatter.create(true, false, null);
-            var parser = new com.jsrc.app.parser.HybridJavaParser();
             var ctx = new CommandContext(files, tempDir.toString(), null, formatter, null, parser);
             
             com.jsrc.app.index.BinaryIndexV2Reader.resetGraphParsedFlag();

@@ -156,9 +156,26 @@ public class IndexedCodebase {
             try {
                 var builder = new com.jsrc.app.analysis.CallGraphBuilder();
                 builder.loadFromIndex(refreshed);
-                preBuiltGraph = builder.toCallGraph();
-                updatedIndex.saveWithGraph(sourceRoot, preBuiltGraph, loadedMigrations);
-                lazyData = null;
+                var graphForSave = builder.toCallGraph();
+                updatedIndex.saveWithGraph(sourceRoot, graphForSave, loadedMigrations);
+                
+                // Re-read index in LAZY mode to restore lazy state after refresh
+                if (Files.exists(v2File)) {
+                    try {
+                        lazyData = BinaryIndexV2Reader.readLazy(v2File);
+                        refreshed = new ArrayList<>(lazyData.getData().entries());
+                        loadedMigrations = lazyData.getData().migrations();
+                        preBuiltGraph = null; // keep lazy until ensureGraph
+                        logger.debug("Re-loaded index in lazy mode after refresh");
+                    } catch (IOException readEx) {
+                        logger.warn("Could not re-read lazy index after save: {}", readEx.getMessage());
+                        preBuiltGraph = graphForSave;
+                        lazyData = null;
+                    }
+                } else {
+                    preBuiltGraph = graphForSave;
+                    lazyData = null;
+                }
             } catch (IOException e) {
                 logger.warn("Could not save refreshed index: {}", e.getMessage());
             }

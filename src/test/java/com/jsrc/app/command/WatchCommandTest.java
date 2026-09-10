@@ -366,6 +366,76 @@ class WatchCommandTest {
     }
 
     /**
+     * A1 (Lazy): Watch overview command should NOT parse CallGraph.
+     * Validates that lazy loading defers graph parse until needed.
+     */
+    @Test
+    void watchOverview_noGraphParse(@TempDir Path tempDir) throws Exception {
+        createSimpleJavaFile(tempDir);
+        
+        var originalIn = System.in;
+        var originalOut = System.out;
+        
+        System.setIn(new ByteArrayInputStream("{\"command\":\"overview\"}\n{\"command\":\"quit\"}\n".getBytes()));
+        System.setOut(new PrintStream(new ByteArrayOutputStream(), true));
+        
+        try {
+            var watch = new WatchCommand();
+            var ctx = createContext(tempDir);
+            
+            com.jsrc.app.index.BinaryIndexV2Reader.resetGraphParsedFlag();
+            watch.execute(ctx);
+            
+            assertFalse(com.jsrc.app.index.BinaryIndexV2Reader.wasGraphParsed(),
+                    "Overview command should NOT parse CallGraph (lazy loading)");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
+
+    /**
+     * A2 (Lazy): Watch callers command DOES parse CallGraph and returns correct results.
+     */
+    @Test
+    void watchCallers_graphParsed(@TempDir Path tempDir) throws Exception {
+        // Create files with caller relationship
+        Path caller = tempDir.resolve("Caller.java");
+        Files.writeString(caller, """
+                package demo;
+                public class Caller {
+                    public void run() {
+                        process();
+                    }
+                    public void process() {}
+                }
+                """);
+        
+        var originalIn = System.in;
+        var originalOut = System.out;
+        
+        System.setIn(new ByteArrayInputStream("{\"command\":\"callers\",\"arg\":\"process\"}\n{\"command\":\"quit\"}\n".getBytes()));
+        System.setOut(new PrintStream(new ByteArrayOutputStream(), true));
+        
+        try {
+            var watch = new WatchCommand();
+            var files = List.of(caller);
+            var formatter = com.jsrc.app.output.OutputFormatter.create(true, false, null);
+            var parser = new com.jsrc.app.parser.HybridJavaParser();
+            var ctx = new CommandContext(files, tempDir.toString(), null, formatter, null, parser);
+            
+            com.jsrc.app.index.BinaryIndexV2Reader.resetGraphParsedFlag();
+            watch.execute(ctx);
+            
+            assertTrue(com.jsrc.app.index.BinaryIndexV2Reader.wasGraphParsed(),
+                    "Callers command SHOULD parse CallGraph (lazy loading triggered)");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
+
+    /**
      * A3: Watch callers ambiguous → envelope exit 0 (post-B sentinel), result/body has ambiguous:true.
      * Validates that watch command with ambiguous callers returns exit 0 and result contains ambiguous:true,
      * aligned with CLI one-shot behavior.

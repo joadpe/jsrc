@@ -34,7 +34,8 @@ public class IndexedCodebase {
     private java.nio.file.Path sourceRoot;
     private boolean edgesLoaded = false;
     private boolean smellsLoaded = false;
-    private com.jsrc.app.analysis.CallGraph preBuiltCallGraph; // loaded from V2 binary
+    private com.jsrc.app.analysis.CallGraph preBuiltCallGraph;
+    private BinaryIndexV2Reader.LazyIndexData lazyIndexData; // loaded from V2 binary
     private java.util.Map<String, IndexedClass> classLookup; // lazy O(1) class lookup
     private java.util.Map<String, String> classToPath; // lazy O(1) class→file path
     private java.util.Map<String, List<CachedMigration>> migrationCache; // path → migrations
@@ -75,43 +76,39 @@ public class IndexedCodebase {
      * @return IndexedCodebase if index exists, null otherwise
      */
     public static IndexedCodebase tryLoad(Path sourceRoot, List<Path> currentFiles) {
-        // Try V2 binary index first (contains pre-resolved call graph)
         Path v2File = sourceRoot.resolve(".jsrc/index.bin");
         com.jsrc.app.analysis.CallGraph preBuiltGraph = null;
+        BinaryIndexV2Reader.LazyIndexData lazyData = null;
         java.util.Map<String, List<CachedMigration>> loadedMigrations = null;
         List<IndexEntry> existing;
 
         if (Files.exists(v2File)) {
             try {
-                var v2Data = BinaryIndexV2Reader.read(v2File);
-                existing = v2Data.entries();
-                preBuiltGraph = v2Data.callGraph();
-                loadedMigrations = v2Data.migrations();
-                logger.info("Loaded V2 binary index: {} entries, graph={}",
-                        existing.size(), preBuiltGraph != null);
+                lazyData = BinaryIndexV2Reader.readLazy(v2File);
+                existing = lazyData.getData().entries();
+                loadedMigrations = lazyData.getData().migrations();
+                logger.info("Loaded V2 binary index (LAZY): {} entries",
+                        existing.size());
             } catch (IOException e) {
                 logger.warn("V2 binary index corrupt, falling back to JSON: {}", e.getMessage());
                 existing = CodebaseIndex.loadClassesOnly(sourceRoot);
             }
         } else {
-            // Fallback to legacy JSON
             existing = CodebaseIndex.loadClassesOnly(sourceRoot);
         }
         if (existing.isEmpty()) {
             return null;
         }
 
-        // Build lookup by relative path
         Map<String, IndexEntry> byPath = new HashMap<>();
         for (IndexEntry e : existing) {
             byPath.put(e.path(), e);
         }
 
-        // Detect changes
         List<IndexEntry> refreshed = new ArrayList<>();
         Set<String> currentPaths = new HashSet<>();
         int staleCount = 0;
-        CodeParser parser = null; // lazy init only if needed
+        CodeParser parser = null;
 
         for (Path file : currentFiles) {
             String relativePath = sourceRoot.relativize(file).toString();
@@ -119,20 +116,16 @@ public class IndexedCodebase {
 
             IndexEntry prev = byPath.get(relativePath);
             if (prev != null) {
-                // Check if file was modified since indexing
                 try {
                     long currentModified = Files.getLastModifiedTime(file).toMillis();
                     if (currentModified <= prev.lastModified()) {
-                        // Unchanged — reuse cached entry
                         refreshed.add(prev);
                         continue;
                     }
                 } catch (IOException e) {
-                    // Can't read timestamp — re-parse to be safe
                 }
             }
 
-            // New or modified file — re-parse classes AND edges
             if (parser == null) parser = new HybridJavaParser();
             staleCount++;
             try {
@@ -143,11 +136,9 @@ public class IndexedCodebase {
                 List<IndexedClass> indexed = classes.stream()
                         .map(ci -> classInfoToIndexed(ci))
                         .toList();
-                // Re-extract call edges for this file
                 var edgeResolver = new EdgeResolver();
                 var edgeParser = new com.github.javaparser.JavaParser();
                 List<CallEdge> edges = edgeResolver.extractCallEdges(file, edgeParser);
-                // Re-detect smells for modified file
                 var smells = parser.detectSmells(file).stream()
                         .map(s -> new CachedSmell(s.ruleId(), s.severity().name(),
                                 s.line(), s.methodName(), s.className(), s.message()))
@@ -155,22 +146,19 @@ public class IndexedCodebase {
                 refreshed.add(new IndexEntry(relativePath, hash, lastModified, indexed, edges, smells));
             } catch (IOException e) {
                 logger.error("Error refreshing {}: {}", file, e.getMessage());
-                if (prev != null) refreshed.add(prev); // keep stale rather than lose
+                if (prev != null) refreshed.add(prev);
             }
         }
 
-        // Detect deleted files (in index but not on disk) — just skip them
-
         if (staleCount > 0) {
             logger.info("Auto-refreshed {} stale/new file(s), {} cached", staleCount, refreshed.size() - staleCount);
-            // Rebuild call graph with updated edges and save V2 binary
             var updatedIndex = new CodebaseIndex(refreshed);
             try {
                 var builder = new com.jsrc.app.analysis.CallGraphBuilder();
                 builder.loadFromIndex(refreshed);
                 preBuiltGraph = builder.toCallGraph();
-                // Preserve existing migration cache when saving
                 updatedIndex.saveWithGraph(sourceRoot, preBuiltGraph, loadedMigrations);
+                lazyData = null;
             } catch (IOException e) {
                 logger.warn("Could not save refreshed index: {}", e.getMessage());
             }
@@ -180,12 +168,10 @@ public class IndexedCodebase {
 
         var indexed = new IndexedCodebase(refreshed);
         indexed.sourceRoot = sourceRoot;
-        // If loaded from V2 binary, edges and graph are already present
         indexed.edgesLoaded = refreshed.stream().anyMatch(e -> !e.callEdges().isEmpty());
         indexed.smellsLoaded = refreshed.stream().anyMatch(e -> !e.smells().isEmpty());
-        // preBuiltGraph is either loaded from V2 binary (no changes)
-        // or rebuilt from updated edges (stale files re-extracted)
         indexed.preBuiltCallGraph = preBuiltGraph;
+        indexed.lazyIndexData = lazyData;
         indexed.migrationCache = loadedMigrations;
         return indexed;
     }
@@ -415,8 +401,12 @@ public class IndexedCodebase {
      */
     /**
      * Returns the pre-built call graph loaded from V2 binary index, or null.
+     * Triggers lazy loading if graph hasn't been loaded yet.
      */
     public com.jsrc.app.analysis.CallGraph preBuiltCallGraph() {
+        if (preBuiltCallGraph == null && lazyIndexData != null) {
+            preBuiltCallGraph = lazyIndexData.ensureGraph();
+        }
         return preBuiltCallGraph;
     }
 

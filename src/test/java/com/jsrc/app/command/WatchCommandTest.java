@@ -195,15 +195,15 @@ class WatchCommandTest {
         return new WatchCommand() {
             @Override
             protected IndexedCodebase loadOrRefreshIndex(
-                    Path root, List<Path> files, IndexedCodebase cached) {
-                IndexedCodebase result = super.loadOrRefreshIndex(root, files, cached);
+                    Path root, List<Path> files, IndexedCodebase cached, boolean frozenIndex) {
+                IndexedCodebase result = super.loadOrRefreshIndex(root, files, cached, frozenIndex);
                 return result;
             }
 
             @Override
-            protected IndexedCodebase callTryLoad(Path root, List<Path> files) {
+            protected IndexedCodebase callTryLoad(Path root, List<Path> files, boolean frozenIndex) {
                 tryLoadCounter.incrementAndGet();
-                return super.callTryLoad(root, files);
+                return super.callTryLoad(root, files, frozenIndex);
             }
         };
     }
@@ -435,6 +435,89 @@ class WatchCommandTest {
             
             assertTrue(com.jsrc.app.index.BinaryIndexV2Reader.wasGraphParsed(),
                     "Callers command SHOULD parse CallGraph (lazy loading triggered)");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
+
+    /**
+     * A5 (Frozen Index): Watch with frozen-index flag serves stale index after source mutation.
+     * Verifies that --frozen-index prevents refresh even when files change.
+     * Strengthened: asserts load count remains 1 despite mutation, proving no refresh.
+     */
+    @Test
+    void watchWithFrozenIndexServesStaleAfterMutation(@TempDir Path tempDir) throws Exception {
+        // Create initial file and build index
+        var javaFile = createSimpleJavaFile(tempDir);
+        var files = List.of(javaFile);
+        
+        // Build valid index first
+        var formatter = OutputFormatter.create(true, false, null);
+        var parser = new com.jsrc.app.parser.HybridJavaParser();
+        var indexCmd = new com.jsrc.app.command.meta.IndexCommand();
+        var indexCtx = new CommandContext(files, tempDir.toString(), null, formatter, null, parser);
+        indexCmd.execute(indexCtx);
+        
+        tryLoadCounter.set(0);
+        
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var outputCapture = new ByteArrayOutputStream();
+        
+        var inputCommands = new PipedOutputStream();
+        var inputStream = new PipedInputStream(inputCommands);
+        
+        System.setIn(inputStream);
+        System.setOut(new PrintStream(outputCapture, true));
+        
+        try {
+            // Create instrumented watch command that respects frozen flag
+            var watch = createInstrumentedWatchCommand();
+            // Create context WITH frozenIndex=true (fixed constructor usage)
+            var ctx = new CommandContext(files, tempDir.toString(), null, formatter, null, parser,
+                    false, null, false, false, null, true);  // frozenIndex=true
+            
+            var executor = Executors.newSingleThreadExecutor();
+            var future = executor.submit(() -> watch.execute(ctx));
+            
+            // First command - should load index once
+            inputCommands.write("{\"command\":\"overview\"}\n".getBytes());
+            inputCommands.flush();
+            Thread.sleep(500);
+            
+            assertEquals(1, tryLoadCounter.get(), "First command should load index once");
+            
+            // Mutate source file (touch mtime to force stamp change)
+            Files.setLastModifiedTime(javaFile, 
+                    java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 10000));
+            Files.writeString(javaFile, """
+                    package demo;
+                    public class App {
+                        public void run() {}
+                        public void newMethodAddedAfterWatch() {}
+                    }
+                    """);
+            Thread.sleep(100);
+            
+            // Second command after mutation - should NOT refresh when frozen
+            inputCommands.write("{\"command\":\"overview\"}\n".getBytes());
+            inputCommands.flush();
+            Thread.sleep(500);
+            
+            inputCommands.write("{\"command\":\"quit\"}\n".getBytes());
+            inputCommands.close();
+            
+            try {
+                future.get(5, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                future.cancel(true);
+            }
+            executor.shutdownNow();
+            
+            // Contract: with frozen-index, load count stays 1 despite mutation (no refresh)
+            assertEquals(1, tryLoadCounter.get(),
+                    "With frozen-index, watch should NOT refresh index after mutation (load count stays 1)");
         } finally {
             System.setIn(originalIn);
             System.setOut(originalOut);

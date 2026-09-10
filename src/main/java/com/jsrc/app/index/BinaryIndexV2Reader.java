@@ -20,6 +20,22 @@ public class BinaryIndexV2Reader {
 
     private static final Logger logger = LoggerFactory.getLogger(BinaryIndexV2Reader.class);
 
+    private static volatile boolean graphParsedFlag = false;
+    private static volatile int graphParseCount = 0;
+
+    public static void resetGraphParsedFlag() {
+        graphParsedFlag = false;
+        graphParseCount = 0;
+    }
+
+    public static boolean wasGraphParsed() {
+        return graphParsedFlag;
+    }
+
+    public static int getGraphParseCount() {
+        return graphParseCount;
+    }
+
     /**
      * Result of reading the binary index.
      */
@@ -30,7 +46,55 @@ public class BinaryIndexV2Reader {
     ) {}
 
     /**
-     * Reads the unified binary index.
+     * Lazy container for index data with deferred graph loading.
+     * Keeps full payload in memory to avoid re-reading file on ensureGraph.
+     */
+    public static class LazyIndexData {
+        private final IndexData lightData;  // callGraph=null initially
+        private final byte[] payload;
+        private final int graphSectionOffset;
+        private final String[] stringTable;
+        private CallGraph lazyGraph;
+
+        LazyIndexData(IndexData lightData, byte[] payload, int graphSectionOffset, String[] stringTable) {
+            this.lightData = lightData;
+            this.payload = payload;
+            this.graphSectionOffset = graphSectionOffset;
+            this.stringTable = stringTable;
+        }
+
+        /**
+         * Returns the index data (graph may be null if not yet loaded).
+         */
+        public IndexData getData() {
+            return lightData;
+        }
+
+        /**
+         * Ensures the call graph is loaded and returns it.
+         * Subsequent calls return the same instance (cached).
+         *
+         * @return loaded CallGraph, or null if index has no graph section
+         */
+        public CallGraph ensureGraph() {
+            if (lazyGraph == null && graphSectionOffset >= 0) {
+                try {
+                    int offsetInPayload = graphSectionOffset + 12;
+                    var in = new DataInputStream(new ByteArrayInputStream(payload, offsetInPayload, payload.length - offsetInPayload));
+                    lazyGraph = readGraph(in, stringTable);
+                    graphParsedFlag = true;
+                    graphParseCount++;
+                    logger.debug("Lazy-loaded CallGraph on demand");
+                } catch (IOException e) {
+                    logger.warn("Failed to lazy-load CallGraph: {}", e.getMessage());
+                }
+            }
+            return lazyGraph;
+        }
+    }
+
+    /**
+     * Reads the unified binary index with eager graph loading.
      *
      * @param file path to index.bin
      * @return parsed index data, or null if file is invalid/corrupt
@@ -107,11 +171,13 @@ public class BinaryIndexV2Reader {
             }
         }
 
-        // 4. GRAPH (pre-resolved)
+        // 4. GRAPH (pre-resolved) - EAGER
         CallGraph callGraph = null;
         byte hasGraph = in.readByte();
         if (hasGraph == 1) {
             callGraph = readGraph(in, strings);
+            graphParsedFlag = true;
+            graphParseCount++;
         }
 
         // 5. SMELLS
@@ -161,6 +227,185 @@ public class BinaryIndexV2Reader {
         logger.info("Loaded V2 binary index: {} entries, {} strings, graph={}, migrations={}",
                 entryCount, stringCount, callGraph != null, migrations.size());
         return new IndexData(entries, callGraph, migrations);
+    }
+
+    /**
+     * Reads the unified binary index with LAZY graph loading.
+     * Graph parsing is deferred until ensureGraph() is called.
+     *
+     * @param file path to index.bin
+     * @return LazyIndexData with deferred graph loading
+     */
+    public static LazyIndexData readLazy(Path file) throws IOException {
+        byte[] allBytes = Files.readAllBytes(file);
+        if (allBytes.length < 12) throw new IOException("Binary index too small");
+
+        // Read header
+        if (allBytes[0] != 'J' || allBytes[1] != 'S' || allBytes[2] != 'R' || allBytes[3] != '2') {
+            throw new IOException("Not a jsrc V2 binary index");
+        }
+
+        var headerIn = new DataInputStream(new ByteArrayInputStream(allBytes, 4, 8));
+        int version = headerIn.readInt();
+        if (version != BinaryIndexV2Writer.VERSION) {
+            throw new IOException("Unsupported V2 index version: " + version);
+        }
+        int storedCrc = headerIn.readInt();
+
+        // Verify CRC32
+        CRC32 crc = new CRC32();
+        crc.update(allBytes, 12, allBytes.length - 12);
+        if ((int) crc.getValue() != storedCrc) {
+            throw new IOException("CRC32 mismatch — index may be corrupt");
+        }
+
+        var in = new DataInputStream(new ByteArrayInputStream(allBytes, 12, allBytes.length - 12));
+
+        // 1. STRING_TABLE
+        int stringCount = in.readInt();
+        String[] strings = new String[stringCount];
+        for (int i = 0; i < stringCount; i++) {
+            int len = in.readUnsignedShort();
+            byte[] bytes = new byte[len];
+            in.readFully(bytes);
+            strings[i] = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        }
+
+        // 2. CLASSES
+        int entryCount = in.readInt();
+        List<IndexEntry> entries = new ArrayList<>(entryCount);
+        for (int e = 0; e < entryCount; e++) {
+            entries.add(readEntry(in, strings));
+        }
+
+        // 3. EDGES
+        int edgeFileCount = in.readInt();
+        Map<String, List<CallEdge>> edgesByPath = new HashMap<>();
+        for (int ef = 0; ef < edgeFileCount; ef++) {
+            String path = str(in.readInt(), strings);
+            int edgeCount = in.readInt();
+            List<CallEdge> edges = new ArrayList<>(edgeCount);
+            for (int i = 0; i < edgeCount; i++) {
+                String callerClass = str(in.readInt(), strings);
+                String callerMethod = str(in.readInt(), strings);
+                int callerParamCount = in.readInt();
+                String calleeClass = str(in.readInt(), strings);
+                String calleeMethod = str(in.readInt(), strings);
+                int argCount = in.readInt();
+                int line = in.readInt();
+                edges.add(new CallEdge(callerClass, callerMethod, callerParamCount,
+                        calleeClass, calleeMethod, argCount, line));
+            }
+            edgesByPath.put(path, edges);
+        }
+
+        // Merge edges into entries
+        for (int i = 0; i < entries.size(); i++) {
+            var entry = entries.get(i);
+            List<CallEdge> edges = edgesByPath.get(entry.path());
+            if (edges != null) {
+                entries.set(i, entry.withEdges(edges));
+            }
+        }
+
+        // 4. GRAPH (pre-resolved) - LAZY: record offset but don't parse yet
+        int graphSectionOffset = -1;
+        int graphStartOffset = allBytes.length - in.available() - 12;
+        byte hasGraph = in.readByte();
+        if (hasGraph == 1) {
+            graphSectionOffset = graphStartOffset + 1;
+        }
+
+        // Skip graph section to continue reading smells/migrations
+        if (hasGraph == 1) {
+            skipGraphSection(in);
+        }
+
+        // 5. SMELLS
+        int smellFileCount = in.readInt();
+        for (int sf = 0; sf < smellFileCount; sf++) {
+            String path = str(in.readInt(), strings);
+            int smellCount = in.readInt();
+            List<CachedSmell> smells = new ArrayList<>(smellCount);
+            for (int i = 0; i < smellCount; i++) {
+                String ruleId = str(in.readInt(), strings);
+                String severity = str(in.readInt(), strings);
+                int line = in.readInt();
+                String method = str(in.readInt(), strings);
+                String className = str(in.readInt(), strings);
+                String message = str(in.readInt(), strings);
+                smells.add(new CachedSmell(ruleId, severity, line, method, className, message));
+            }
+            // Merge smells into entry
+            for (int i = 0; i < entries.size(); i++) {
+                if (entries.get(i).path().equals(path)) {
+                    entries.set(i, entries.get(i).withSmells(smells));
+                    break;
+                }
+            }
+        }
+
+        // 6. MIGRATIONS
+        Map<String, List<CachedMigration>> migrations = new HashMap<>();
+        if (in.available() > 0) {
+            byte hasMigrations = in.readByte();
+            if (hasMigrations == 1) {
+                int migFileCount = in.readInt();
+                for (int mf = 0; mf < migFileCount; mf++) {
+                    String path = str(in.readInt(), strings);
+                    int migCount = in.readUnsignedShort();
+                    List<CachedMigration> migs = new ArrayList<>(migCount);
+                    for (int m = 0; m < migCount; m++) {
+                        int patternId = in.readUnsignedByte();
+                        int line = in.readUnsignedShort();
+                        migs.add(new CachedMigration(patternId, line));
+                    }
+                    migrations.put(path, migs);
+                }
+            }
+        }
+
+        logger.info("Loaded V2 binary index (LAZY): {} entries, {} strings, graph={} (deferred), migrations={}",
+                entryCount, stringCount, hasGraph == 1, migrations.size());
+
+        var lightData = new IndexData(entries, null, migrations);
+        return new LazyIndexData(lightData, allBytes, graphSectionOffset, strings);
+    }
+
+    /**
+     * Skips the graph section by reading and discarding its data.
+     * Used by readLazy to continue to smells/migrations sections.
+     */
+    private static void skipGraphSection(DataInputStream in) throws IOException {
+        // All methods
+        int methodCount = in.readInt();
+        for (int i = 0; i < methodCount; i++) {
+            in.readInt(); // className
+            in.readInt(); // methodName
+            in.readInt(); // paramCount
+        }
+
+        // CallerIndex
+        int callerEntryCount = in.readInt();
+        for (int i = 0; i < callerEntryCount; i++) {
+            in.readInt(); // calleeId
+            int callerCount = in.readInt();
+            for (int j = 0; j < callerCount; j++) {
+                in.readInt(); // callerId
+                in.readInt(); // line
+            }
+        }
+
+        // CalleeIndex
+        int calleeEntryCount = in.readInt();
+        for (int i = 0; i < calleeEntryCount; i++) {
+            in.readInt(); // callerId
+            int calleeCount = in.readInt();
+            for (int j = 0; j < calleeCount; j++) {
+                in.readInt(); // calleeId
+                in.readInt(); // line
+            }
+        }
     }
 
     private static CallGraph readGraph(DataInputStream in, String[] strings) throws IOException {

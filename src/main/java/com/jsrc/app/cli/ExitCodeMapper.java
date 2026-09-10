@@ -25,8 +25,8 @@ public final class ExitCodeMapper {
      * @return the mapped exit code
      */
     public static int mapToExitCode(int result) {
-        // Special handling for error codes: BAD_USAGE and other errors pass through
-        if (result == ExitCode.BAD_USAGE || result < 0) {
+        // Negative results are error codes that pass through unchanged
+        if (result < 0) {
             return result;
         }
         

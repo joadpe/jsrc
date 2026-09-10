@@ -187,7 +187,8 @@ class WatchCommandTest {
     private CommandContext createContext(Path tempDir) {
         var files = List.of(tempDir.resolve("App.java"));
         var formatter = OutputFormatter.create(true, false, null);
-        return new CommandContext(files, tempDir.toString(), null, formatter, null, null);
+        var parser = new com.jsrc.app.parser.HybridJavaParser();
+        return new CommandContext(files, tempDir.toString(), null, formatter, null, parser);
     }
 
     private WatchCommand createInstrumentedWatchCommand() {
@@ -397,7 +398,10 @@ class WatchCommandTest {
 
         try {
             var watch = new WatchCommand();
-            var ctx = createContext(tempDir);
+            var files = List.of(file1, file2);
+            var formatter = OutputFormatter.create(true, false, null);
+            var parser = new com.jsrc.app.parser.HybridJavaParser();
+            var ctx = new CommandContext(files, tempDir.toString(), null, formatter, null, parser);
             watch.execute(ctx);
 
             String output = outputCapture.toString();

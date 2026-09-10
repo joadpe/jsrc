@@ -58,6 +58,38 @@ public class WatchCommand implements Command {
 
                     String arg = (String) input.getOrDefault("arg", "");
 
+                    // Parse optional budget field
+                    com.jsrc.app.cli.BudgetContext budgetContext = null;
+                    Object budgetValue = input.get("budget");
+                    if (budgetValue != null) {
+                        if (!(budgetValue instanceof String)) {
+                            // Invalid type (e.g. numeric, null typed wrong)
+                            Map<String, Object> envelope = new LinkedHashMap<>();
+                            envelope.put("exit", 2);
+                            Map<String, Object> error = new LinkedHashMap<>();
+                            error.put("error", "Invalid budget type. Expected string, got: " + budgetValue.getClass().getSimpleName() + ". Valid values: tiny, small, standard");
+                            envelope.put("result", error);
+                            System.out.println(JsonWriter.toJson(envelope));
+                            System.out.flush();
+                            continue;
+                        }
+                        String budgetStr = (String) budgetValue;
+                        try {
+                            com.jsrc.app.cli.BudgetProfile profile = com.jsrc.app.cli.BudgetProfile.fromString(budgetStr);
+                            budgetContext = new com.jsrc.app.cli.BudgetContext(profile, null, null, false, false, null);
+                        } catch (IllegalArgumentException e) {
+                            // Invalid budget value
+                            Map<String, Object> envelope = new LinkedHashMap<>();
+                            envelope.put("exit", 2);
+                            Map<String, Object> error = new LinkedHashMap<>();
+                            error.put("error", e.getMessage());
+                            envelope.put("result", error);
+                            System.out.println(JsonWriter.toJson(envelope));
+                            System.out.flush();
+                            continue;
+                        }
+                    }
+
                     // Refresh index only if needed (session cache)
                     var freshIndexed = loadOrRefreshIndex(
                             Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex);
@@ -66,7 +98,7 @@ public class WatchCommand implements Command {
                     // Capture output via injected stream — no System.setOut hack
                     var baos = new ByteArrayOutputStream();
                     var captureStream = new PrintStream(baos);
-                    var captureFormatter = OutputFormatter.create(true, false, null, captureStream);
+                    var captureFormatter = OutputFormatter.create(true, false, null, captureStream, budgetContext);
                     var freshCtx = new CommandContext(
                             ctx.javaFiles(), ctx.rootPath(), ctx.config(),
                             captureFormatter, freshIndexed, ctx.parser());

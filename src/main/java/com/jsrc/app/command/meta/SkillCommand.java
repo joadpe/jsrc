@@ -26,11 +26,21 @@ public class SkillCommand implements Command {
             // JSON output: structured skill guide
             var result = buildJsonSkill(profile);
             ctx.formatter().printResult(result);
+            // Return count of commands in guide (positive count pattern from #18)
+            @SuppressWarnings("unchecked")
+            var commands = (List<?>) result.get("commands");
+            return commands != null ? commands.size() : 0;
         } else {
             // Markdown output: compact skill guide
             System.out.println(generateSkillMarkdown(profile));
+            // Return surface size for markdown mode
+            Set<String> surface = BudgetPolicy.budgetSurface(profile);
+            if (surface == null) {
+                // STANDARD profile - use all commands count
+                return CommandRegistry.knownCommandNames().length;
+            }
+            return surface.size();
         }
-        return ExitCode.OK;
     }
 
     private Map<String, Object> buildJsonSkill(BudgetProfile profile) {

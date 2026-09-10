@@ -322,7 +322,7 @@ public class SmellsCommand implements Command {
         result.put("message",
                 "Multiple classes contain this method. Use Class.method to disambiguate.");
         ctx.formatter().printResult(result);
-        return 0;
+        return Math.max(1, candidates.size());
     }
 
     private int scanFiles(CommandContext ctx, List<Path> files) {

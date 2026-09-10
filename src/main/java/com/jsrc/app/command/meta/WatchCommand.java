@@ -11,6 +11,7 @@ import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.nio.file.*;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.jsrc.app.index.IndexedCodebase;
@@ -29,6 +30,10 @@ import com.jsrc.app.output.OutputFormatter;
  * without redirecting System.out (thread-safe).
  */
 public class WatchCommand implements Command {
+
+    private IndexedCodebase cachedIndex = null;
+    private IndexStamp lastStamp = null;
+
     @Override
     public int execute(CommandContext ctx) {
         System.err.println("jsrc watch mode started. Send JSON commands on stdin. {\"command\":\"quit\"} to exit.");
@@ -52,9 +57,10 @@ public class WatchCommand implements Command {
 
                     String arg = (String) input.getOrDefault("arg", "");
 
-                    // Refresh index if needed
-                    var freshIndexed = IndexedCodebase.tryLoad(
-                            Paths.get(ctx.rootPath()), ctx.javaFiles());
+                    // Refresh index only if needed (session cache)
+                    var freshIndexed = loadOrRefreshIndex(
+                            Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex);
+                    cachedIndex = freshIndexed;
 
                     // Capture output via injected stream — no System.setOut hack
                     var baos = new ByteArrayOutputStream();
@@ -94,4 +100,67 @@ public class WatchCommand implements Command {
         }
         return 0;
     }
+
+    /**
+     * Loads or refreshes the indexed codebase.
+     * Checks a cheap stamp (index.bin mtime + source files count/mtime) before calling tryLoad.
+     * Returns cached index if stamp hasn't changed.
+     *
+     * @param root project root
+     * @param files current Java source files
+     * @param cached previously cached IndexedCodebase, or null
+     * @return fresh or cached IndexedCodebase, or null if no index exists
+     */
+    protected IndexedCodebase loadOrRefreshIndex(Path root, List<Path> files, IndexedCodebase cached) {
+        IndexStamp currentStamp = computeStamp(root, files);
+
+        if (lastStamp != null && lastStamp.equals(currentStamp)) {
+            return cached;
+        }
+
+        lastStamp = currentStamp;
+        return callTryLoad(root, files);
+    }
+
+    /**
+     * Wrapper for IndexedCodebase.tryLoad to allow test instrumentation.
+     */
+    protected IndexedCodebase callTryLoad(Path root, List<Path> files) {
+        return IndexedCodebase.tryLoad(root, files);
+    }
+
+    /**
+     * Computes a cheap stamp representing the current state of the index and source files.
+     */
+    private IndexStamp computeStamp(Path root, List<Path> files) {
+        Path indexBin = root.resolve(".jsrc/index.bin");
+        long indexMtime = 0;
+        try {
+            if (Files.exists(indexBin)) {
+                indexMtime = Files.getLastModifiedTime(indexBin).toMillis();
+            }
+        } catch (IOException e) {
+            // Ignore
+        }
+
+        long maxSourceMtime = 0;
+        int fileCount = files.size();
+        for (Path file : files) {
+            try {
+                long mtime = Files.getLastModifiedTime(file).toMillis();
+                if (mtime > maxSourceMtime) {
+                    maxSourceMtime = mtime;
+                }
+            } catch (IOException e) {
+                // Ignore
+            }
+        }
+
+        return new IndexStamp(indexMtime, maxSourceMtime, fileCount);
+    }
+
+    /**
+     * Simple stamp record for detecting changes.
+     */
+    private record IndexStamp(long indexMtime, long maxSourceMtime, int fileCount) {}
 }

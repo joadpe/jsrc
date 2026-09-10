@@ -296,6 +296,36 @@ Watch mode (`jsrc watch`) maintains an in-memory cache of the indexed codebase a
 
 This eliminates redundant index loads during interactive sessions, making back-to-back queries instant even without filesystem changes.
 
+#### Watch Envelope Format (Breaking Change)
+
+**IMPORTANT:** As of PR #22, all watch command responses are wrapped in a standard envelope:
+
+```json
+{"exit": 0, "result": {...}}
+```
+
+- **`exit`**: Integer exit code (0 = success, non-zero = error)
+- **`result`**: The actual command output (object, array, or string)
+
+**Migration required:** Clients must parse the envelope structure instead of reading the raw response body directly.
+
+**Examples:**
+
+```json
+// Success: overview command
+{"exit": 0, "result": {"files": 123, "classes": 456, ...}}
+
+// Success: ambiguous callers (exit 0 with flag)
+{"exit": 0, "result": {"ambiguous": true, "candidates": [...]}}
+
+// Error: unknown command
+{"exit": 1, "result": {"error": "Unknown command: xyz"}}
+```
+
+**Protocol unchanged for:**
+- Input format: `{"command": "...", "arg": "..."}`
+- Quit: `{"command": "quit"}`
+
 ## Performance
 
 All commands on Spring Boot (8,323 files, 52K methods, native binary):

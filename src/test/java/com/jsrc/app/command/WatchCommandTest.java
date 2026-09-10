@@ -209,8 +209,7 @@ class WatchCommandTest {
 
     /**
      * A1: Watch command → envelope with exit + result keys (validates envelope structure).
-     * Test validates envelope format regardless of success/failure since the goal is
-     * to ensure all watch responses use the envelope structure with exit and result fields.
+     * Strengthened: assert exit == 0 for successful overview/mini AND result has real structure.
      */
     @Test
     void watchCommandReturnsEnvelopeWithExitAndResult(@TempDir Path tempDir) throws Exception {
@@ -220,7 +219,7 @@ class WatchCommandTest {
         var originalOut = System.out;
         var outputCapture = new ByteArrayOutputStream();
 
-        System.setIn(new ByteArrayInputStream("{\"command\":\"overview\"}\n{\"command\":\"quit\"}\n".getBytes()));
+        System.setIn(new ByteArrayInputStream("{\"command\":\"overview\"}\n{\"command\":\"mini\",\"arg\":\"App\"}\n{\"command\":\"quit\"}\n".getBytes()));
         System.setOut(new PrintStream(outputCapture, true));
 
         try {
@@ -231,7 +230,7 @@ class WatchCommandTest {
             String output = outputCapture.toString();
             String[] lines = output.split("\n");
             
-            boolean foundEnvelope = false;
+            int envelopesValidated = 0;
             for (String line : lines) {
                 line = line.trim();
                 if (line.isEmpty() || !line.startsWith("{")) continue;
@@ -240,22 +239,30 @@ class WatchCommandTest {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> envelope = (Map<String, Object>) JsonReader.parse(line);
                     if (envelope != null && envelope.containsKey("exit") && envelope.containsKey("result")) {
-                        foundEnvelope = true;
-                        // Envelope structure validation: exit field must be present and numeric
+                        // A1 strengthened: exit == 0 for successful commands
                         Object exitObj = envelope.get("exit");
                         assertNotNull(exitObj, "exit field should not be null");
                         assertTrue(exitObj instanceof Number, "exit should be numeric");
+                        long exitCode = ((Number) exitObj).longValue();
+                        assertEquals(0L, exitCode, "Successful command should have exit == 0");
                         
-                        // Result field must be present (can be string, map, or other)
-                        assertNotNull(envelope.get("result"), "Result field should not be null");
-                        break;
+                        // A1 strengthened: result has real structure (Map with expected fields)
+                        Object result = envelope.get("result");
+                        assertNotNull(result, "Result field should not be null");
+                        assertTrue(result instanceof Map, "Result should be a Map with real structure");
+                        
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> resultMap = (Map<String, Object>) result;
+                        assertFalse(resultMap.isEmpty(), "Result Map should not be empty");
+                        
+                        envelopesValidated++;
                     }
                 } catch (Exception e) {
                     // Skip non-JSON lines
                 }
             }
             
-            assertTrue(foundEnvelope, "Should find envelope with exit and result keys");
+            assertTrue(envelopesValidated >= 2, "Should validate at least 2 envelopes (overview + mini), got: " + envelopesValidated);
         } finally {
             System.setIn(originalIn);
             System.setOut(originalOut);
@@ -351,6 +358,85 @@ class WatchCommandTest {
 
             assertEquals(1, tryLoadCounter.get(),
                     "Warm cache should still load index exactly once (regression from #20)");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
+
+    /**
+     * A3: Watch callers ambiguous → envelope exit 0 (post-B sentinel), result/body has ambiguous:true.
+     * Validates that watch command with ambiguous callers returns exit 0 and result contains ambiguous:true,
+     * aligned with CLI one-shot behavior.
+     */
+    @Test
+    void watchCallersAmbiguousReturnsExitZeroWithAmbiguousFlag(@TempDir Path tempDir) throws Exception {
+        // Create two classes with same method name to trigger ambiguity
+        Path file1 = tempDir.resolve("Handler1.java");
+        Files.writeString(file1, """
+                package demo;
+                public class Handler1 {
+                    public void process() {}
+                }
+                """);
+        
+        Path file2 = tempDir.resolve("Handler2.java");
+        Files.writeString(file2, """
+                package demo;
+                public class Handler2 {
+                    public void process() {}
+                }
+                """);
+
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var outputCapture = new ByteArrayOutputStream();
+
+        System.setIn(new ByteArrayInputStream("{\"command\":\"callers\",\"arg\":\"process\"}\n{\"command\":\"quit\"}\n".getBytes()));
+        System.setOut(new PrintStream(outputCapture, true));
+
+        try {
+            var watch = new WatchCommand();
+            var ctx = createContext(tempDir);
+            watch.execute(ctx);
+
+            String output = outputCapture.toString();
+            String[] lines = output.split("\n");
+            
+            boolean foundAmbiguous = false;
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty() || !line.startsWith("{")) continue;
+                
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> envelope = (Map<String, Object>) JsonReader.parse(line);
+                    if (envelope != null && envelope.containsKey("exit") && envelope.containsKey("result")) {
+                        // A3: exit should be 0 (post-B sentinel for ambiguous)
+                        Object exitObj = envelope.get("exit");
+                        assertNotNull(exitObj, "exit field should not be null");
+                        long exitCode = ((Number) exitObj).longValue();
+                        assertEquals(0L, exitCode, "Ambiguous callers should have exit 0 (post-B sentinel)");
+                        
+                        // Result should contain ambiguous:true
+                        Object result = envelope.get("result");
+                        assertNotNull(result, "result field should not be null");
+                        
+                        if (result instanceof Map) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> resultMap = (Map<String, Object>) result;
+                            assertEquals(Boolean.TRUE, resultMap.get("ambiguous"), 
+                                    "Result should contain ambiguous:true for ambiguous callers");
+                            foundAmbiguous = true;
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    // Skip non-JSON lines
+                }
+            }
+            
+            assertTrue(foundAmbiguous, "Should find envelope with exit 0 and ambiguous:true for ambiguous callers");
         } finally {
             System.setIn(originalIn);
             System.setOut(originalOut);

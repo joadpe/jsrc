@@ -91,8 +91,9 @@ public class WatchCommand implements Command {
                     }
 
                     // Refresh index only if needed (session cache)
+                    // If frozenIndex is set, never refresh (skip stamp-driven rebuild)
                     var freshIndexed = loadOrRefreshIndex(
-                            Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex);
+                            Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex, ctx.frozenIndex());
                     cachedIndex = freshIndexed;
 
                     // Capture output via injected stream — no System.setOut hack
@@ -164,13 +165,24 @@ public class WatchCommand implements Command {
      * Loads or refreshes the indexed codebase.
      * Checks a cheap stamp (index.bin mtime + source files count/mtime) before calling tryLoad.
      * Returns cached index if stamp hasn't changed.
+     * When frozenIndex is true, skips stamp computation and never refreshes.
      *
      * @param root project root
      * @param files current Java source files
      * @param cached previously cached IndexedCodebase, or null
+     * @param frozenIndex if true, skip stamp-driven refresh (load once and never refresh)
      * @return fresh or cached IndexedCodebase, or null if no index exists
      */
-    protected IndexedCodebase loadOrRefreshIndex(Path root, List<Path> files, IndexedCodebase cached) {
+    protected IndexedCodebase loadOrRefreshIndex(Path root, List<Path> files, IndexedCodebase cached, boolean frozenIndex) {
+        // Frozen mode: never refresh, load once and cache forever
+        if (frozenIndex) {
+            if (cached != null) {
+                return cached;
+            }
+            return callTryLoad(root, files, frozenIndex);
+        }
+        
+        // Normal mode: stamp-driven refresh
         IndexStamp currentStamp = computeStamp(root, files);
 
         if (lastStamp != null && lastStamp.equals(currentStamp)) {
@@ -178,14 +190,14 @@ public class WatchCommand implements Command {
         }
 
         lastStamp = currentStamp;
-        return callTryLoad(root, files);
+        return callTryLoad(root, files, frozenIndex);
     }
 
     /**
      * Wrapper for IndexedCodebase.tryLoad to allow test instrumentation.
      */
-    protected IndexedCodebase callTryLoad(Path root, List<Path> files) {
-        return IndexedCodebase.tryLoad(root, files);
+    protected IndexedCodebase callTryLoad(Path root, List<Path> files, boolean frozenIndex) {
+        return IndexedCodebase.tryLoad(root, files, frozenIndex);
     }
 
     /**

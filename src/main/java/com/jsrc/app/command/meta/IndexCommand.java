@@ -50,6 +50,6 @@ public class IndexCommand implements Command {
         } catch (IOException ex) {
             throw new JsrcIOException("Error saving index: " + ex.getMessage(), ex);
         }
-        return 0;
+        return Math.max(1, ctx.javaFiles().size());
     }
 }

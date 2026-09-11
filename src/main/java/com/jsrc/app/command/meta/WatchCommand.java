@@ -92,17 +92,18 @@ public class WatchCommand implements Command {
 
                     // Refresh index only if needed (session cache)
                     // If frozenIndex is set, never refresh (skip stamp-driven rebuild)
-                    var freshIndexed = loadOrRefreshIndex(
+                    var refreshResult = loadOrRefreshIndex(
                             Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex, ctx.frozenIndex());
-                    cachedIndex = freshIndexed;
+                    cachedIndex = refreshResult.index();
+                    List<Path> freshFiles = refreshResult.files();
 
                     // Capture output via injected stream — no System.setOut hack
                     var baos = new ByteArrayOutputStream();
                     var captureStream = new PrintStream(baos);
                     var captureFormatter = OutputFormatter.create(true, false, null, captureStream, budgetContext);
                     var freshCtx = new CommandContext(
-                            ctx.javaFiles(), ctx.rootPath(), ctx.config(),
-                            captureFormatter, freshIndexed, ctx.parser());
+                            freshFiles, ctx.rootPath(), ctx.config(),
+                            captureFormatter, cachedIndex, ctx.parser());
 
                     // Execute command
                     // Extract budget profile from budgetContext if available
@@ -170,20 +171,21 @@ public class WatchCommand implements Command {
      * When frozenIndex is true, skips stamp computation and never refreshes.
      * 
      * V2: Rediscovers Java files on each stamp check (non-frozen) to detect create/delete/rename.
+     * V3: Returns RefreshResult containing both index and discovered file list.
      *
      * @param root project root
      * @param files current Java source files (used for frozen path; rediscovered for normal path)
      * @param cached previously cached IndexedCodebase, or null
      * @param frozenIndex if true, skip stamp-driven refresh (load once and never refresh)
-     * @return fresh or cached IndexedCodebase, or null if no index exists
+     * @return RefreshResult with fresh or cached IndexedCodebase and file list, or null index if no index exists
      */
-    protected IndexedCodebase loadOrRefreshIndex(Path root, List<Path> files, IndexedCodebase cached, boolean frozenIndex) {
+    protected RefreshResult loadOrRefreshIndex(Path root, List<Path> files, IndexedCodebase cached, boolean frozenIndex) {
         // Frozen mode: never refresh, load once and cache forever
         if (frozenIndex) {
             if (cached != null) {
-                return cached;
+                return new RefreshResult(cached, files);
             }
-            return callTryLoad(root, files, frozenIndex);
+            return new RefreshResult(callTryLoad(root, files, frozenIndex), files);
         }
         
         // Normal mode: rediscover files on each stamp check (detect create/delete/rename)
@@ -192,11 +194,11 @@ public class WatchCommand implements Command {
         IndexStamp currentStamp = computeStamp(root, freshFiles);
 
         if (lastStamp != null && lastStamp.equals(currentStamp)) {
-            return cached;
+            return new RefreshResult(cached, freshFiles);
         }
 
         lastStamp = currentStamp;
-        return callTryLoad(root, freshFiles, frozenIndex);
+        return new RefreshResult(callTryLoad(root, freshFiles, frozenIndex), freshFiles);
     }
     
     /**
@@ -255,4 +257,9 @@ public class WatchCommand implements Command {
      * Simple stamp record for detecting changes.
      */
     private record IndexStamp(long indexMtime, long maxSourceMtime, int fileCount) {}
+
+    /**
+     * Result of index refresh containing both index and discovered files.
+     */
+    protected record RefreshResult(IndexedCodebase index, List<Path> files) {}
 }

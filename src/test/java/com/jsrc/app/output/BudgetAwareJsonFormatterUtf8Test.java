@@ -14,9 +14,210 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * UTF-8 byte budget + always-valid JSON under truncation tests (B1-B5).
- * Oracles: strict JSON parse (JsonReader), UTF-8 byte length, structural validity.
+ * Oracles: strict JSON parse (JsonReader + independent validator), UTF-8 byte length, structural validity.
  */
 class BudgetAwareJsonFormatterUtf8Test {
+
+    /**
+     * Independent strict JSON validator that does NOT use JsonReader.
+     * Oracle for S1/S2: validates truncated JSON is well-formed independently.
+     */
+    private static class StrictJsonValidator {
+        private final String input;
+        private int pos;
+
+        private StrictJsonValidator(String input) {
+            this.input = input;
+            this.pos = 0;
+        }
+
+        static void validate(String json) {
+            if (json == null || json.isBlank()) {
+                throw new IllegalArgumentException("JSON cannot be null or blank");
+            }
+            var validator = new StrictJsonValidator(json.trim());
+            validator.parseValue();
+            validator.skipWhitespace();
+            if (validator.pos < validator.input.length()) {
+                throw new IllegalArgumentException("Trailing content after JSON: " + 
+                    validator.input.substring(validator.pos));
+            }
+        }
+
+        private void parseValue() {
+            skipWhitespace();
+            if (pos >= input.length()) {
+                throw new IllegalArgumentException("Unexpected end of JSON");
+            }
+            char c = input.charAt(pos);
+            switch (c) {
+                case '"' -> parseString();
+                case '{' -> parseObject();
+                case '[' -> parseArray();
+                case 't', 'f' -> parseBoolean();
+                case 'n' -> parseNull();
+                case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' -> parseNumber();
+                default -> throw new IllegalArgumentException("Unexpected char: " + c);
+            }
+        }
+
+        private void parseString() {
+            pos++; // skip opening quote
+            while (pos < input.length()) {
+                char c = input.charAt(pos++);
+                if (c == '"') return;
+                if (c == '\\') {
+                    if (pos >= input.length()) {
+                        throw new IllegalArgumentException("Unterminated escape sequence");
+                    }
+                    char escaped = input.charAt(pos++);
+                    if (escaped == 'u') {
+                        if (pos + 4 > input.length()) {
+                            throw new IllegalArgumentException("Invalid unicode escape");
+                        }
+                        String hex = input.substring(pos, pos + 4);
+                        try {
+                            Integer.parseInt(hex, 16);
+                        } catch (NumberFormatException e) {
+                            throw new IllegalArgumentException("Invalid unicode hex: " + hex);
+                        }
+                        pos += 4;
+                    } else if (escaped != '"' && escaped != '\\' && escaped != '/' && 
+                               escaped != 'n' && escaped != 'r' && escaped != 't' && 
+                               escaped != 'b' && escaped != 'f') {
+                        throw new IllegalArgumentException("Invalid escape: \\" + escaped);
+                    }
+                } else if (c < 0x20) {
+                    throw new IllegalArgumentException("Unescaped control char: " + (int)c);
+                }
+            }
+            throw new IllegalArgumentException("Unterminated string");
+        }
+
+        private void parseObject() {
+            pos++; // skip {
+            skipWhitespace();
+            if (pos < input.length() && input.charAt(pos) == '}') {
+                pos++;
+                return;
+            }
+            while (pos < input.length()) {
+                skipWhitespace();
+                if (input.charAt(pos) != '"') {
+                    throw new IllegalArgumentException("Expected string key");
+                }
+                parseString();
+                skipWhitespace();
+                if (pos >= input.length() || input.charAt(pos) != ':') {
+                    throw new IllegalArgumentException("Expected colon");
+                }
+                pos++;
+                parseValue();
+                skipWhitespace();
+                if (pos >= input.length()) {
+                    throw new IllegalArgumentException("Unclosed object");
+                }
+                if (input.charAt(pos) == ',') {
+                    pos++;
+                    skipWhitespace();
+                    if (pos < input.length() && input.charAt(pos) == '}') {
+                        throw new IllegalArgumentException("Trailing comma in object");
+                    }
+                } else if (input.charAt(pos) == '}') {
+                    pos++;
+                    return;
+                } else {
+                    throw new IllegalArgumentException("Expected comma or closing brace");
+                }
+            }
+            throw new IllegalArgumentException("Unclosed object");
+        }
+
+        private void parseArray() {
+            pos++; // skip [
+            skipWhitespace();
+            if (pos < input.length() && input.charAt(pos) == ']') {
+                pos++;
+                return;
+            }
+            while (pos < input.length()) {
+                parseValue();
+                skipWhitespace();
+                if (pos >= input.length()) {
+                    throw new IllegalArgumentException("Unclosed array");
+                }
+                if (input.charAt(pos) == ',') {
+                    pos++;
+                    skipWhitespace();
+                    if (pos < input.length() && input.charAt(pos) == ']') {
+                        throw new IllegalArgumentException("Trailing comma in array");
+                    }
+                } else if (input.charAt(pos) == ']') {
+                    pos++;
+                    return;
+                } else {
+                    throw new IllegalArgumentException("Expected comma or closing bracket");
+                }
+            }
+            throw new IllegalArgumentException("Unclosed array");
+        }
+
+        private void parseBoolean() {
+            if (input.startsWith("true", pos)) {
+                pos += 4;
+            } else if (input.startsWith("false", pos)) {
+                pos += 5;
+            } else {
+                throw new IllegalArgumentException("Invalid boolean");
+            }
+        }
+
+        private void parseNull() {
+            if (input.startsWith("null", pos)) {
+                pos += 4;
+            } else {
+                throw new IllegalArgumentException("Invalid null");
+            }
+        }
+
+        private void parseNumber() {
+            int start = pos;
+            if (pos < input.length() && input.charAt(pos) == '-') pos++;
+            if (pos >= input.length() || !Character.isDigit(input.charAt(pos))) {
+                throw new IllegalArgumentException("Invalid number");
+            }
+            if (input.charAt(pos) == '0') {
+                pos++;
+                if (pos < input.length() && Character.isDigit(input.charAt(pos))) {
+                    throw new IllegalArgumentException("Leading zeros not allowed");
+                }
+            } else {
+                while (pos < input.length() && Character.isDigit(input.charAt(pos))) pos++;
+            }
+            if (pos < input.length() && input.charAt(pos) == '.') {
+                pos++;
+                if (pos >= input.length() || !Character.isDigit(input.charAt(pos))) {
+                    throw new IllegalArgumentException("Invalid decimal");
+                }
+                while (pos < input.length() && Character.isDigit(input.charAt(pos))) pos++;
+            }
+            if (pos < input.length() && (input.charAt(pos) == 'e' || input.charAt(pos) == 'E')) {
+                pos++;
+                if (pos < input.length() && (input.charAt(pos) == '+' || input.charAt(pos) == '-')) pos++;
+                if (pos >= input.length() || !Character.isDigit(input.charAt(pos))) {
+                    throw new IllegalArgumentException("Invalid exponent");
+                }
+                while (pos < input.length() && Character.isDigit(input.charAt(pos))) pos++;
+            }
+        }
+
+        private void skipWhitespace() {
+            while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) {
+                pos++;
+            }
+        }
+    }
+
 
     /**
      * B1: Nested objects/arrays + commas inside strings + escaped quotes + small maxBytes
@@ -36,18 +237,22 @@ class BudgetAwareJsonFormatterUtf8Test {
         int maxBytes = 80;
         String truncated = formatWithMaxBytes(data, maxBytes);
 
-        // Oracle 1: Must be valid JSON (parseable by JsonReader)
+        // Oracle 1: Must be valid JSON (strict independent validator - S1)
+        assertDoesNotThrow(() -> StrictJsonValidator.validate(truncated),
+            "Truncated JSON must pass strict independent validation");
+
+        // Oracle 2: Must be valid JSON (parseable by JsonReader)
         Object parsed = JsonReader.parse(truncated);
         assertNotNull(parsed, "Truncated JSON must be parseable");
         assertTrue(parsed instanceof Map, "Root must be object");
 
-        // Oracle 2: Must contain _truncated marker
+        // Oracle 3: Must contain _truncated marker
         @SuppressWarnings("unchecked")
         Map<String, Object> map = (Map<String, Object>) parsed;
         assertEquals(Boolean.TRUE, map.get("_truncated"), 
             "Truncated JSON must have _truncated:true");
 
-        // Oracle 3: Byte length must not exceed maxBytes
+        // Oracle 4: Byte length must not exceed maxBytes
         byte[] bytes = truncated.getBytes(StandardCharsets.UTF_8);
         assertTrue(bytes.length <= maxBytes, 
             "Byte length " + bytes.length + " exceeds maxBytes " + maxBytes);
@@ -68,16 +273,20 @@ class BudgetAwareJsonFormatterUtf8Test {
         int maxBytes = 100;
         String truncated = formatWithMaxBytes(data, maxBytes);
 
-        // Oracle 1: Byte length ≤ maxBytes
+        // Oracle 1: Byte length ≤ maxBytes (S2)
         byte[] bytes = truncated.getBytes(StandardCharsets.UTF_8);
         assertTrue(bytes.length <= maxBytes,
             "UTF-8 byte length " + bytes.length + " exceeds maxBytes " + maxBytes);
 
-        // Oracle 2: Valid JSON
+        // Oracle 2: Strict independent validation (S2)
+        assertDoesNotThrow(() -> StrictJsonValidator.validate(truncated),
+            "Truncated Unicode JSON must pass strict independent validation");
+
+        // Oracle 3: Valid JSON (JsonReader)
         Object parsed = JsonReader.parse(truncated);
         assertNotNull(parsed, "Truncated Unicode JSON must be parseable");
 
-        // Oracle 3: No split code point (re-encode should match byte length)
+        // Oracle 4: No split code point (re-encode should match byte length)
         String reEncoded = new String(truncated.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
         assertEquals(truncated, reEncoded, "No split code points allowed");
     }
@@ -101,17 +310,21 @@ class BudgetAwareJsonFormatterUtf8Test {
         int maxBytes = 500;
         String truncated = formatListWithMaxBytes(items, maxBytes);
 
-        // Oracle 1: Valid JSON array
+        // Oracle 1: Strict independent validation
+        assertDoesNotThrow(() -> StrictJsonValidator.validate(truncated),
+            "Truncated list must pass strict independent validation");
+
+        // Oracle 2: Valid JSON array
         Object parsed = JsonReader.parse(truncated);
         assertNotNull(parsed, "Truncated list must be parseable");
         assertTrue(parsed instanceof List, "Root must be array");
 
-        // Oracle 2: Byte length ≤ maxBytes
+        // Oracle 3: Byte length ≤ maxBytes
         byte[] bytes = truncated.getBytes(StandardCharsets.UTF_8);
         assertTrue(bytes.length <= maxBytes,
             "Byte length " + bytes.length + " exceeds maxBytes " + maxBytes);
 
-        // Oracle 3: If wrapped in object, must have _truncated
+        // Oracle 4: If wrapped in object, must have _truncated
         if (parsed instanceof Map) {
             @SuppressWarnings("unchecked")
             Map<String, Object> map = (Map<String, Object>) parsed;
@@ -135,17 +348,21 @@ class BudgetAwareJsonFormatterUtf8Test {
         for (int maxBytes : smallLimits) {
             String truncated = formatWithMaxBytes(data, maxBytes);
 
-            // Oracle 1: Must be valid JSON
+            // Oracle 1: Strict independent validation
+            assertDoesNotThrow(() -> StrictJsonValidator.validate(truncated),
+                "Even with maxBytes=" + maxBytes + " must pass strict independent validation");
+
+            // Oracle 2: Must be valid JSON
             Object parsed = JsonReader.parse(truncated);
             assertNotNull(parsed, "Even with maxBytes=" + maxBytes + " must produce valid JSON");
             assertTrue(parsed instanceof Map, "Root must be object");
 
-            // Oracle 2: Byte length ≤ maxBytes (ALWAYS enforced)
+            // Oracle 3: Byte length ≤ maxBytes (ALWAYS enforced)
             byte[] bytes = truncated.getBytes(StandardCharsets.UTF_8);
             assertTrue(bytes.length <= maxBytes,
                 "Byte length " + bytes.length + " exceeds maxBytes " + maxBytes);
 
-            // Oracle 3: Must contain _truncated marker if budget allows
+            // Oracle 4: Must contain _truncated marker if budget allows
             @SuppressWarnings("unchecked")
             Map<String, Object> map = (Map<String, Object>) parsed;
             
@@ -184,11 +401,15 @@ class BudgetAwareJsonFormatterUtf8Test {
         int maxBytes = actualSize + 50;
         String result = formatWithMaxBytes(data, maxBytes);
 
-        // Oracle 1: Must equal original JSON (no truncation)
+        // Oracle 1: Strict independent validation
+        assertDoesNotThrow(() -> StrictJsonValidator.validate(result),
+            "Under-budget JSON must pass strict independent validation");
+
+        // Oracle 2: Must equal original JSON (no truncation)
         assertEquals(fullJson, result,
             "ASCII under budget should not be truncated");
 
-        // Oracle 2: No _truncated marker
+        // Oracle 3: No _truncated marker
         Object parsed = JsonReader.parse(result);
         assertNotNull(parsed);
         @SuppressWarnings("unchecked")
@@ -196,7 +417,7 @@ class BudgetAwareJsonFormatterUtf8Test {
         assertNull(map.get("_truncated"),
             "Under-budget JSON should NOT have _truncated marker");
 
-        // Oracle 3: Byte length ≤ maxBytes
+        // Oracle 4: Byte length ≤ maxBytes
         byte[] bytes = result.getBytes(StandardCharsets.UTF_8);
         assertTrue(bytes.length <= maxBytes);
     }

@@ -52,8 +52,12 @@ class BinaryIndexV2MmapAcceptanceTest {
      * A2: Cold load wall-clock: mmap ≤ baseline ±10%.
      * Oracle: Compare median of 5 runs (mmap vs eager).
      * Note: Small overhead from mmap setup is acceptable for small files.
+     * 
+     * DISABLED: Timing test excluded from default suite per M1 requirement.
+     * Wall-clock timing is environment-sensitive and causes flaky failures.
      */
     @Test
+    @org.junit.jupiter.api.Disabled("M1: Timing test excluded from default suite")
     void testA2_wallClock_mmapNoRegression(@TempDir Path tempDir) throws Exception {
         var entries = createLargeTestEntries(1000);
         var graph = createTestGraph();

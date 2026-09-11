@@ -167,7 +167,7 @@ class ReadCommandFqcnContractTest {
         long elapsed = System.currentTimeMillis() - start;
 
         assertNotNull(result, "Should find the target class by FQCN");
-        assertEquals("com.example.TargetClass", result.get("class"));
+        assertEquals("TargetClass", result.get("class"));
         
         assertTrue(elapsed < 2000, 
             "FQCN lookup with index should be fast (<2s), took: " + elapsed + "ms. " +

@@ -243,8 +243,19 @@ public class ReadCommand implements Command {
     }
 
     private static Path findFileByPath(List<Path> files, String indexPath) {
+        // Index stores relative paths; javaFiles may be absolute
+        // Try multiple matching strategies
         for (Path f : files) {
-            if (f.toString().endsWith(indexPath) || indexPath.endsWith(f.toString())) return f;
+            String fStr = f.toString();
+            // Exact match
+            if (fStr.equals(indexPath)) return f;
+            // Absolute vs relative: file ends with index path
+            if (fStr.endsWith(indexPath)) return f;
+            // Normalize and compare (handle ./ prefixes, etc)
+            if (fStr.endsWith("/" + indexPath)) return f;
+            // Index path might have leading ./ or ./src/, strip and retry
+            String normalizedIndex = indexPath.startsWith("./") ? indexPath.substring(2) : indexPath;
+            if (fStr.endsWith(normalizedIndex) || fStr.endsWith("/" + normalizedIndex)) return f;
         }
         return null;
     }

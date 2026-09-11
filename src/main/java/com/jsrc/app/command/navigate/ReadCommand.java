@@ -33,9 +33,17 @@ public class ReadCommand implements Command {
         } else {
             // Fast path: locate file via index for class read
             Path classFile = findFileForClass(ctx, target);
+            
+            // FQCN fast-fail: if target looks like FQCN and index missed, don't full-scan
+            if (classFile == null && target.contains(".")) {
+                System.err.printf("'%s' not found.%n", target);
+                return 0;
+            }
+            
             List<Path> classSearch = classFile != null ? List.of(classFile) : ctx.javaFiles();
             result = reader.readClass(classSearch, target).orElse(null);
-            if (result == null) {
+            if (result == null && !target.contains(".")) {
+                // Only try method fallback for simple names, not FQCN
                 result = findMethodReadAllFiles(ctx, ref);
             }
         }
@@ -128,6 +136,12 @@ public class ReadCommand implements Command {
     private SourceReader.ReadResult findMethodRead(CommandContext ctx, SourceReader reader,
                                                     MethodResolver.MethodRef ref) {
         Path targetFile = findFileForClass(ctx, ref.className());
+        
+        // FQCN fast-fail: if className looks like FQCN and index missed, don't full-scan
+        if (targetFile == null && ref.className().contains(".")) {
+            return null;
+        }
+        
         List<Path> searchFiles = targetFile != null ? List.of(targetFile) : ctx.javaFiles();
 
         if (ref.hasParamTypes() && targetFile != null) {

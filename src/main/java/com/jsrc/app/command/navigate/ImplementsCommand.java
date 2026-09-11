@@ -23,7 +23,8 @@ public class ImplementsCommand implements Command {
         List<String> implementors = allClasses.stream()
                 .filter(ci -> ci.interfaces().stream().anyMatch(i -> {
                     String stripped = i.contains("<") ? i.substring(0, i.indexOf('<')) : i;
-                    return stripped.equals(ifaceName);
+                    // Match both simple name and qualified name (like HierarchyCommand does)
+                    return stripped.equals(ifaceName) || stripped.endsWith("." + ifaceName);
                 }))
                 .map(ClassInfo::qualifiedName).toList();
 

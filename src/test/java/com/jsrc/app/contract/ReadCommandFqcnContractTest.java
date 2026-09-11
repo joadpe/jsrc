@@ -59,8 +59,8 @@ class ReadCommandFqcnContractTest {
         var result = executeRead("MyClass", List.of(file), true);
         
         assertNotNull(result, "Should return a result for simple name");
-        assertEquals("com.example.MyClass", result.get("class"), 
-            "Should resolve to fully qualified name");
+        assertEquals("MyClass", result.get("class"), 
+            "Should return class name (simple name per SourceReader contract)");
         assertNotNull(result.get("content"), "Should include content");
     }
 
@@ -78,8 +78,8 @@ class ReadCommandFqcnContractTest {
         var result = executeRead("com.example.service.MyClass", List.of(file), true);
         
         assertNotNull(result, "Should return a result for FQCN");
-        assertEquals("com.example.service.MyClass", result.get("class"), 
-            "Should match the FQCN");
+        assertEquals("MyClass", result.get("class"), 
+            "Should return class name (simple name per SourceReader contract)");
         assertNotNull(result.get("content"), "Should include content");
     }
 
@@ -133,11 +133,16 @@ class ReadCommandFqcnContractTest {
         List<Path> manyFiles = new ArrayList<>();
         manyFiles.add(file);
         
-        for (int i = 0; i < 50; i++) {
+        // Create 200 dummy files to ensure full scan would be slow
+        for (int i = 0; i < 200; i++) {
             Path dummy = tempDir.resolve("Other" + i + ".java");
             Files.writeString(dummy, 
                     "package com.other;\n" +
-                    "public class Other" + i + " {}\n");
+                    "public class Other" + i + " {\n" +
+                    "    public void m1() {}\n" +
+                    "    public void m2() {}\n" +
+                    "    public void m3() {}\n" +
+                    "}\n");
             manyFiles.add(dummy);
         }
 
@@ -149,7 +154,8 @@ class ReadCommandFqcnContractTest {
         
         assertTrue(elapsed < 2000, 
             "Missing FQCN should fail fast (<2s), took: " + elapsed + "ms. " +
-            "Should not scan all javaFiles when arg looks like FQCN.");
+            "Should not scan all javaFiles when arg looks like FQCN. " +
+            "If this fails, ReadCommand is still doing full-tree scan on FQCN miss.");
     }
 
     @Test

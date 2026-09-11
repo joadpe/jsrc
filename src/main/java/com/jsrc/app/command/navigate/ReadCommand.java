@@ -219,11 +219,20 @@ public class ReadCommand implements Command {
 
     private static Path findFileForClass(CommandContext ctx, String className) {
         if (ctx.indexed() != null) {
+            // Try as qualified name first
             var path = ctx.indexed().findFileForClass(className);
             if (path.isPresent()) {
                 return findFileByPath(ctx.javaFiles(), path.get());
             }
+            
+            // If className looks like FQCN (contains '.'), fail fast
+            // instead of falling through to full scan
+            if (className.contains(".")) {
+                return null;
+            }
         }
+        
+        // Fallback: try simple name match on filename
         for (Path f : ctx.javaFiles()) {
             if (f.getFileName().toString().equals(className + ".java")) return f;
         }

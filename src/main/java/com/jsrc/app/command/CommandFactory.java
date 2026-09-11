@@ -59,6 +59,8 @@ import com.jsrc.app.command.navigate.MapCommand;
 import com.jsrc.app.command.navigate.ExplainCommand;
 import com.jsrc.app.command.navigate.SimilarCommand;
 import com.jsrc.app.command.navigate.ResolveCommand;
+import com.jsrc.app.command.meta.SkillCommand;
+import com.jsrc.app.command.meta.DescribeCommand;
 
 /**
  * Single source of truth for command resolution.
@@ -77,6 +79,20 @@ public final class CommandFactory {
      * @return Command instance, or null if unknown
      */
     public static Command create(String command, String arg, boolean mdOutput) {
+        return create(command, arg, mdOutput, null);
+    }
+
+    /**
+     * Resolves a command by name with an optional argument and budget profile.
+     * Used by WatchCommand to support budget-aware commands like skill and describe.
+     *
+     * @param command command name (e.g. "--overview", "--summary")
+     * @param arg     argument (class name, method name, pattern). Null if none.
+     * @param mdOutput true if --md flag is set
+     * @param profile budget profile for budget-aware commands (skill, describe). Null uses STANDARD.
+     * @return Command instance, or null if unknown
+     */
+    public static Command create(String command, String arg, boolean mdOutput, com.jsrc.app.cli.BudgetProfile profile) {
         return switch (command) {
             case "--index" -> new IndexCommand();
             case "--overview" -> new OverviewCommand();
@@ -134,6 +150,8 @@ public final class CommandFactory {
             case "--perf" -> arg != null ? new PerfCommand(arg, 1) : null;
             case "--record" -> new RecordCommand(null, "30s", null, "profile", false, true);
             case "--profile" -> arg != null ? new ProfileCommand(arg, 20, false, false, false, false, false, false) : null;
+            case "--describe" -> new DescribeCommand(profile != null ? profile : com.jsrc.app.cli.BudgetProfile.STANDARD, arg);
+            case "--skill" -> new SkillCommand(profile != null ? profile : com.jsrc.app.cli.BudgetProfile.STANDARD);
             default -> null;
         };
     }

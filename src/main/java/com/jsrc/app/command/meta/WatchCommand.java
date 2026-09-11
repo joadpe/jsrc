@@ -105,7 +105,9 @@ public class WatchCommand implements Command {
                             captureFormatter, freshIndexed, ctx.parser());
 
                     // Execute command
-                    Command cmd = CommandFactory.create("--" + command, arg, false);
+                    // Extract budget profile from budgetContext if available
+                    com.jsrc.app.cli.BudgetProfile commandProfile = budgetContext != null ? budgetContext.profile() : com.jsrc.app.cli.BudgetProfile.STANDARD;
+                    Command cmd = CommandFactory.create("--" + command, arg, false, commandProfile);
                     if (cmd == null && !command.startsWith("--")) {
                         cmd = CommandFactory.createMethodSearch(command);
                     }

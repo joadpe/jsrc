@@ -1,6 +1,8 @@
 package com.jsrc.app.index;
 
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.*;
 import java.util.*;
 import java.util.zip.CRC32;
@@ -47,16 +49,16 @@ public class BinaryIndexV2Reader {
 
     /**
      * Lazy container for index data with deferred graph loading.
-     * Keeps full payload in memory to avoid re-reading file on ensureGraph.
+     * Uses ByteBuffer (potentially mmap) instead of byte[] for zero heap allocation.
      */
     public static class LazyIndexData {
         private final IndexData lightData;  // callGraph=null initially
-        private final byte[] payload;
+        private final ByteBuffer payload;
         private final int graphSectionOffset;
         private final String[] stringTable;
         private CallGraph lazyGraph;
 
-        LazyIndexData(IndexData lightData, byte[] payload, int graphSectionOffset, String[] stringTable) {
+        LazyIndexData(IndexData lightData, ByteBuffer payload, int graphSectionOffset, String[] stringTable) {
             this.lightData = lightData;
             this.payload = payload;
             this.graphSectionOffset = graphSectionOffset;
@@ -80,7 +82,9 @@ public class BinaryIndexV2Reader {
             if (lazyGraph == null && graphSectionOffset >= 0) {
                 try {
                     int offsetInPayload = graphSectionOffset + 12;
-                    var in = new DataInputStream(new ByteArrayInputStream(payload, offsetInPayload, payload.length - offsetInPayload));
+                    ByteBuffer sliced = payload.duplicate();
+                    sliced.position(offsetInPayload);
+                    var in = new DataInputStream(new ByteBufferInputStream(sliced));
                     lazyGraph = readGraph(in, stringTable);
                     graphParsedFlag = true;
                     graphParseCount++;
@@ -232,34 +236,56 @@ public class BinaryIndexV2Reader {
     /**
      * Reads the unified binary index with LAZY graph loading.
      * Graph parsing is deferred until ensureGraph() is called.
+     * Uses memory-mapped I/O (FileChannel.map) to avoid heap allocation.
+     * Falls back to Files.readAllBytes if mmap fails.
      *
      * @param file path to index.bin
      * @return LazyIndexData with deferred graph loading
      */
     public static LazyIndexData readLazy(Path file) throws IOException {
-        byte[] allBytes = Files.readAllBytes(file);
-        if (allBytes.length < 12) throw new IOException("Binary index too small");
+        ByteBuffer buffer;
+        boolean usedMmap = false;
+
+        try (var channel = FileChannel.open(file, StandardOpenOption.READ)) {
+            long fileSize = channel.size();
+            if (fileSize < 12) {
+                throw new IOException("Binary index too small");
+            }
+
+            buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize);
+            usedMmap = true;
+            logger.debug("Using memory-mapped I/O for index.bin ({} bytes)", fileSize);
+        } catch (IOException e) {
+            logger.warn("Memory-mapping failed, falling back to heap copy: {}", e.getMessage());
+            byte[] allBytes = Files.readAllBytes(file);
+            buffer = ByteBuffer.wrap(allBytes);
+        }
+
+        if (buffer.remaining() < 12) {
+            throw new IOException("Binary index too small");
+        }
 
         // Read header
-        if (allBytes[0] != 'J' || allBytes[1] != 'S' || allBytes[2] != 'R' || allBytes[3] != '2') {
+        if (buffer.get() != 'J' || buffer.get() != 'S' || buffer.get() != 'R' || buffer.get() != '2') {
             throw new IOException("Not a jsrc V2 binary index");
         }
 
-        var headerIn = new DataInputStream(new ByteArrayInputStream(allBytes, 4, 8));
-        int version = headerIn.readInt();
+        int version = buffer.getInt();
         if (version != BinaryIndexV2Writer.VERSION) {
             throw new IOException("Unsupported V2 index version: " + version);
         }
-        int storedCrc = headerIn.readInt();
+        int storedCrc = buffer.getInt();
 
-        // Verify CRC32
+        // Verify CRC32 over mmap region (chunk-based if no backing array)
         CRC32 crc = new CRC32();
-        crc.update(allBytes, 12, allBytes.length - 12);
+        validateCrc32(buffer, 12, buffer.limit() - 12, crc);
         if ((int) crc.getValue() != storedCrc) {
             throw new IOException("CRC32 mismatch — index may be corrupt");
         }
 
-        var in = new DataInputStream(new ByteArrayInputStream(allBytes, 12, allBytes.length - 12));
+        // Position after header
+        buffer.position(12);
+        var in = new DataInputStream(new ByteBufferInputStream(buffer));
 
         // 1. STRING_TABLE
         int stringCount = in.readInt();
@@ -310,7 +336,7 @@ public class BinaryIndexV2Reader {
 
         // 4. GRAPH (pre-resolved) - LAZY: record offset but don't parse yet
         int graphSectionOffset = -1;
-        int graphStartOffset = allBytes.length - in.available() - 12;
+        int graphStartOffset = buffer.limit() - in.available() - 12;
         byte hasGraph = in.readByte();
         if (hasGraph == 1) {
             graphSectionOffset = graphStartOffset + 1;
@@ -365,11 +391,32 @@ public class BinaryIndexV2Reader {
             }
         }
 
-        logger.info("Loaded V2 binary index (LAZY): {} entries, {} strings, graph={} (deferred), migrations={}",
-                entryCount, stringCount, hasGraph == 1, migrations.size());
+        logger.info("Loaded V2 binary index (LAZY, mmap={}): {} entries, {} strings, graph={} (deferred), migrations={}",
+                usedMmap, entryCount, stringCount, hasGraph == 1, migrations.size());
 
         var lightData = new IndexData(entries, null, migrations);
-        return new LazyIndexData(lightData, allBytes, graphSectionOffset, strings);
+        return new LazyIndexData(lightData, buffer, graphSectionOffset, strings);
+    }
+
+    /**
+     * Validates CRC32 over ByteBuffer region (works for both mmap and heap).
+     * Reads in chunks to handle buffers without backing arrays.
+     */
+    private static void validateCrc32(ByteBuffer buffer, int offset, int length, CRC32 crc) {
+        ByteBuffer slice = buffer.duplicate();
+        slice.position(offset);
+        slice.limit(offset + length);
+
+        if (slice.hasArray()) {
+            crc.update(slice.array(), slice.arrayOffset() + slice.position(), slice.remaining());
+        } else {
+            byte[] chunk = new byte[8192];
+            while (slice.hasRemaining()) {
+                int toRead = Math.min(chunk.length, slice.remaining());
+                slice.get(chunk, 0, toRead);
+                crc.update(chunk, 0, toRead);
+            }
+        }
     }
 
     /**

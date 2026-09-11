@@ -26,12 +26,30 @@ public class ReadCommand implements Command {
         var ref = MethodResolver.parse(target);
         SourceReader.ReadResult result = null;
 
-        if (ref.hasClassName()) {
+        // Heuristic: FQCN class read vs Class.method dispatch
+        // If no parens and last segment starts uppercase → treat as class FQCN
+        // e.g. "com.example.MyClass" → class read, not "example.MyClass" method
+        // e.g. "MyClass.run" or "com.example.MyClass.run" → method read (lowercase)
+        boolean isFqcnClass = !target.contains("(") && target.contains(".") 
+                && Character.isUpperCase(target.charAt(target.lastIndexOf('.') + 1));
+
+        if (isFqcnClass) {
+            // Treat as class FQCN regardless of MethodResolver parse
+            Path classFile = findFileForClass(ctx, target);
+            
+            // FQCN fast-fail: if target looks like FQCN and index missed, don't full-scan
+            if (classFile == null) {
+                System.err.printf("'%s' not found.%n", target);
+                return 0;
+            }
+            
+            result = reader.readClass(List.of(classFile), target).orElse(null);
+        } else if (ref.hasClassName()) {
             result = findMethodRead(ctx, reader, ref);
         } else if (target.contains("(")) {
             result = findMethodReadAllFiles(ctx, ref);
         } else {
-            // Fast path: locate file via index for class read
+            // Simple name class read
             Path classFile = findFileForClass(ctx, target);
             
             // FQCN fast-fail: if target looks like FQCN and index missed, don't full-scan
@@ -49,7 +67,7 @@ public class ReadCommand implements Command {
         }
 
         if (result != null) {
-            boolean isClassRead = !ref.hasClassName() && !target.contains("(");
+            boolean isClassRead = isFqcnClass || (!ref.hasClassName() && !target.contains("("));
             if (isClassRead) {
                 printClassRead(ctx, result);
             } else {

@@ -82,6 +82,61 @@ class ReadCommandFqcnContractTest {
             "Should return class name (simple name per SourceReader contract)");
         assertNotNull(result.get("content"), "Should include content");
     }
+    
+    @Test
+    @DisplayName("B2b: FQCN class read must not be misparsed as Class.method")
+    void readFqcnNotMisparsedAsMethod() throws Exception {
+        Path file = tempDir.resolve("MyClass.java");
+        Files.writeString(file, """
+                package com.example.service;
+                public class MyClass {
+                    public void myMethod() {}
+                }
+                """);
+
+        var result = executeRead("com.example.service.MyClass", List.of(file), true);
+        
+        assertNotNull(result, "FQCN class read must succeed");
+        assertTrue(result.containsKey("content"), "Should be class read (has content)");
+        assertFalse(result.containsKey("method"), "Should NOT be method read (no method field)");
+        assertEquals("MyClass", result.get("class"), "Should resolve to class MyClass");
+    }
+    
+    @Test
+    @DisplayName("B2c: Class.method (lowercase method) still takes method path")
+    void classMethodLowercaseStillMethodPath() throws Exception {
+        Path file = tempDir.resolve("MyClass.java");
+        Files.writeString(file, """
+                package com.example;
+                public class MyClass {
+                    public void run() { System.out.println("running"); }
+                }
+                """);
+
+        var result = executeRead("MyClass.run", List.of(file), true);
+        
+        assertNotNull(result, "Should find method");
+        assertEquals("run", result.get("method"), "Should be method read");
+        assertEquals("MyClass", result.get("class"), "Method's class is MyClass");
+    }
+    
+    @Test
+    @DisplayName("B2d: pkg.Class.method (lowercase method) still takes method path")
+    void pkgClassMethodLowercaseStillMethodPath() throws Exception {
+        Path file = tempDir.resolve("MyClass.java");
+        Files.writeString(file, """
+                package com.example;
+                public class MyClass {
+                    public void run() { System.out.println("running"); }
+                }
+                """);
+
+        var result = executeRead("com.example.MyClass.run", List.of(file), true);
+        
+        assertNotNull(result, "Should find method");
+        assertEquals("run", result.get("method"), "Should be method read");
+        assertEquals("MyClass", result.get("class"), "Method's class is MyClass");
+    }
 
     @Test
     @DisplayName("B3: FQCN warm path must use index, not full-tree scan on large file lists")

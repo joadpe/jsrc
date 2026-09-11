@@ -26,22 +26,48 @@ public class ReadCommand implements Command {
         var ref = MethodResolver.parse(target);
         SourceReader.ReadResult result = null;
 
-        if (ref.hasClassName()) {
+        // Heuristic: FQCN class read vs Class.method dispatch
+        // If no parens and last segment starts uppercase → treat as class FQCN
+        // e.g. "com.example.MyClass" → class read, not "example.MyClass" method
+        // e.g. "MyClass.run" or "com.example.MyClass.run" → method read (lowercase)
+        boolean isFqcnClass = !target.contains("(") && target.contains(".") 
+                && Character.isUpperCase(target.charAt(target.lastIndexOf('.') + 1));
+
+        if (isFqcnClass) {
+            // Treat as class FQCN regardless of MethodResolver parse
+            Path classFile = findFileForClass(ctx, target);
+            
+            // FQCN fast-fail: if target looks like FQCN and index missed, don't full-scan
+            if (classFile == null) {
+                System.err.printf("'%s' not found.%n", target);
+                return 0;
+            }
+            
+            result = reader.readClass(List.of(classFile), target).orElse(null);
+        } else if (ref.hasClassName()) {
             result = findMethodRead(ctx, reader, ref);
         } else if (target.contains("(")) {
             result = findMethodReadAllFiles(ctx, ref);
         } else {
-            // Fast path: locate file via index for class read
+            // Simple name class read
             Path classFile = findFileForClass(ctx, target);
+            
+            // FQCN fast-fail: if target looks like FQCN and index missed, don't full-scan
+            if (classFile == null && target.contains(".")) {
+                System.err.printf("'%s' not found.%n", target);
+                return 0;
+            }
+            
             List<Path> classSearch = classFile != null ? List.of(classFile) : ctx.javaFiles();
             result = reader.readClass(classSearch, target).orElse(null);
-            if (result == null) {
+            if (result == null && !target.contains(".")) {
+                // Only try method fallback for simple names, not FQCN
                 result = findMethodReadAllFiles(ctx, ref);
             }
         }
 
         if (result != null) {
-            boolean isClassRead = !ref.hasClassName() && !target.contains("(");
+            boolean isClassRead = isFqcnClass || (!ref.hasClassName() && !target.contains("("));
             if (isClassRead) {
                 printClassRead(ctx, result);
             } else {
@@ -128,6 +154,12 @@ public class ReadCommand implements Command {
     private SourceReader.ReadResult findMethodRead(CommandContext ctx, SourceReader reader,
                                                     MethodResolver.MethodRef ref) {
         Path targetFile = findFileForClass(ctx, ref.className());
+        
+        // FQCN fast-fail: if className looks like FQCN and index missed, don't full-scan
+        if (targetFile == null && ref.className().contains(".")) {
+            return null;
+        }
+        
         List<Path> searchFiles = targetFile != null ? List.of(targetFile) : ctx.javaFiles();
 
         if (ref.hasParamTypes() && targetFile != null) {
@@ -211,19 +243,39 @@ public class ReadCommand implements Command {
     }
 
     private static Path findFileByPath(List<Path> files, String indexPath) {
+        // Index stores relative paths; javaFiles may be absolute
+        // Try multiple matching strategies
         for (Path f : files) {
-            if (f.toString().endsWith(indexPath) || indexPath.endsWith(f.toString())) return f;
+            String fStr = f.toString();
+            // Exact match
+            if (fStr.equals(indexPath)) return f;
+            // Absolute vs relative: file ends with index path
+            if (fStr.endsWith(indexPath)) return f;
+            // Normalize and compare (handle ./ prefixes, etc)
+            if (fStr.endsWith("/" + indexPath)) return f;
+            // Index path might have leading ./ or ./src/, strip and retry
+            String normalizedIndex = indexPath.startsWith("./") ? indexPath.substring(2) : indexPath;
+            if (fStr.endsWith(normalizedIndex) || fStr.endsWith("/" + normalizedIndex)) return f;
         }
         return null;
     }
 
     private static Path findFileForClass(CommandContext ctx, String className) {
         if (ctx.indexed() != null) {
+            // Try as qualified name first
             var path = ctx.indexed().findFileForClass(className);
             if (path.isPresent()) {
                 return findFileByPath(ctx.javaFiles(), path.get());
             }
+            
+            // If className looks like FQCN (contains '.'), fail fast
+            // instead of falling through to full scan
+            if (className.contains(".")) {
+                return null;
+            }
         }
+        
+        // Fallback: try simple name match on filename
         for (Path f : ctx.javaFiles()) {
             if (f.getFileName().toString().equals(className + ".java")) return f;
         }

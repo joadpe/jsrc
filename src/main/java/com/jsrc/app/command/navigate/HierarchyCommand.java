@@ -48,11 +48,17 @@ public class HierarchyCommand implements Command {
         result.put("subClasses", hierarchyResult.subClasses());
         result.put("implementors", hierarchyResult.implementors());
 
-        var hints = java.util.List.of(
-            new CommandHint("read " + className, "Read a subclass"),
-            new CommandHint("implements " + className, "Find all implementors"),
-            new CommandHint("breaking-changes " + className, "Impact of changing this class")
-        );
+        // Build hints: prefer simple name from subClasses list
+        var hints = new java.util.ArrayList<CommandHint>();
+        if (!subClasses.isEmpty()) {
+            String firstSubclass = subClasses.get(0);
+            String simpleName = firstSubclass.substring(firstSubclass.lastIndexOf('.') + 1);
+            hints.add(new CommandHint("read " + simpleName, "Read a subclass"));
+        } else {
+            hints.add(new CommandHint("hierarchy " + className, "See full inheritance tree"));
+        }
+        hints.add(new CommandHint("implements " + className, "Find all implementors"));
+        hints.add(new CommandHint("breaking-changes " + className, "Impact of changing this class"));
 
         ctx.formatter().printResultWithHints(result, hints);
         return 1;

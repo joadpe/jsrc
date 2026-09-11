@@ -23,7 +23,8 @@ public class ImplementsCommand implements Command {
         List<String> implementors = allClasses.stream()
                 .filter(ci -> ci.interfaces().stream().anyMatch(i -> {
                     String stripped = i.contains("<") ? i.substring(0, i.indexOf('<')) : i;
-                    return stripped.equals(ifaceName);
+                    // Match both simple name and qualified name (like HierarchyCommand does)
+                    return stripped.equals(ifaceName) || stripped.endsWith("." + ifaceName);
                 }))
                 .map(ClassInfo::qualifiedName).toList();
 
@@ -38,10 +39,14 @@ public class ImplementsCommand implements Command {
         result.put("subClasses", hierarchyResult.subClasses());
         result.put("implementors", hierarchyResult.implementors());
 
-        var hints = java.util.List.of(
-            new CommandHint("read " + ifaceName, "Read an implementor"),
-            new CommandHint("hierarchy " + ifaceName, "See full inheritance tree")
-        );
+        // Build hints: prefer simple name from implementors list
+        var hints = new java.util.ArrayList<CommandHint>();
+        if (!implementors.isEmpty()) {
+            String firstImplementor = implementors.get(0);
+            String simpleName = firstImplementor.substring(firstImplementor.lastIndexOf('.') + 1);
+            hints.add(new CommandHint("read " + simpleName, "Read an implementor"));
+        }
+        hints.add(new CommandHint("hierarchy " + ifaceName, "See full inheritance tree"));
 
         ctx.formatter().printResultWithHints(result, hints);
         return implementors.size();

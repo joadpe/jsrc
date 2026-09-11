@@ -168,9 +168,11 @@ public class WatchCommand implements Command {
      * Checks a cheap stamp (index.bin mtime + source files count/mtime) before calling tryLoad.
      * Returns cached index if stamp hasn't changed.
      * When frozenIndex is true, skips stamp computation and never refreshes.
+     * 
+     * V2: Rediscovers Java files on each stamp check (non-frozen) to detect create/delete/rename.
      *
      * @param root project root
-     * @param files current Java source files
+     * @param files current Java source files (used for frozen path; rediscovered for normal path)
      * @param cached previously cached IndexedCodebase, or null
      * @param frozenIndex if true, skip stamp-driven refresh (load once and never refresh)
      * @return fresh or cached IndexedCodebase, or null if no index exists
@@ -184,15 +186,32 @@ public class WatchCommand implements Command {
             return callTryLoad(root, files, frozenIndex);
         }
         
-        // Normal mode: stamp-driven refresh
-        IndexStamp currentStamp = computeStamp(root, files);
+        // Normal mode: rediscover files on each stamp check (detect create/delete/rename)
+        List<Path> freshFiles = discoverJavaFiles(root);
+        
+        IndexStamp currentStamp = computeStamp(root, freshFiles);
 
         if (lastStamp != null && lastStamp.equals(currentStamp)) {
             return cached;
         }
 
         lastStamp = currentStamp;
-        return callTryLoad(root, files, frozenIndex);
+        return callTryLoad(root, freshFiles, frozenIndex);
+    }
+    
+    /**
+     * Discover all .java files under root (rediscovery for watch refresh).
+     */
+    private List<Path> discoverJavaFiles(Path root) {
+        try (var stream = Files.walk(root)) {
+            return stream
+                .filter(Files::isRegularFile)
+                .filter(p -> p.toString().endsWith(".java"))
+                .toList();
+        } catch (IOException e) {
+            // Fallback: return empty list on error
+            return List.of();
+        }
     }
 
     /**

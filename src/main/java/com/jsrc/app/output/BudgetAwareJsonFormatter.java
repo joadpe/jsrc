@@ -618,13 +618,16 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
             byte[] suffixBytes = suffix.getBytes(java.nio.charset.StandardCharsets.UTF_8);
             int suffixLen = suffixBytes.length;
             
-            // If maxBytes is too small to fit even the minimal object, return safe fallback
+            // Minimal fallback with _truncated marker
             String minFallback = "{\"_truncated\":true}";
             byte[] minBytes = minFallback.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            
+            // If maxBytes too small for even the fallback, return absolute minimum
             if (maxBytes < minBytes.length) {
-                // Absolute minimum: return empty object if even fallback doesn't fit
                 return "{}";
             }
+            
+            // If maxBytes too small to preserve content, return fallback
             if (maxBytes < suffixLen + 2) {
                 return minFallback;
             }
@@ -633,17 +636,18 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
             int targetBytes = maxBytes - suffixLen;
             String truncated = truncateUtf8Safe(json, targetBytes);
             
-            // Find last complete field (look for last comma or opening brace)
-            int lastComma = truncated.lastIndexOf(',');
+            // Find last complete field at root level (not nested)
+            // We need to find the last comma at depth 0
+            int lastComma = findLastRootComma(truncated);
             int openBrace = truncated.indexOf('{');
             
-            // CRITICAL FIX: If no comma found, we can't preserve any field safely
+            // CRITICAL FIX: If no root-level comma found, we can't preserve any field safely
             // Return minimal valid object with just the truncation marker
             if (lastComma <= openBrace) {
                 return minFallback;
             }
             
-            // Cut at the last comma (removes incomplete field)
+            // Cut at the last root-level comma (removes incomplete field)
             truncated = truncated.substring(0, lastComma);
             
             // Add truncated marker and close
@@ -683,6 +687,50 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
             // Fallback: simple truncation with marker
             return "{\"_truncated\":true}";
         }
+    }
+    
+    /**
+     * Find the last comma at root level (depth 0) in JSON string.
+     * Ignores commas inside nested objects/arrays/strings.
+     */
+    private int findLastRootComma(String json) {
+        int depth = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        int lastRootComma = -1;
+        
+        for (int i = 0; i < json.length(); i++) {
+            char c = json.charAt(i);
+            
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            
+            if (c == '\\' && inString) {
+                escaped = true;
+                continue;
+            }
+            
+            if (c == '"') {
+                inString = !inString;
+                continue;
+            }
+            
+            if (inString) {
+                continue;
+            }
+            
+            if (c == '{' || c == '[') {
+                depth++;
+            } else if (c == '}' || c == ']') {
+                depth--;
+            } else if (c == ',' && depth == 1) {  // depth==1 means root level (inside root {})
+                lastRootComma = i;
+            }
+        }
+        
+        return lastRootComma;
     }
     
     /**

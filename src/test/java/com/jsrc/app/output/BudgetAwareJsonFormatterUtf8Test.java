@@ -140,20 +140,29 @@ class BudgetAwareJsonFormatterUtf8Test {
             assertNotNull(parsed, "Even with maxBytes=" + maxBytes + " must produce valid JSON");
             assertTrue(parsed instanceof Map, "Root must be object");
 
-            // Oracle 2: Must contain _truncated marker
-            @SuppressWarnings("unchecked")
-            Map<String, Object> map = (Map<String, Object>) parsed;
-            assertEquals(Boolean.TRUE, map.get("_truncated"),
-                "Minimal JSON must have _truncated:true");
-
-            // Oracle 3: Byte length ≤ maxBytes
+            // Oracle 2: Byte length ≤ maxBytes (ALWAYS enforced)
             byte[] bytes = truncated.getBytes(StandardCharsets.UTF_8);
             assertTrue(bytes.length <= maxBytes,
                 "Byte length " + bytes.length + " exceeds maxBytes " + maxBytes);
 
-            // Oracle 4: Minimal fallback is {"_truncated":true}
-            assertEquals("{\"_truncated\":true}", truncated,
-                "Minimal fallback should be {\"_truncated\":true}");
+            // Oracle 3: Must contain _truncated marker if budget allows
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) parsed;
+            
+            String minFallback = "{\"_truncated\":true}";
+            int minFallbackBytes = minFallback.getBytes(StandardCharsets.UTF_8).length;
+            
+            if (maxBytes >= minFallbackBytes) {
+                // If budget allows, must have _truncated marker and be minimal fallback
+                assertEquals(Boolean.TRUE, map.get("_truncated"),
+                    "Minimal JSON must have _truncated:true when budget allows");
+                assertEquals(minFallback, truncated,
+                    "Minimal fallback should be {\"_truncated\":true} when budget allows");
+            } else {
+                // If budget too small, must be valid but minimal (e.g. {})
+                assertTrue(truncated.equals("{}") || truncated.equals("[]"),
+                    "When maxBytes < 19, fallback must be minimal valid JSON like {} or []");
+            }
         }
     }
 

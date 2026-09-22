@@ -84,10 +84,6 @@ jobs:
         with:
           java-version: '25'
           distribution: 'graalvm-community'
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
       - name: Build and smoke-test native bundle
         shell: pwsh
         run: ./scripts/build-native-windows.ps1

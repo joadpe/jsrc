@@ -88,7 +88,7 @@ cd jsrc
 mvn -B -DskipTests package
 ```
 
-The build scripts compile pinned Tree-sitter libraries, build the native image, run a positive smoke test, verify that an invalid command fails, and create the distribution archive.
+The build scripts compile Tree-sitter from pinned immutable commits, build the native image, run functional index, overview, and read smoke tests, verify that an invalid command fails, and create the distribution archive.
 
 ### Linux
 
@@ -122,7 +122,7 @@ Install:
 
 The Windows build is implemented by `scripts/build-native-windows.ps1`.
 
-Open **Developer PowerShell for VS 2022** and run:
+Open PowerShell and run (the script imports the Visual Studio build environment through `vswhere.exe`):
 
 ```powershell
 git clone https://github.com/joadpe/jsrc.git

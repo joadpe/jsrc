@@ -26,8 +26,25 @@ expect_file "scripts/build-native-unix.sh"
 expect_file "scripts/build-native-windows.ps1"
 
 expect_contains "scripts/build-native-windows.ps1" "/DEF:"
-expect_contains "scripts/build-native-windows.ps1" "Positive smoke test failed."
+expect_contains "scripts/build-native-windows.ps1" "Functional smoke index failed."
 expect_contains "scripts/build-native-windows.ps1" "Negative smoke test unexpectedly succeeded."
+expect_contains "scripts/build-native-windows.ps1" "vswhere.exe"
+
+for build_script in scripts/build-native-unix.sh scripts/build-native-windows.ps1; do
+  expect_contains "$build_script" "a467ea8502d95562171f97953a6dc5b2a8622609"
+  expect_contains "$build_script" "94703d5a6bed02b98e438d7cad1136c01a60ba2c"
+  expect_contains "$build_script" "index"
+  expect_contains "$build_script" "overview"
+  expect_contains "$build_script" "read"
+done
+
+if grep -Fq -- "ilammy/msvc-dev-cmd" "$project_dir/.github/workflows/release.yml"; then
+  fail "release workflow must not depend on mutable external MSVC setup action"
+fi
+
+if grep -Fq -- "--branch" "$project_dir/scripts/build-native-unix.sh" "$project_dir/scripts/build-native-windows.ps1"; then
+  fail "native builds must use immutable Tree-sitter commits, not tags"
+fi
 
 if grep -Fq -- "Require-Command cmake" "$project_dir/scripts/build-native-windows.ps1"; then
   fail "Windows build must not require unavailable Tree-sitter CMake configuration"

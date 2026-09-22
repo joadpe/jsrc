@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TREE_SITTER_VERSION="${TREE_SITTER_VERSION:-v0.25.9}"
-TREE_SITTER_JAVA_VERSION="${TREE_SITTER_JAVA_VERSION:-v0.23.5}"
+TREE_SITTER_COMMIT="${TREE_SITTER_COMMIT:-a467ea8502d95562171f97953a6dc5b2a8622609}"
+TREE_SITTER_JAVA_COMMIT="${TREE_SITTER_JAVA_COMMIT:-94703d5a6bed02b98e438d7cad1136c01a60ba2c}"
 
 usage() {
   cat <<'EOF'
@@ -10,9 +10,9 @@ Usage: scripts/build-native-unix.sh <linux-x64|macos-arm64|macos-x64>
 
 Builds, smoke-tests, and packages a native jsrc bundle.
 Environment:
-  JSRC_JAR                  Fat JAR path (default: target/jsrc.jar)
-  TREE_SITTER_VERSION       tree-sitter tag (default: v0.25.9)
-  TREE_SITTER_JAVA_VERSION  tree-sitter-java tag (default: v0.23.5)
+  JSRC_JAR                Fat JAR path (default: target/jsrc.jar)
+  TREE_SITTER_COMMIT      Immutable tree-sitter commit
+  TREE_SITTER_JAVA_COMMIT Immutable tree-sitter-java commit
 EOF
 }
 
@@ -71,14 +71,35 @@ if [[ ! -f "$jar_path" ]]; then
 fi
 
 work_dir="$(mktemp -d)"
-smoke_home="$(mktemp -d)"
+library_moved=false
 cleanup() {
-  rm -rf "$work_dir" "$smoke_home"
+  if [[ "$library_moved" == true && -d "$work_dir/build-libs" && ! -d "$native_lib_dir" ]]; then
+    mv "$work_dir/build-libs" "$native_lib_dir"
+  fi
+  rm -rf "$work_dir"
 }
 trap cleanup EXIT
 
-git clone --depth 1 --branch "$TREE_SITTER_VERSION" https://github.com/tree-sitter/tree-sitter.git "$work_dir/tree-sitter"
-git clone --depth 1 --branch "$TREE_SITTER_JAVA_VERSION" https://github.com/tree-sitter/tree-sitter-java.git "$work_dir/tree-sitter-java"
+checkout_repository() {
+  local repository_url="$1"
+  local commit="$2"
+  local destination="$3"
+
+  git init -q "$destination"
+  git -C "$destination" remote add origin "$repository_url"
+  git -C "$destination" fetch -q --depth 1 origin "$commit"
+  git -C "$destination" checkout -q --detach FETCH_HEAD
+
+  local actual_commit
+  actual_commit="$(git -C "$destination" rev-parse HEAD)"
+  if [[ "$actual_commit" != "$commit" ]]; then
+    echo "Error: expected $commit from $repository_url, got $actual_commit." >&2
+    exit 1
+  fi
+}
+
+checkout_repository https://github.com/tree-sitter/tree-sitter.git "$TREE_SITTER_COMMIT" "$work_dir/tree-sitter"
+checkout_repository https://github.com/tree-sitter/tree-sitter-java.git "$TREE_SITTER_JAVA_COMMIT" "$work_dir/tree-sitter-java"
 
 rm -rf "$bundle_dir"
 rm -f "$archive_path"
@@ -94,14 +115,41 @@ fi
 
 native-image --enable-native-access=ALL-UNNAMED "-Djava.library.path=$native_lib_dir" -jar "$jar_path" -o "$bundle_dir/jsrc" -H:+UnlockExperimentalVMOptions -H:+SharedArenaSupport
 
-mkdir -p "$smoke_home/lib"
-cp "$native_lib_dir"/* "$smoke_home/lib/"
+tar -C "$dist_dir" -czf "$archive_path" "$bundle_name"
 
-HOME="$smoke_home" "$bundle_dir/jsrc" describe --json >/dev/null
-if HOME="$smoke_home" "$bundle_dir/jsrc" definitely-not-a-command >/dev/null 2>&1; then
+smoke_extract="$work_dir/extracted"
+smoke_home="$work_dir/home"
+smoke_project="$work_dir/project"
+mkdir -p "$smoke_extract" "$smoke_home/lib" "$smoke_project/src/main/java/example"
+tar -xzf "$archive_path" -C "$smoke_extract"
+cp "$smoke_extract/$bundle_name/lib/"* "$smoke_home/lib/"
+
+cat > "$smoke_project/src/main/java/example/Hello.java" <<'JAVA'
+package example;
+
+public final class Hello {
+    public String message() {
+        return "hello";
+    }
+}
+JAVA
+
+mv "$native_lib_dir" "$work_dir/build-libs"
+library_moved=true
+smoke_binary="$smoke_extract/$bundle_name/jsrc"
+
+HOME="$smoke_home" "$smoke_binary" -d "$smoke_project" index >/dev/null
+overview_output="$(HOME="$smoke_home" "$smoke_binary" -d "$smoke_project" overview --json)"
+grep -Fq '"totalFiles"' <<<"$overview_output"
+read_output="$(HOME="$smoke_home" "$smoke_binary" -d "$smoke_project" read Hello --json)"
+grep -Fq 'Hello' <<<"$read_output"
+
+if HOME="$smoke_home" "$smoke_binary" definitely-not-a-command >/dev/null 2>&1; then
   echo "Error: invalid command unexpectedly succeeded." >&2
   exit 1
 fi
 
-tar -C "$dist_dir" -czf "$archive_path" "$bundle_name"
+mv "$work_dir/build-libs" "$native_lib_dir"
+library_moved=false
+
 echo "Created $archive_path"

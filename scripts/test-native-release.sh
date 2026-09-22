@@ -22,6 +22,14 @@ expect_contains() {
   fi
 }
 
+expect_not_contains() {
+  local path="$1"
+  local text="$2"
+  if [[ -f "$project_dir/$path" ]] && grep -Fq -- "$text" "$project_dir/$path"; then
+    fail "$path unexpectedly contains: $text"
+  fi
+}
+
 expect_file "scripts/build-native-unix.sh"
 expect_file "scripts/build-native-windows.ps1"
 
@@ -29,6 +37,14 @@ expect_contains "scripts/build-native-windows.ps1" "/DEF:"
 expect_contains "scripts/build-native-windows.ps1" "Functional smoke index failed."
 expect_contains "scripts/build-native-windows.ps1" "Negative smoke test unexpectedly succeeded."
 expect_contains "scripts/build-native-windows.ps1" "vswhere.exe"
+expect_contains "scripts/build-native-windows.ps1" "ts_wasm_store_new"
+expect_contains "scripts/build-native-windows.ps1" "ts_wasm_store_load_language"
+expect_contains "scripts/build-native-windows.ps1" "ts_wasm_store_language_count"
+
+# shellcheck disable=SC2016
+expect_not_contains "scripts/build-native-unix.sh" 'cp "$smoke_extract/$bundle_name/lib/"* "$smoke_home/lib/"'
+# shellcheck disable=SC2016
+expect_not_contains "scripts/build-native-windows.ps1" 'Copy-Item (Join-Path $smokeExtract "$bundleName\lib\*.dll")'
 
 for build_script in scripts/build-native-unix.sh scripts/build-native-windows.ps1; do
   expect_contains "$build_script" "a467ea8502d95562171f97953a6dc5b2a8622609"
@@ -78,6 +94,8 @@ expect_contains ".github/workflows/release.yml" "windows-latest"
 expect_contains ".github/workflows/release.yml" "checksums.txt"
 expect_contains ".github/workflows/release.yml" "zlib1g-dev"
 expect_contains ".github/workflows/release.yml" "if: matrix.target == 'linux-x64'"
+expect_contains ".github/workflows/release.yml" "workflow_dispatch:"
+expect_contains ".github/workflows/release.yml" "if: startsWith(github.ref, 'refs/tags/v')"
 expect_contains "README.md" "zlib1g-dev"
 
 expect_contains "README.md" "### Linux x64"

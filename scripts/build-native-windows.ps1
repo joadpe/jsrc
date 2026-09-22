@@ -111,9 +111,15 @@ try {
     $coreLibrary = Join-Path $libraryPath "tree-sitter.dll"
 
     $apiContent = Get-Content $apiHeader -Raw
+    $unsupportedExports = @(
+        "ts_wasm_store_new",
+        "ts_wasm_store_load_language",
+        "ts_wasm_store_language_count"
+    )
     $symbols = @(
         [regex]::Matches($apiContent, '\b(ts_[A-Za-z0-9_]+)\s*\(') |
             ForEach-Object { $_.Groups[1].Value } |
+            Where-Object { $_ -notin $unsupportedExports } |
             Sort-Object -Unique
     )
     if ($symbols.Count -eq 0) {
@@ -169,8 +175,7 @@ try {
     Compress-Archive -Path $bundlePath -DestinationPath $archivePath
     Expand-Archive -Path $archivePath -DestinationPath $smokeExtract
 
-    New-Item -ItemType Directory -Force -Path (Join-Path $smokeHome "lib") | Out-Null
-    Copy-Item (Join-Path $smokeExtract "$bundleName\lib\*.dll") (Join-Path $smokeHome "lib")
+    New-Item -ItemType Directory -Force -Path $smokeHome | Out-Null
 
     $javaSourceDirectory = Join-Path $smokeProject "src\main\java\example"
     New-Item -ItemType Directory -Force -Path $javaSourceDirectory | Out-Null

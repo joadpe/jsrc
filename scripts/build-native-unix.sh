@@ -120,9 +120,8 @@ tar -C "$dist_dir" -czf "$archive_path" "$bundle_name"
 smoke_extract="$work_dir/extracted"
 smoke_home="$work_dir/home"
 smoke_project="$work_dir/project"
-mkdir -p "$smoke_extract" "$smoke_home/lib" "$smoke_project/src/main/java/example"
+mkdir -p "$smoke_extract" "$smoke_home" "$smoke_project/src/main/java/example"
 tar -xzf "$archive_path" -C "$smoke_extract"
-cp "$smoke_extract/$bundle_name/lib/"* "$smoke_home/lib/"
 
 cat > "$smoke_project/src/main/java/example/Hello.java" <<'JAVA'
 package example;

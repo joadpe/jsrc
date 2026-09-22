@@ -230,3 +230,5 @@ finally {
     }
     Remove-Item -Recurse -Force $workPath -ErrorAction SilentlyContinue
 }
+
+exit 0

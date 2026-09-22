@@ -15,37 +15,132 @@ All responses are compact JSON optimized for token efficiency.
 
 ## Installation
 
-### macOS / Linux (recommended)
+Native release bundles include the executable and the Tree-sitter libraries required at runtime. Verify downloads with `checksums.txt` from the same release.
+
+### Linux x64
 
 ```bash
-brew install jsrc
+curl -fsSL https://github.com/joadpe/jsrc/releases/latest/download/jsrc-linux-x64.tar.gz -o /tmp/jsrc.tar.gz
+tar -xzf /tmp/jsrc.tar.gz -C /tmp
+mkdir -p ~/.local/bin ~/lib
+install /tmp/jsrc-linux-x64/jsrc ~/.local/bin/jsrc
+install /tmp/jsrc-linux-x64/lib/*.so ~/lib/
+export PATH="$HOME/.local/bin:$PATH"
+jsrc describe --json
 ```
 
-Or install the native binary directly:
+Persist `~/.local/bin` in `PATH` through your shell profile.
+
+### macOS
+
+Both Apple Silicon and Intel are published:
 
 ```bash
-curl -fsSL https://github.com/joadpe/jsrc/releases/latest/download/jsrc-$(uname -s | tr A-Z a-z)-$(uname -m) \
-  -o ~/bin/jsrc
-chmod +x ~/bin/jsrc
+case "$(uname -m)" in
+  arm64) asset="jsrc-macos-arm64" ;;
+  x86_64) asset="jsrc-macos-x64" ;;
+  *) echo "Unsupported architecture"; exit 1 ;;
+esac
+
+curl -fsSL "https://github.com/joadpe/jsrc/releases/latest/download/$asset.tar.gz" -o /tmp/jsrc.tar.gz
+tar -xzf /tmp/jsrc.tar.gz -C /tmp
+mkdir -p ~/.local/bin ~/lib
+install "/tmp/$asset/jsrc" ~/.local/bin/jsrc
+install "/tmp/$asset/lib/"*.dylib ~/lib/
+export PATH="$HOME/.local/bin:$PATH"
+jsrc describe --json
 ```
 
-### From source
+Persist `~/.local/bin` in `PATH` through your shell profile.
+
+### Windows x64
+
+Run in PowerShell:
+
+```powershell
+$archive = "$env:TEMP\jsrc-windows-x64.zip"
+$extract = "$env:TEMP\jsrc-install"
+$bin = "$env:LOCALAPPDATA\jsrc\bin"
+$lib = "$env:USERPROFILE\lib"
+
+Invoke-WebRequest "https://github.com/joadpe/jsrc/releases/latest/download/jsrc-windows-x64.zip" -OutFile $archive
+Remove-Item $extract -Recurse -Force -ErrorAction SilentlyContinue
+Expand-Archive $archive -DestinationPath $extract
+New-Item -ItemType Directory -Force -Path $bin, $lib | Out-Null
+Copy-Item "$extract\jsrc-windows-x64\jsrc.exe" "$bin\jsrc.exe"
+Copy-Item "$extract\jsrc-windows-x64\lib\*.dll" $lib
+
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (($userPath -split ";") -notcontains $bin) {
+    [Environment]::SetEnvironmentVariable("Path", "$userPath;$bin", "User")
+}
+$env:Path += ";$bin"
+jsrc describe --json
+```
+
+## Build native binaries from source
+
+All platforms require Git, Maven, GraalVM Community 25+, and the repository:
 
 ```bash
 git clone https://github.com/joadpe/jsrc.git
 cd jsrc
-mvn clean package -DskipTests
-java -jar target/jsrc.jar [command]
+mvn -B -DskipTests package
 ```
 
-### Native binary (fastest)
+The build scripts compile pinned Tree-sitter libraries, build the native image, run a positive smoke test, verify that an invalid command fails, and create the distribution archive.
 
-Requires GraalVM CE 25+:
+### Linux
+
+Install a C compiler first (for Debian/Ubuntu: `sudo apt install build-essential zlib1g-dev`), then run:
 
 ```bash
-sdk install java 25.0.2-graalce
-mvn clean package -DskipTests
-native-image -jar target/jsrc.jar -o target/jsrc
+scripts/build-native-unix.sh linux-x64
+```
+
+Output: `dist/jsrc-linux-x64.tar.gz`.
+
+### macOS from source
+
+Install Xcode Command Line Tools with `xcode-select --install`, then run the command matching the machine:
+
+```bash
+scripts/build-native-unix.sh macos-arm64  # Apple Silicon
+scripts/build-native-unix.sh macos-x64    # Intel
+```
+
+Output: `dist/jsrc-macos-arm64.tar.gz` or `dist/jsrc-macos-x64.tar.gz`.
+
+### Windows from source
+
+Install:
+
+- Visual Studio 2022 Build Tools with **Desktop development with C++**
+- Git
+- Maven
+- GraalVM Community 25+, with `JAVA_HOME` and `native-image.cmd` in `PATH`
+
+The Windows build is implemented by `scripts/build-native-windows.ps1`.
+
+Open **Developer PowerShell for VS 2022** and run:
+
+```powershell
+git clone https://github.com/joadpe/jsrc.git
+cd jsrc
+mvn -B -DskipTests package
+.\scripts\build-native-windows.ps1
+```
+
+Output: `dist\jsrc-windows-x64.zip`.
+
+### Run the JAR
+
+The JAR requires Java 22+ and the Tree-sitter native libraries from the matching bundle:
+
+```bash
+java --enable-native-access=ALL-UNNAMED \
+  -Djava.library.path="$HOME/lib" \
+  -jar target/jsrc.jar describe --json
 ```
 
 ## Quick Start

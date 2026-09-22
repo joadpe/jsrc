@@ -25,8 +25,8 @@ echo ""
 if command -v jsrc &>/dev/null; then
     echo "jsrc is already installed: $(which jsrc)"
     echo "Testing current installation..."
-    if jsrc --describe --json &>/dev/null; then
-        echo "✓ jsrc is working. Use 'jsrc --describe --json' to see commands."
+    if jsrc describe --json &>/dev/null; then
+        echo "✓ jsrc is working. Use 'jsrc describe --json' to see commands."
         read -p "Reinstall/update anyway? [y/N] " -n 1 -r
         echo ""
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -48,14 +48,14 @@ if [[ "$OS" != "Linux" && "$OS" != "Darwin" ]]; then
     exit 1
 fi
 
-# ---- Map to binary name ----
-get_native_binary_name() {
+# ---- Map to native bundle name ----
+get_native_bundle_name() {
     if [[ "$OS" == "Linux" && "$ARCH" == "x86_64" ]]; then
-        echo "jsrc-linux-x64"
+        echo "jsrc-linux-x64.tar.gz"
     elif [[ "$OS" == "Darwin" && "$ARCH" == "arm64" ]]; then
-        echo "jsrc-macos-arm64"
+        echo "jsrc-macos-arm64.tar.gz"
     elif [[ "$OS" == "Darwin" && "$ARCH" == "x86_64" ]]; then
-        echo "jsrc-macos-x64"
+        echo "jsrc-macos-x64.tar.gz"
     else
         echo ""
     fi
@@ -93,7 +93,7 @@ ensure_native_libs() {
         TMPDIR=$(mktemp -d)
         git clone --depth 1 https://github.com/tree-sitter/tree-sitter.git "$TMPDIR/tree-sitter" 2>/dev/null
         cd "$TMPDIR/tree-sitter"
-        make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) 2>/dev/null
+        make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" 2>/dev/null
         cp "libtree-sitter.$LIB_EXT" "$LIB_DIR/" 2>/dev/null || \
             cp libtree-sitter.so "$LIB_DIR/" 2>/dev/null || \
             cp libtree-sitter.dylib "$LIB_DIR/" 2>/dev/null
@@ -121,55 +121,61 @@ ensure_native_libs() {
     fi
 }
 
-# ---- Try native binary installation ----
+# ---- Try native bundle installation ----
 try_native_install() {
-    local BINARY_NAME
-    BINARY_NAME=$(get_native_binary_name)
+    local BUNDLE_NAME
+    BUNDLE_NAME=$(get_native_bundle_name)
 
-    if [[ -z "$BINARY_NAME" ]]; then
-        echo "No native binary available for $OS $ARCH"
+    if [[ -z "$BUNDLE_NAME" ]]; then
+        echo "No native bundle available for $OS $ARCH"
         return 1
     fi
 
     echo ""
-    echo "Checking for pre-built native binary ($BINARY_NAME)..."
+    echo "Checking for pre-built native bundle ($BUNDLE_NAME)..."
 
-    # Get latest release URL
     local RELEASE_URL
     RELEASE_URL=$(curl -sfL "https://api.github.com/repos/$GITHUB_REPO/releases/latest" \
-        | grep "browser_download_url.*$BINARY_NAME" \
+        | grep "browser_download_url.*$BUNDLE_NAME" \
         | head -1 \
         | cut -d '"' -f 4) || true
 
     if [[ -z "$RELEASE_URL" ]]; then
-        echo "No native binary found in latest release"
+        echo "No native bundle found in latest release"
         return 1
     fi
 
-    echo "Downloading $BINARY_NAME..."
-    mkdir -p "$BIN_DIR"
-    if curl -sfL "$RELEASE_URL" -o "$BIN_DIR/jsrc"; then
-        chmod +x "$BIN_DIR/jsrc"
-        echo "✓ Native binary downloaded"
-    else
+    local TEMP_DIR
+    TEMP_DIR=$(mktemp -d)
+    if ! curl -sfL "$RELEASE_URL" -o "$TEMP_DIR/$BUNDLE_NAME"; then
         echo "Download failed"
+        rm -rf "$TEMP_DIR"
         return 1
     fi
 
-    # Build native Tree-sitter libs (still needed at runtime)
-    ensure_native_libs
+    if ! tar -xzf "$TEMP_DIR/$BUNDLE_NAME" -C "$TEMP_DIR"; then
+        echo "Extraction failed"
+        rm -rf "$TEMP_DIR"
+        return 1
+    fi
 
-    # Verify
+    local BUNDLE_DIR="$TEMP_DIR/${BUNDLE_NAME%.tar.gz}"
+    mkdir -p "$BIN_DIR" "$LIB_DIR"
+    cp "$BUNDLE_DIR/jsrc" "$BIN_DIR/jsrc"
+    cp "$BUNDLE_DIR/lib/"* "$LIB_DIR/"
+    chmod +x "$BIN_DIR/jsrc"
+    rm -rf "$TEMP_DIR"
+
     echo ""
     echo "Verifying native binary..."
-    if LD_LIBRARY_PATH="$LIB_DIR" DYLD_LIBRARY_PATH="$LIB_DIR" "$BIN_DIR/jsrc" --describe --json &>/dev/null; then
-        echo "✓ jsrc native binary is working!"
+    if "$BIN_DIR/jsrc" describe --json &>/dev/null; then
+        echo "jsrc native binary is working!"
         return 0
-    else
-        echo "⚠ Native binary verification failed, falling back to JAR build"
-        rm -f "$BIN_DIR/jsrc"
-        return 1
     fi
+
+    echo "Native binary verification failed, falling back to JAR build"
+    rm -f "$BIN_DIR/jsrc"
+    return 1
 }
 
 # ---- JAR installation (fallback) ----
@@ -203,6 +209,7 @@ install_jar() {
         if [[ "$OS" == "Darwin" && "${BASH_VERSINFO[0]}" -lt 4 ]]; then
             zsh -c "source \"$HOME/.sdkman/bin/sdkman-init.sh\" && sdk $*" || true
         else
+            # shellcheck source=/dev/null
             source "$HOME/.sdkman/bin/sdkman-init.sh" 2>/dev/null || true
             sdk "$@" || true
         fi
@@ -356,18 +363,18 @@ fi
 
 # Verify
 echo "Verifying..."
-if "$BIN_DIR/jsrc" --describe --json &>/dev/null; then
+if "$BIN_DIR/jsrc" describe --json &>/dev/null; then
     echo "✓ jsrc is working!"
 else
     echo "⚠ jsrc installed but verification failed."
-    echo "  Try: jsrc --describe --json"
+    echo "  Try: jsrc describe --json"
 fi
 
 echo ""
 echo "Quick start:"
 echo ""
-echo "  jsrc --describe --json          # list all commands"
+echo "  jsrc describe --json          # list all commands"
 echo "  cd /path/to/java/project"
-echo "  jsrc --index                    # index the codebase (one-time)"
-echo "  jsrc --overview --json          # explore"
+echo "  jsrc index                    # index the codebase (one-time)"
+echo "  jsrc overview --json          # explore"
 echo ""

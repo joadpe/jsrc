@@ -1,0 +1,5 @@
+package corpus.java21;
+
+public interface Validator {
+    void validate(String value);
+}

@@ -1,0 +1,7 @@
+package corpus.java11;
+
+public class StringRepository implements Repository<String> {
+    public String lookup(String id) {
+        return find(id);
+    }
+}

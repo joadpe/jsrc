@@ -1,0 +1,5 @@
+package corpus.java21;
+
+public interface Mapper {
+    String map(String value);
+}

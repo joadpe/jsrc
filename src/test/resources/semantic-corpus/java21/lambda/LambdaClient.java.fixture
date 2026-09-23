@@ -1,0 +1,9 @@
+package corpus.java21;
+
+import java.util.List;
+
+public class LambdaClient {
+    public void run(List<String> values, Validator validator) {
+        values.forEach(value -> validator.validate(value));
+    }
+}

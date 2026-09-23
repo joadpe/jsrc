@@ -1,0 +1,13 @@
+package corpus.java17;
+
+public class Outer {
+    public static class Inner {
+        public String value() {
+            return "value";
+        }
+    }
+
+    public String call(Inner inner) {
+        return inner.value();
+    }
+}

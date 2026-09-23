@@ -1,0 +1,7 @@
+package corpus.java8;
+
+public class Client {
+    public void run(Service service, Order order) {
+        service.process(order);
+    }
+}

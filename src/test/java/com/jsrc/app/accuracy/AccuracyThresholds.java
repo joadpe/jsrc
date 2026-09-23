@@ -22,8 +22,9 @@ record AccuracyThresholds(
     }
 
     private static void validate(double value, String name) {
-        if (value < 0.0 || value > 1.0) {
-            throw new IllegalArgumentException(name + " must be between 0.0 and 1.0");
+        if (!Double.isFinite(value) || value < 0.0 || value > 1.0) {
+            throw new IllegalArgumentException(
+                    name + " must be finite and between 0.0 and 1.0");
         }
     }
 

@@ -49,6 +49,8 @@ class SemanticAccuracyCorpusTest {
         assertTrue(Collections.disjoint(
                         corpusCase.expectedEdges(), corpusCase.forbiddenEdges()),
                 () -> corpusCase.id() + " declares the same edge as expected and forbidden");
+        assertNoForbiddenEdges(
+                corpusCase.id(), observed.edges(), corpusCase.forbiddenEdges());
         assertAtLeast(corpusCase.id(), "symbol precision",
                 symbolMetrics.precision(), thresholds.symbolPrecision());
         assertAtLeast(corpusCase.id(), "symbol recall",
@@ -77,5 +79,13 @@ class SemanticAccuracyCorpusTest {
             String caseId, String metric, int actual, int maximum) {
         assertTrue(actual <= maximum,
                 () -> caseId + " " + metric + " expected <= " + maximum + " but was " + actual);
+    }
+
+    static void assertNoForbiddenEdges(
+            String caseId, Set<String> observedEdges, Set<String> forbiddenEdges) {
+        Set<String> observedForbiddenEdges = new java.util.HashSet<>(observedEdges);
+        observedForbiddenEdges.retainAll(forbiddenEdges);
+        assertTrue(observedForbiddenEdges.isEmpty(),
+                () -> caseId + " observed forbidden edges " + observedForbiddenEdges);
     }
 }

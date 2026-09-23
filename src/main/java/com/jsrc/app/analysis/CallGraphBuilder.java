@@ -71,17 +71,18 @@ public class CallGraphBuilder {
 
         Map<String, ClassContext> classContexts = new HashMap<>();
 
-        // Single pass: parse each file once, register classes and analyze calls together.
-        // Receiver types from files not yet processed resolve to "?" and are fixed up
-        // in the post-processing step (resolveUnknownCallees / resolveFieldMarkers).
         for (Path file : javaFiles) {
             CompilationUnit cu = parseFile(file);
             if (cu == null) continue;
             registerClasses(cu, file, classContexts);
+        }
+        for (Path file : javaFiles) {
+            CompilationUnit cu = parseFile(file);
+            if (cu == null) continue;
             analyzeMethodCalls(cu, file, classContexts);
-            // cu goes out of scope → GC can reclaim
         }
 
+        resolveUnknownCallees(semanticMetadata(classContexts.values()));
         canonicalizeRegisteredEdges();
 
         logger.info("Call graph built: {} methods, {} call edges",
@@ -162,40 +163,36 @@ public class CallGraphBuilder {
      * (because getIdiomaDefecto() was resolved in pass 1 and returns IdiomaDefecto).
      */
     private void resolveUnknownCallees(List<com.jsrc.app.index.IndexEntry> entries) {
-        // Build class name → qualified name map (for all indexed classes)
+        resolveUnknownCallees(semanticMetadata(entries));
+    }
+
+    private void resolveUnknownCallees(SemanticMetadata metadata) {
+        resolveFieldMarkers(metadata.fieldTypes(), metadata.returnTypes());
+        if (metadata.returnTypes().isEmpty()) return;
+
+        for (int pass = 0; pass < 5; pass++) {
+            boolean changed = resolvePass(metadata.returnTypes(), metadata.qualifiedNames());
+            if (!changed) break;
+            logger.debug("Return type resolution pass {} completed", pass + 1);
+        }
+    }
+
+    private SemanticMetadata semanticMetadata(List<com.jsrc.app.index.IndexEntry> entries) {
         Map<String, Set<String>> simpleToQualified = new HashMap<>();
+        Map<String, String> fieldTypeMap = new HashMap<>();
+        Map<String, String> returnTypes = new HashMap<>();
         for (var entry : entries) {
             for (var ic : entry.classes()) {
                 simpleToQualified.computeIfAbsent(ic.name(), k -> new HashSet<>())
                         .add(ic.qualifiedName());
-            }
-        }
-
-        // Build field type map: "ClassName.fieldName" → field type (simple name)
-        Map<String, String> fieldTypeMap = new HashMap<>();
-        for (var entry : entries) {
-            for (var ic : entry.classes()) {
                 for (var f : ic.fields()) {
                     fieldTypeMap.put(ic.qualifiedName() + "." + f.name(), f.type());
                     fieldTypeMap.putIfAbsent(ic.name() + "." + f.name(), f.type());
                 }
-            }
-        }
-
-        // Resolve ?field: markers before return-type resolution
-        resolveFieldMarkers(fieldTypeMap);
-
-        // Build return type map: "ClassName.methodName" → resolved simple return type
-        Map<String, String> returnTypes = new HashMap<>();
-        for (var entry : entries) {
-            for (var ic : entry.classes()) {
                 for (var im : ic.methods()) {
                     if (im.returnType() != null && !im.returnType().isEmpty()
                             && !"void".equals(im.returnType())) {
-                        String rt = im.returnType();
-                        int genIdx = rt.indexOf('<');
-                        if (genIdx > 0) rt = rt.substring(0, genIdx);
-
+                        String rt = stripGenerics(im.returnType());
                         String resolved = resolveTypeViaImports(rt, ic.imports(), ic.packageName(), simpleToQualified);
                         returnTypes.put(ic.qualifiedName() + "." + im.name(), resolved);
                         returnTypes.putIfAbsent(ic.name() + "." + im.name(), resolved);
@@ -204,23 +201,43 @@ public class CallGraphBuilder {
             }
         }
 
-        if (returnTypes.isEmpty()) return;
+        return new SemanticMetadata(fieldTypeMap, returnTypes, simpleToQualified);
+    }
 
-        // Iterate until no more resolutions (handles chained calls)
-        for (int pass = 0; pass < 5; pass++) {
-            boolean changed = resolvePass(returnTypes, simpleToQualified);
-            if (!changed) break;
-            logger.debug("Return type resolution pass {} completed", pass + 1);
+    private SemanticMetadata semanticMetadata(Iterable<ClassContext> contexts) {
+        Map<String, Set<String>> simpleToQualified = new HashMap<>();
+        Map<String, ClassContext> uniqueContexts = new HashMap<>();
+        for (ClassContext context : contexts) {
+            if (context.qualifiedName == null) continue;
+            uniqueContexts.put(context.qualifiedName, context);
+            simpleToQualified.computeIfAbsent(context.simpleName, ignored -> new HashSet<>())
+                    .add(context.qualifiedName);
         }
+
+        Map<String, String> fieldTypeMap = new HashMap<>();
+        Map<String, String> returnTypes = new HashMap<>();
+        for (ClassContext context : uniqueContexts.values()) {
+            context.fieldTypes.forEach((name, type) -> {
+                fieldTypeMap.put(context.qualifiedName + "." + name, type);
+                fieldTypeMap.putIfAbsent(context.simpleName + "." + name, type);
+            });
+            context.returnTypes.forEach((name, type) -> {
+                String resolved = resolveTypeViaImports(stripGenerics(type), context.imports,
+                        context.packageName, simpleToQualified);
+                returnTypes.put(context.qualifiedName + "." + name, resolved);
+                returnTypes.putIfAbsent(context.simpleName + "." + name, resolved);
+            });
+        }
+
+        return new SemanticMetadata(fieldTypeMap, returnTypes, simpleToQualified);
     }
 
     /**
      * Resolves "?field:" and "?ret:" callee class markers in the call graph.
      * Delegates marker parsing to {@link com.jsrc.app.index.EdgeResolver#resolveMarker}.
      */
-    private void resolveFieldMarkers(Map<String, String> fieldTypeMap) {
-        Map<String, String> returnTypeMap = new HashMap<>();
-
+    private void resolveFieldMarkers(Map<String, String> fieldTypeMap,
+                                     Map<String, String> returnTypeMap) {
         for (int pass = 0; pass < 5; pass++) {
             boolean changed = false;
             Map<MethodReference, Set<MethodCall>> newCalleeIndex = new HashMap<>();
@@ -545,7 +562,15 @@ public class CallGraphBuilder {
         for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
             String qualifiedKey = buildQualifiedKey(cid);
             String className = cid.getNameAsString();
-            ClassContext ctx = new ClassContext(file);
+            String packageName = cu.getPackageDeclaration()
+                    .map(declaration -> declaration.getNameAsString())
+                    .orElse("");
+            List<String> imports = cu.getImports().stream()
+                    .map(declaration -> declaration.getNameAsString()
+                            + (declaration.isAsterisk() ? ".*" : ""))
+                    .toList();
+            ClassContext ctx = new ClassContext(
+                    file, qualifiedKey, className, packageName, imports);
 
             for (FieldDeclaration field : cid.getFields()) {
                 String fieldType = field.getCommonType().asString();
@@ -555,6 +580,7 @@ public class CallGraphBuilder {
             }
 
             for (MethodDeclaration md : cid.getMethods()) {
+                ctx.returnTypes.put(md.getNameAsString(), md.getTypeAsString());
                 MethodReference ref = new MethodReference(
                         qualifiedKey, md.getNameAsString(),
                         parameterTypes(md), file);
@@ -774,6 +800,9 @@ public class CallGraphBuilder {
             String fieldType = ownerCtx.fieldTypes.get(fieldName);
             if (fieldType != null) return stripGenerics(fieldType);
         }
+        if (objType.startsWith("?")) {
+            return "?field:" + objType + "." + fieldName;
+        }
         return null;
     }
 
@@ -796,10 +825,14 @@ public class CallGraphBuilder {
             return resolveFieldAccessType(fae, currentClass, localTypes, classCtx, allClasses);
         }
         if (expr instanceof MethodCallExpr mce) {
-            // For method().field.method() chains: resolve receiver, then lookup return type
-            // This requires return type info which we don't have in build() pass
-            // Return null — will be resolved in post-processing
-            return null;
+            if (mce.getScope().isEmpty()) {
+                return "?ret:" + currentClass + "." + mce.getNameAsString();
+            }
+            String scopeType = resolveExpressionType(
+                    mce.getScope().get(), currentClass, localTypes, classCtx, allClasses);
+            return scopeType == null
+                    ? null
+                    : "?ret:" + scopeType + "." + mce.getNameAsString();
         }
         return null;
     }
@@ -900,10 +933,31 @@ public class CallGraphBuilder {
 
     private static class ClassContext {
         final Path filePath;
+        final String qualifiedName;
+        final String simpleName;
+        final String packageName;
+        final List<String> imports;
         final Map<String, String> fieldTypes = new HashMap<>();
+        final Map<String, String> returnTypes = new HashMap<>();
 
         ClassContext(Path filePath) {
+            this(filePath, null, null, "", List.of());
+        }
+
+        ClassContext(Path filePath, String qualifiedName, String simpleName,
+                     String packageName, List<String> imports) {
             this.filePath = filePath;
+            this.qualifiedName = qualifiedName;
+            this.simpleName = simpleName;
+            this.packageName = packageName;
+            this.imports = List.copyOf(imports);
         }
     }
+
+    private record SemanticMetadata(
+            Map<String, String> fieldTypes,
+            Map<String, String> returnTypes,
+            Map<String, Set<String>> qualifiedNames) {
+    }
+
 }

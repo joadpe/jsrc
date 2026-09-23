@@ -181,6 +181,40 @@ class MethodTargetResolverTest {
         assertEquals(1, result.targets().size());
     }
 
+    @Test
+    @DisplayName("Metadata maps preserve homonymous classes by qualified name")
+    void metadataMapsPreserveHomonymousClassesByQualifiedName() throws Exception {
+        Path sales = writeFile("sales/Service.java", """
+                package sales;
+                public class Service {
+                    public void process(String value) {}
+                }
+                """);
+        Path support = writeFile("support/Service.java", """
+                package support;
+                public class Service {
+                    public void process(Integer value) {}
+                }
+                """);
+        var parser = new HybridJavaParser();
+        var index = new CodebaseIndex();
+        var files = List.of(sales, support);
+        index.build(parser, files, tempDir, List.of());
+        index.save(tempDir);
+        var indexed = com.jsrc.app.index.IndexedCodebase.tryLoad(tempDir, files);
+
+        var signatures = MethodTargetResolver.buildSignatureMap(indexed);
+        var classPackages = MethodTargetResolver.buildClassPackageMap(indexed);
+        var methodPackages = MethodTargetResolver.buildMethodPackageMap(indexed);
+
+        assertTrue(signatures.containsKey("sales.Service.process/1"));
+        assertTrue(signatures.containsKey("support.Service.process/1"));
+        assertEquals("sales", classPackages.get("sales.Service"));
+        assertEquals("support", classPackages.get("support.Service"));
+        assertEquals("sales", methodPackages.get("sales.Service.process"));
+        assertEquals("support", methodPackages.get("support.Service.process"));
+    }
+
     private Path writeFile(String name, String content) throws Exception {
         Path file = tempDir.resolve(name);
         Files.createDirectories(file.getParent());

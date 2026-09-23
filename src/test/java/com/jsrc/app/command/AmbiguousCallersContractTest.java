@@ -168,6 +168,56 @@ class AmbiguousCallersContractTest {
         assertEquals(Boolean.TRUE, chainJson.get("ambiguous"), "CallChain JSON should contain ambiguous:true");
     }
 
+    @Test
+    void ambiguityCandidatesPreservePackageAndFullSignature(@TempDir Path tempDir) throws Exception {
+        Path sales = tempDir.resolve("sales/Service.java");
+        Path support = tempDir.resolve("support/Service.java");
+        Files.createDirectories(sales.getParent());
+        Files.createDirectories(support.getParent());
+        Files.writeString(sales, """
+                package sales;
+                public class Service {
+                    public void process(String value) {}
+                }
+                """);
+        Files.writeString(support, """
+                package support;
+                public class Service {
+                    public void process(Integer value) {}
+                }
+                """);
+
+        var files = List.of(sales, support);
+        var parser = new com.jsrc.app.parser.HybridJavaParser();
+        var index = new com.jsrc.app.index.CodebaseIndex();
+        index.build(parser, files, tempDir, List.of());
+        index.save(tempDir);
+        var indexed = com.jsrc.app.index.IndexedCodebase.tryLoad(tempDir, files);
+        var output = new ByteArrayOutputStream();
+        var formatter = OutputFormatter.create(true, false, null, new PrintStream(output));
+        var ctx = new CommandContext(files, tempDir.toString(), null, formatter, indexed, parser);
+        var expected = List.of(
+                "sales.Service.process(String)",
+                "support.Service.process(Integer)");
+
+        new CallersCommand("Service.process").execute(ctx);
+        assertEquals(expected, candidates(output));
+
+        output.reset();
+        new CalleesCommand("Service.process").execute(ctx);
+        assertEquals(expected, candidates(output));
+
+        output.reset();
+        new CallChainCommand("Service.process", tempDir.resolve("chains").toString()).execute(ctx);
+        assertEquals(expected, candidates(output));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> candidates(ByteArrayOutputStream output) {
+        Map<String, Object> json = (Map<String, Object>) JsonReader.parse(output.toString());
+        return (List<String>) json.get("candidates");
+    }
+
     /**
      * Optional nit: SmellsCommand with ambiguous input returns ambiguous flag.
      * Tests explicit ambiguous handling in SmellsCommand.

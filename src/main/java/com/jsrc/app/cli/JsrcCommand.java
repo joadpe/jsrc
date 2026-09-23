@@ -29,7 +29,7 @@ import com.jsrc.app.parser.HybridJavaParser;
 @Command(
     name = "jsrc",
     description = "Java source code navigator for AI agents",
-    version = "jsrc 2.1.0",
+    versionProvider = JsrcVersionProvider.class,
     mixinStandardHelpOptions = true,
     subcommands = {
         CommandLine.HelpCommand.class,

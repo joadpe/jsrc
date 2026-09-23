@@ -32,6 +32,15 @@ expect_not_contains() {
 
 expect_file "scripts/build-native-unix.sh"
 expect_file "scripts/build-native-windows.ps1"
+expect_file "scripts/verify-release-version.sh"
+
+release_version="$(cd "$project_dir" && mvn help:evaluate -Dexpression=project.version -q -DforceStdout)"
+if ! "$project_dir/scripts/verify-release-version.sh" "v$release_version" >/dev/null; then
+  fail "release version gate rejected the Maven project version"
+fi
+if "$project_dir/scripts/verify-release-version.sh" "v0.0.0-invalid" >/dev/null 2>&1; then
+  fail "release version gate accepted a mismatched tag"
+fi
 
 expect_contains "scripts/build-native-windows.ps1" "/DEF:"
 expect_contains "scripts/build-native-windows.ps1" "Functional smoke index failed."
@@ -97,6 +106,7 @@ expect_contains ".github/workflows/release.yml" "zlib1g-dev"
 expect_contains ".github/workflows/release.yml" "if: matrix.target == 'linux-x64'"
 expect_contains ".github/workflows/release.yml" "workflow_dispatch:"
 expect_contains ".github/workflows/release.yml" "if: startsWith(github.ref, 'refs/tags/v')"
+expect_contains ".github/workflows/release.yml" "scripts/verify-release-version.sh"
 expect_contains "README.md" "zlib1g-dev"
 
 expect_contains "README.md" "### Linux x64"

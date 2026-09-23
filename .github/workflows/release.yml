@@ -20,6 +20,9 @@ jobs:
           distribution: 'temurin'
           java-version: '22'
           cache: 'maven'
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: scripts/verify-release-version.sh "${GITHUB_REF_NAME}"
       - name: Build fat JAR
         run: mvn -B -DskipTests package
       - name: Upload JAR artifact

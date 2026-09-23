@@ -29,13 +29,16 @@ class MethodTargetResolverTest {
     void setUp() throws Exception {
         // Build a codebase with overloads and multiple classes
         Path svc = writeFile("Service.java", """
+                package com.app;
                 public class Service {
                     public void process(String s) {}
+                    public void process(Integer n) {}
                     public void process(String s, int n) {}
                     public void handle() {}
                 }
                 """);
         Path ctrl = writeFile("Controller.java", """
+                package com.app;
                 public class Controller {
                     private Service svc = new Service();
                     public void process(String s) {}
@@ -59,8 +62,9 @@ class MethodTargetResolverTest {
         var result = MethodTargetResolver.resolve(ref, graph);
 
         assertTrue(result.isResolved());
-        // Service.process(1), Service.process(2), Controller.process(1)
-        assertTrue(result.targets().size() >= 3, "Should find all process methods: " + result.targets());
+        // Service.process(String), Service.process(Integer), Service.process(String,int),
+        // Controller.process(String)
+        assertTrue(result.targets().size() >= 4, "Should find all process methods: " + result.targets());
     }
 
     @Test
@@ -71,9 +75,10 @@ class MethodTargetResolverTest {
 
         assertTrue(result.isResolved());
         for (MethodReference t : result.targets()) {
-            assertEquals("Service", t.className(), "All targets should be in Service");
+            assertEquals("com.app.Service", t.className(), "All targets should be in Service");
         }
-        assertEquals(2, result.targets().size(), "Should find 2 overloads in Service");
+        assertEquals(3, result.targets().size(), "Should find 3 overloads in Service");
+        assertTrue(result.isAmbiguous(), "Incomplete overload query must be explicit ambiguity");
     }
 
     @Test
@@ -88,14 +93,60 @@ class MethodTargetResolverTest {
     }
 
     @Test
-    @DisplayName("Qualified name resolved to simple")
+    @DisplayName("Class.method(params) distinguishes overloads with equal arity")
+    void classMethodParamsWithEqualArity() {
+        var ref = MethodResolver.parse("Service.process(String)");
+        var result = MethodTargetResolver.resolve(ref, graph);
+
+        assertTrue(result.isResolved());
+        assertEquals(1, result.targets().size(), "Should resolve the String overload only");
+        assertEquals(List.of("String"), result.targets().iterator().next().parameterTypes());
+    }
+
+    @Test
+    @DisplayName("Qualified class name distinguishes homonymous classes")
+    void qualifiedClassNameDistinguishesHomonyms() throws Exception {
+        Path sales = writeFile("sales/Service.java", """
+                package sales;
+                public class Service {
+                    public void process(String value) {}
+                }
+                """);
+        Path support = writeFile("support/Service.java", """
+                package support;
+                public class Service {
+                    public void process(String value) {}
+                }
+                """);
+        var parser = new HybridJavaParser();
+        var index = new CodebaseIndex();
+        index.build(parser, List.of(sales, support), tempDir, List.of());
+        var homonymGraph = new CallGraphBuilder();
+        homonymGraph.loadFromIndex(index.getEntries());
+
+        var result = MethodTargetResolver.resolve(
+                MethodResolver.parse("sales.Service.process(String)"), homonymGraph);
+
+        assertTrue(result.isResolved());
+        assertEquals(1, result.targets().size());
+        assertEquals("sales.Service", result.targets().iterator().next().className());
+
+        var incomplete = MethodTargetResolver.resolve(
+                MethodResolver.parse("Service.process(String)"), homonymGraph);
+        assertEquals(2, incomplete.targets().size());
+        assertTrue(incomplete.isAmbiguous(),
+                "Simple class name must be ambiguous across homonymous classes");
+    }
+
+    @Test
+    @DisplayName("Qualified name resolves exactly")
     void qualifiedName() {
         var ref = MethodResolver.parse("com.app.Service.process");
         var result = MethodTargetResolver.resolve(ref, graph);
 
         assertTrue(result.isResolved());
         for (MethodReference t : result.targets()) {
-            assertEquals("Service", t.className());
+            assertEquals("com.app.Service", t.className());
         }
     }
 
@@ -132,6 +183,7 @@ class MethodTargetResolverTest {
 
     private Path writeFile(String name, String content) throws Exception {
         Path file = tempDir.resolve(name);
+        Files.createDirectories(file.getParent());
         Files.writeString(file, content);
         return file;
     }

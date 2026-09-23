@@ -69,33 +69,43 @@ public final class MethodTargetResolver {
         Set<MethodReference> filtered = allTargets;
         if (ref.hasClassName()) {
             filtered = allTargets.stream()
-                    .filter(t -> t.className().equals(ref.className()))
+                    .filter(t -> classMatches(t.className(), ref.className()))
                     .collect(Collectors.toSet());
         }
 
-        // Filter by param count if specified
+        // Filter by normalized parameter types when specified
         if (ref.hasParamTypes()) {
-            int expectedCount = ref.paramTypes().size();
             filtered = filtered.stream()
-                    .filter(t -> t.parameterCount() < 0 || t.parameterCount() == expectedCount)
+                    .filter(t -> parametersMatch(t, ref.paramTypes()))
                     .collect(Collectors.toSet());
         }
 
         // Check ambiguity: multiple targets and no params specified to disambiguate
-        boolean ambiguous = false;
-        if (!ref.hasParamTypes() && filtered.size() > 1) {
-            // Ambiguous if: multiple classes, or multiple overloads in same class
-            Set<String> classes = filtered.stream()
-                    .map(MethodReference::className)
-                    .collect(Collectors.toSet());
-            Set<Integer> paramCounts = filtered.stream()
-                    .map(MethodReference::parameterCount)
-                    .filter(c -> c >= 0)
-                    .collect(Collectors.toSet());
-            ambiguous = classes.size() > 1 || paramCounts.size() > 1;
-        }
+        boolean ambiguous = filtered.size() > 1;
 
         return new Result(filtered, ambiguous);
+    }
+
+    private static boolean classMatches(String actual, String expected) {
+        return actual.equals(expected)
+                || (!expected.contains(".") && actual.endsWith("." + expected));
+    }
+
+    private static boolean parametersMatch(MethodReference target, List<String> expected) {
+        if (!target.hasKnownParameterTypes()) {
+            return target.parameterCount() < 0 || target.parameterCount() == expected.size();
+        }
+        if (target.parameterTypes().size() != expected.size()) return false;
+        for (int i = 0; i < expected.size(); i++) {
+            String actualType = target.parameterTypes().get(i);
+            String expectedType = expected.get(i);
+            if (!actualType.equals(expectedType)
+                    && !actualType.endsWith("." + expectedType)
+                    && !expectedType.endsWith("." + actualType)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -167,6 +177,9 @@ public final class MethodTargetResolver {
 
     private static String resolveParams(com.jsrc.app.parser.model.MethodReference ref,
                                          java.util.Map<String, String> signatures) {
+        if (ref.hasKnownParameterTypes()) {
+            return "(" + String.join(", ", ref.parameterTypes()) + ")";
+        }
         String key = ref.className() + "." + ref.methodName();
         String params = null;
         if (ref.parameterCount() >= 0) {

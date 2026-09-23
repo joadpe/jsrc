@@ -82,7 +82,8 @@ public class DeepAnalyzer {
         if (resolvedClass != null) {
             Set<MethodReference> refs = graph.findMethodsByName(calleeMethod);
             for (MethodReference ref : refs) {
-                if (ref.className().equals(resolvedClass) || ref.className().equals(ci.name())) {
+                if (classMatches(ref.className(), resolvedClass)
+                        || classMatches(ref.className(), ci.name())) {
                     for (var call : graph.getCalleesOf(ref)) {
                         String nextCall = call.callee().className() + "." + call.callee().methodName();
                         var deepResults = findDeepPatterns(nextCall, ci, ctx, currentClassSource,
@@ -101,5 +102,10 @@ public class DeepAnalyzer {
         }
 
         return results;
+    }
+
+    private static boolean classMatches(String canonicalClassName, String requestedClassName) {
+        return canonicalClassName.equals(requestedClassName)
+                || canonicalClassName.endsWith("." + requestedClassName);
     }
 }

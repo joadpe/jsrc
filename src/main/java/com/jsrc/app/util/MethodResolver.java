@@ -59,12 +59,7 @@ public final class MethodResolver {
             int parenEnd = methodPart.lastIndexOf(')');
             if (parenEnd > parenStart + 1) {
                 String paramsStr = methodPart.substring(parenStart + 1, parenEnd);
-                // Strip generics: HashMap<String, Integer> → HashMap
-                paramsStr = stripGenerics(paramsStr);
-                paramTypes = Arrays.stream(paramsStr.split(","))
-                        .map(String::trim)
-                        .filter(s -> !s.isEmpty())
-                        .toList();
+                paramTypes = SignatureUtils.parseParameterTypes(paramsStr);
             } else {
                 // process() → explicitly 0 params
                 paramTypes = List.of();
@@ -77,13 +72,6 @@ public final class MethodResolver {
         if (lastDot >= 0) {
             className = methodPart.substring(0, lastDot);
             methodPart = methodPart.substring(lastDot + 1);
-
-            // If qualified name (com.foo.Bar), use simple name only
-            int classLastDot = className.lastIndexOf('.');
-            if (classLastDot >= 0 && classLastDot + 1 < className.length()
-                    && Character.isUpperCase(className.charAt(classLastDot + 1))) {
-                className = className.substring(classLastDot + 1);
-            }
         }
 
         return new MethodRef(className, methodPart, paramTypes);

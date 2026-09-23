@@ -34,7 +34,7 @@ final class IndexedSemanticObserver {
                     String identity = methodIdentity(indexedClass, method);
                     symbols.add(identity);
                     methods.computeIfAbsent(
-                                    new MethodKey(indexedClass.name(), method.name(), method.paramCount()),
+                                    new MethodKey(indexedClass.qualifiedName(), method.name(), method.paramCount()),
                                     ignored -> new ArrayList<>())
                             .add(identity);
                 }
@@ -67,16 +67,27 @@ final class IndexedSemanticObserver {
             String methodName,
             int parameterCount) {
         if (parameterCount >= 0) {
-            return unique(methods.getOrDefault(
-                    new MethodKey(className, methodName, parameterCount), List.of()));
+            List<String> candidates = methods.entrySet().stream()
+                    .filter(entry -> classMatches(entry.getKey().className(), className))
+                    .filter(entry -> entry.getKey().methodName().equals(methodName))
+                    .filter(entry -> entry.getKey().parameterCount() == parameterCount)
+                    .flatMap(entry -> entry.getValue().stream())
+                    .distinct()
+                    .toList();
+            return unique(candidates);
         }
         List<String> candidates = methods.entrySet().stream()
-                .filter(entry -> entry.getKey().className().equals(className))
+                .filter(entry -> classMatches(entry.getKey().className(), className))
                 .filter(entry -> entry.getKey().methodName().equals(methodName))
                 .flatMap(entry -> entry.getValue().stream())
                 .distinct()
                 .toList();
         return unique(candidates);
+    }
+
+    private static boolean classMatches(String canonicalClassName, String requestedClassName) {
+        return canonicalClassName.equals(requestedClassName)
+                || canonicalClassName.endsWith("." + requestedClassName);
     }
 
     private static Optional<String> unique(List<String> candidates) {

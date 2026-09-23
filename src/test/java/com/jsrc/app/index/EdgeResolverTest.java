@@ -24,6 +24,7 @@ class EdgeResolverTest {
     @DisplayName("extractCallEdges resolves field type from NameExpr scope")
     void extractCallEdgesResolvesFieldType() throws IOException {
         Path file = writeFile("WithField.java", """
+                package com.example;
                 public class WithField {
                     private Service svc = new Service();
                     public void run() { svc.process(); }
@@ -34,7 +35,9 @@ class EdgeResolverTest {
         List<CallEdge> edges = resolver.extractCallEdges(file, new JavaParser());
 
         assertTrue(edges.stream().anyMatch(e ->
-                e.calleeMethod().equals("process") && e.calleeClass().equals("Service")),
+                e.callerClass().equals("com.example.WithField")
+                        && e.calleeMethod().equals("process")
+                        && e.calleeClass().equals("Service")),
                 "Should resolve field type 'svc' to 'Service'");
     }
 
@@ -91,8 +94,8 @@ class EdgeResolverTest {
                 new IndexEntry("Processor.java", "h2", 0,
                         List.of(new IndexedClass("Processor", "com.app", 1, 10,
                                 false, false, List.of(), List.of(), List.of(), List.of(), List.of(), List.of())),
-                        List.of(new CallEdge("Processor", "process", 1,
-                                "?field:Order.customer", "getAddress", 3, 0)))
+                        List.of(new CallEdge("com.app.Processor", "process", 1,
+                                "?field:com.app.Order.customer", "getAddress", 3, 0)))
         ));
 
         var resolver = new EdgeResolver();
@@ -101,7 +104,7 @@ class EdgeResolverTest {
         boolean resolved = entries.stream()
                 .flatMap(e -> e.callEdges().stream())
                 .anyMatch(e -> e.calleeClass().equals("Customer") && e.calleeMethod().equals("getAddress"));
-        assertTrue(resolved, "?field:Order.customer should resolve to Customer");
+        assertTrue(resolved, "FQCN field marker should resolve to Customer");
     }
 
     @Test
@@ -109,24 +112,25 @@ class EdgeResolverTest {
     void resolveMarkersResolvesNestedChains() {
         var entries = new java.util.ArrayList<>(List.of(
                 new IndexEntry("Factory.java", "h1", 0,
-                        List.of(new IndexedClass("Factory", "", 1, 5,
+                        List.of(new IndexedClass("Factory", "com.app", 1, 5,
                                 false, false, List.of(), List.of(),
                                 List.of(), List.of(), List.of(),
                                 List.of(new IndexedField("service", "Service")))),
                         List.of()),
                 new IndexEntry("Service.java", "h2", 0,
-                        List.of(new IndexedClass("Service", "", 1, 5,
+                        List.of(new IndexedClass("Service", "com.app", 1, 5,
                                 false, false, List.of(), List.of(),
                                 List.of(), List.of(), List.of(),
                                 List.of(new IndexedField("buffer", "StringBuilder")))),
                         List.of()),
                 new IndexEntry("Caller.java", "h3", 0,
-                        List.of(new IndexedClass("Caller", "", 1, 5,
+                        List.of(new IndexedClass("Caller", "com.app", 1, 5,
                                 false, false, List.of(), List.of(),
                                 List.of(new IndexedMethod("getFactory", "Factory getFactory()", 2, 2, "Factory", List.of())),
                                 List.of(), List.of(), List.of())),
-                        List.of(new CallEdge("Caller", "run", 0,
-                                "?field:?field:?ret:Caller.getFactory.service.buffer", "toString", 4, 0)))
+                        List.of(new CallEdge("com.app.Caller", "run", 0,
+                                "?field:?field:?ret:com.app.Caller.getFactory.service.buffer",
+                                "toString", 4, 0)))
         ));
 
         var resolver = new EdgeResolver();

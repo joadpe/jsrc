@@ -141,7 +141,7 @@ class ReturnTypeResolutionTest {
                 .collect(Collectors.toSet());
 
         // Should resolve to Explotacion (modelo), not Explotacion (DTO)
-        assertTrue(calleeDescriptions.contains("Explotacion.getIdiomaDefecto"),
+        assertTrue(calleeDescriptions.contains("com.modelos.Explotacion.getIdiomaDefecto"),
                 "Should resolve getIdiomaDefecto via modelo Explotacion. Got: " + calleeDescriptions);
 
         // Should NOT have ?.getIdiomaDefecto

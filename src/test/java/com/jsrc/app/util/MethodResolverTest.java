@@ -115,28 +115,28 @@ class MethodResolverTest {
     // ---- stripGenerics ----
 
     @Test
-    @DisplayName("Parse strips simple generics from params")
+    @DisplayName("Parse preserves and normalizes simple generics in params")
     void stripSimpleGenerics() {
         var ref = MethodResolver.parse("foo(HashMap<String,Integer>,List<Foo>)");
         assertTrue(ref.hasParamTypes());
-        assertEquals(List.of("HashMap", "List"), ref.paramTypes());
+        assertEquals(List.of("HashMap<String,Integer>", "List<Foo>"), ref.paramTypes());
     }
 
     @Test
-    @DisplayName("Parse strips nested generics from params")
+    @DisplayName("Parse preserves and normalizes nested generics in params")
     void stripNestedGenerics() {
         var ref = MethodResolver.parse("foo(Map<String,List<Integer>>,Set<Map<K,V>>)");
         assertTrue(ref.hasParamTypes());
-        assertEquals(List.of("Map", "Set"), ref.paramTypes());
+        assertEquals(List.of("Map<String,List<Integer>>", "Set<Map<K,V>>"), ref.paramTypes());
     }
 
     // ---- qualified names ----
 
     @Test
-    @DisplayName("Parse extracts simple name from qualified class name")
+    @DisplayName("Parse preserves qualified class name")
     void qualifiedClassName() {
         var ref = MethodResolver.parse("com.foo.bar.MyService.process");
-        assertEquals("MyService", ref.className());
+        assertEquals("com.foo.bar.MyService", ref.className());
         assertEquals("process", ref.methodName());
     }
 
@@ -144,7 +144,7 @@ class MethodResolverTest {
     @DisplayName("Parse qualified name with params")
     void qualifiedClassNameWithParams() {
         var ref = MethodResolver.parse("com.foo.MyService.process(String,int)");
-        assertEquals("MyService", ref.className());
+        assertEquals("com.foo.MyService", ref.className());
         assertEquals("process", ref.methodName());
         assertEquals(List.of("String", "int"), ref.paramTypes());
     }
@@ -153,9 +153,9 @@ class MethodResolverTest {
     @DisplayName("Parse qualified name with nested generics in params")
     void qualifiedNameWithGenerics() {
         var ref = MethodResolver.parse("com.foo.Svc.run(HashMap<String,List<Integer>>,Double)");
-        assertEquals("Svc", ref.className());
+        assertEquals("com.foo.Svc", ref.className());
         assertEquals("run", ref.methodName());
-        assertEquals(List.of("HashMap", "Double"), ref.paramTypes());
+        assertEquals(List.of("HashMap<String,List<Integer>>", "Double"), ref.paramTypes());
     }
 
     private MethodInfo method(String name, List<ParameterInfo> params) {

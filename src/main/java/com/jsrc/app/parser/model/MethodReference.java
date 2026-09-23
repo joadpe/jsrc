@@ -1,6 +1,7 @@
 package com.jsrc.app.parser.model;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -14,15 +15,42 @@ import java.util.Objects;
 public record MethodReference(
         String className,
         String methodName,
+        List<String> parameterTypes,
         int parameterCount,
         Path filePath
 ) {
+
+    public MethodReference {
+        className = Objects.requireNonNull(className, "className");
+        methodName = Objects.requireNonNull(methodName, "methodName");
+        parameterTypes = List.copyOf(parameterTypes);
+    }
+
+    /**
+     * Backward-compatible reference when only arity is known.
+     */
+    public MethodReference(String className, String methodName, int parameterCount, Path filePath) {
+        this(className, methodName, unknownParameterTypes(parameterCount), parameterCount, filePath);
+    }
+
+    /**
+     * Creates a canonical reference with normalized parameter types.
+     */
+    public MethodReference(String className, String methodName,
+                           List<String> parameterTypes, Path filePath) {
+        this(className, methodName, parameterTypes, parameterTypes.size(), filePath);
+    }
 
     /**
      * Creates a reference for a method whose declaring class could not be resolved.
      */
     public static MethodReference unresolved(String methodName, int parameterCount) {
         return new MethodReference("?", methodName, parameterCount, null);
+    }
+
+    public boolean hasKnownParameterTypes() {
+        return parameterCount == parameterTypes.size()
+                && parameterTypes.stream().noneMatch("?"::equals);
     }
 
     /**
@@ -34,6 +62,9 @@ public record MethodReference(
         boolean classMatch = "?".equals(className) || "?".equals(other.className)
                 || className.equals(other.className);
         if (!classMatch) return false;
+        if (hasKnownParameterTypes() && other.hasKnownParameterTypes()) {
+            return parameterTypes.equals(other.parameterTypes);
+        }
         if (parameterCount >= 0 && other.parameterCount >= 0) {
             return parameterCount == other.parameterCount;
         }
@@ -48,6 +79,9 @@ public record MethodReference(
      * When parameter count is unknown (-1), shows "ClassName.methodName()".
      */
     public String displayName() {
+        if (hasKnownParameterTypes()) {
+            return className + "." + methodName + "(" + String.join(", ", parameterTypes) + ")";
+        }
         if (parameterCount > 1) {
             return className + "." + methodName + "(" + parameterCount + " params)";
         }
@@ -63,16 +97,23 @@ public record MethodReference(
         if (!(o instanceof MethodReference that)) return false;
         return className.equals(that.className)
                 && methodName.equals(that.methodName)
+                && parameterTypes.equals(that.parameterTypes)
                 && parameterCount == that.parameterCount;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(className, methodName, parameterCount);
+        return Objects.hash(className, methodName, parameterTypes, parameterCount);
     }
 
     @Override
     public String toString() {
         return displayName();
+    }
+
+    private static List<String> unknownParameterTypes(int parameterCount) {
+        if (parameterCount < 0) return List.of("?");
+        if (parameterCount == 0) return List.of();
+        return java.util.Collections.nCopies(parameterCount, "?");
     }
 }

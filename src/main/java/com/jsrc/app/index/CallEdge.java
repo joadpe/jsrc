@@ -1,5 +1,7 @@
 package com.jsrc.app.index;
 
+import java.util.List;
+
 /**
  * Represents a method call edge in the call graph index.
  *
@@ -12,12 +14,36 @@ package com.jsrc.app.index;
 public record CallEdge(
         String callerClass,
         String callerMethod,
+        List<String> callerParameterTypes,
         int callerParamCount,
         String calleeClass,
         String calleeMethod,
+        List<String> calleeParameterTypes,
         int line,
         int argCount
 ) {
+    public static final String UNKNOWN_PARAMETER_TYPE = "?";
+
+    public CallEdge {
+        callerParameterTypes = List.copyOf(callerParameterTypes);
+        calleeParameterTypes = List.copyOf(calleeParameterTypes);
+    }
+
+    /** Backward-compatible constructor without callee parameter types. */
+    public CallEdge(String callerClass, String callerMethod,
+                    List<String> callerParameterTypes, int callerParamCount,
+                    String calleeClass, String calleeMethod, int line, int argCount) {
+        this(callerClass, callerMethod, callerParameterTypes, callerParamCount,
+                calleeClass, calleeMethod, List.of(), line, argCount);
+    }
+
+    /** Backward-compatible constructor with caller arity but without parameter types. */
+    public CallEdge(String callerClass, String callerMethod, int callerParamCount,
+                    String calleeClass, String calleeMethod, int line, int argCount) {
+        this(callerClass, callerMethod, List.of(), callerParamCount,
+                calleeClass, calleeMethod, List.of(), line, argCount);
+    }
+
     /** Backward-compatible constructor without callerParamCount and argCount. */
     public CallEdge(String callerClass, String callerMethod,
                     String calleeClass, String calleeMethod, int line) {

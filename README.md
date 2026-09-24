@@ -158,86 +158,82 @@ jsrc callers validate --json  # Who calls this method?
 
 ## Commands
 
-### Navigation
-
-| Command | Description |
-|---------|-------------|
-| `overview` | Stats: files, classes, interfaces, methods, packages |
-| `classes` | List all classes/interfaces/enums/records (ranked by callers) |
-| `summary <Class>` | Class metadata + method signatures (no bodies) |
-| `mini <Class>` | Quick class overview (~120 tokens, prefer over summary) |
-| `read <Class>` | Full source code of a class |
-| `read <Class.method>` | Source code of a specific method |
-| `hierarchy <Class>` | Inheritance tree: extends, implements, subclasses |
-| `implements <Interface>` | Find all implementors of an interface |
-| `deps <Class>` | Dependencies: imports, fields, constructor params |
-| `annotations <Name>` | Find all elements with a specific annotation |
-| `related <Class>` | Related classes by coupling (shared imports/callers) |
-
-### Call Graph
-
-| Command | Description |
-|---------|-------------|
-| `callers <method>` | Who calls this method? (includes reflective calls) |
-| `callers <Class.method> --full` | Full signature + caller count |
-| `callees <method>` | What does this method call? |
-| `call-chain <method>` | Full call chains from roots to target |
-| `impact <method>` | Change risk: callers + transitive callers + depth |
-| `test-for <method>` | Find tests that cover this method |
-
-### Search
-
-| Command | Description |
-|---------|-------------|
-| `search <pattern>` | Text search (supports OR: `TODO\|FIXME`) |
-| `find <keywords>` | Semantic search by keywords |
-| `scope <task>` | Find relevant classes for a task |
-| `unused` | Dead code: classes/methods never called |
-
-### Analysis
-
-| Command | Description |
-|---------|-------------|
-| `smells <Class>` | Code smells for a class (12 rules) |
-| `smells --all` | All smells in codebase (with topFindings) |
-| `complexity <Class>` | Cyclomatic complexity per method |
-| `complexity --all` | Top 30 classes by complexity |
-| `lint <Class>` | Pre-compile checks + architecture rules |
-| `lint --all` | God classes, mutable statics, high-param methods |
-| `hotspots` | Top classes by callers + imports + test coverage |
-| `packages` | Package stats: import counts, circular deps |
-| `style` | Code style conventions (~75 tokens) |
-| `patterns` | Naming patterns and layer conventions |
-| `snippet <type>` | Code template (service, controller, repo) |
-
-### Architecture
-
-| Command | Description |
-|---------|-------------|
-| `check` | Evaluate all architecture rules from `.jsrc.yaml` |
-| `check <ruleId>` | Evaluate a specific rule |
-| `endpoints` | REST endpoints (path, HTTP method, controller) |
-| `entry-points` | Main methods and entry points |
-| `validate <Method(Type1,Type2)>` | Validate method exists with exact signature |
-
-### Reverse Engineering
-
-| Command | Description |
-|---------|-------------|
-| `context <Class> --json` | Full context: summary + deps + hierarchy + call graph + smells + source |
-| `context <Class> --md` | Markdown spec draft for the class |
-| `contract <Interface>` | Formal contract: methods, params, throws, javadoc |
-| `verify <Class> --spec spec.md` | Compare implementation against spec |
-| `drift` | Architecture check + changed file detection |
-| `diff` | Files changed since last index (by content hash) |
-| `changed` | Java files changed in git (vs HEAD) |
-
-### Meta
-
-| Command | Description |
-|---------|-------------|
-| `index` | Build/refresh persistent index |
-| `dump` | Dump binary index as JSON (debugging) |
+<!-- BEGIN GENERATED COMMAND CATALOG -->
+| Command | Category | Summary |
+|---|---|---|
+| `help` | meta | When no COMMAND is given, the usage help for the main command is displayed. |
+| `overview` | navigation | Codebase overview: files, classes, methods, packages |
+| `classes` | navigation | List all classes/interfaces/enums/records (ranked by callers) |
+| `summary` | navigation | Class metadata + method signatures |
+| `mini` | navigation | Quick class overview (~120 tokens) |
+| `read` | navigation | Source code of a class or method |
+| `hierarchy` | navigation | Inheritance tree: extends, implements, subclasses |
+| `implements` | navigation | Find all implementors of an interface |
+| `deps` | navigation | Dependencies: imports, fields, constructor params |
+| `annotations` | navigation | Find all elements with a specific annotation |
+| `related` | navigation | Related classes by coupling (shared imports/callers) |
+| `callers` | call-graph | Find all methods that call a given method |
+| `callees` | call-graph | Find all methods called by a given method |
+| `call-chain` | call-graph | Full call chains from roots to target |
+| `impact` | call-graph | Change risk: callers + transitive callers + depth |
+| `test-for` | call-graph | Find tests that cover a method |
+| `search` | search | Text search (supports OR: TODO\|FIXME) |
+| `find` | search | Semantic search by keywords |
+| `scope` | search | Find relevant classes for a task |
+| `unused` | search | Dead code: classes/methods never called |
+| `smells` | analysis | Code smell detection (9 rules) |
+| `complexity` | analysis | Cyclomatic complexity per method |
+| `lint` | analysis | Pre-compile checks + architecture rules |
+| `hotspots` | analysis | Top classes by callers + imports + test coverage |
+| `packages` | analysis | Package stats import counts circular deps |
+| `style` | analysis | Code style conventions |
+| `patterns` | analysis | Naming patterns and layer conventions |
+| `snippet` | analysis | Code template service controller repo |
+| `check` | architecture | Evaluate architecture rules from .jsrc.yaml |
+| `endpoints` | architecture | REST endpoints path HTTP method controller |
+| `entry-points` | architecture | Main methods and entry points |
+| `validate` | architecture | Validate method exists with exact signature |
+| `imports` | architecture | Who imports this class |
+| `layer` | architecture | List classes in an architectural layer |
+| `context` | reverse-engineering | Full context: summary + deps + hierarchy + call graph + smells + source |
+| `context-for` | reverse-engineering | Find relevant context for a task |
+| `contract` | reverse-engineering | Formal contract methods params throws javadoc |
+| `verify` | reverse-engineering | Compare implementation against Markdown spec |
+| `drift` | reverse-engineering | Architecture check + changed file detection |
+| `diff` | reverse-engineering | Files changed since last index by content hash |
+| `changed` | reverse-engineering | Java files changed in git vs HEAD |
+| `index` | meta | Build or refresh persistent codebase index |
+| `map` | meta | Visual codebase map |
+| `batch` | meta | Execute multiple queries from stdin |
+| `watch` | meta | Daemon mode send queries via stdin |
+| `explain` | meta | Detailed explanation of a class |
+| `similar` | meta | Find similar classes |
+| `resolve` | meta | Resolve a simple name to fully qualified |
+| `history` | meta | Change history for a class |
+| `stats` | meta | Metrics for a class |
+| `checklist` | meta | Review checklist for a class |
+| `type-check` | meta | Type check a class |
+| `breaking-changes` | meta | Impact of breaking changes to a class |
+| `diff-impact` | meta | Impact analysis of changed files |
+| `dump` | meta | Dump binary index as JSON to stdout (debugging) |
+| `perf` | meta | Detect performance bottlenecks (loops with linear scan, I/O, allocations) |
+| `security` | meta | Static security analysis — SQL injection, path traversal, XXE, secrets |
+| `todo` | meta | Extract TODO/FIXME/HACK/XXX with git blame context |
+| `flow` | meta | Trace execution flow downward (happy path) |
+| `debt` | meta | Technical debt score with ranking |
+| `migrate` | meta | Detect Java modernization opportunities (Java 8→17/21) |
+| `api` | meta | List public API: classes + methods grouped by package |
+| `compat` | meta | Check compatibility for Java version migration |
+| `tour` | meta | Guided tour of the codebase for onboarding |
+| `doc` | meta | Generate Javadoc drafts for undocumented methods |
+| `scaffold` | meta | Generate code following project conventions |
+| `describe` | meta | List available commands (budget-aware) |
+| `skill` | meta | Compact skill guide for agents (budget-aware) |
+| `record` | jfr | Record JFR data from a running JVM |
+| `profile` | jfr | Profile a JFR recording file |
+| `heap-dump` | jfr | Generate heap dump from a running JVM |
+| `heap-analyze` | jfr | Live memory analysis of a running JVM |
+<!-- END GENERATED COMMAND CATALOG -->
 
 ## Global Flags
 

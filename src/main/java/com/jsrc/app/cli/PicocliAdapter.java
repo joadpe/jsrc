@@ -54,11 +54,13 @@ public abstract class PicocliAdapter implements Callable<Integer> {
         try {
             // B1: Budget enforcement gate - check DENY actions before execution
             BudgetContext budgetCtx = parent.buildBudgetContext();
-            BudgetPolicy.Action action = BudgetPolicy.getAction(commandName(), budgetCtx.profile());
+            BudgetRule rule = parent.commandCatalog().budgetRule(commandName(), budgetCtx.profile());
+            BudgetPolicy.Action action = rule.action();
             
             if (action == BudgetPolicy.Action.DENY) {
                 // Command is denied by budget policy - return structured error
-                String suggestion = suggestAlternative(commandName(), budgetCtx.profile());
+                String suggestion = rule.alternative().orElse(
+                        "Try jsrc describe --json to see available commands");
                 var deniedCmd = new com.jsrc.app.command.BudgetDeniedCommand(
                     commandName(), 
                     budgetCtx.profile(), 
@@ -92,17 +94,4 @@ public abstract class PicocliAdapter implements Callable<Integer> {
         }
     }
     
-    /**
-     * Suggests alternative command when a command is denied by budget.
-     */
-    private String suggestAlternative(String deniedCommand, BudgetProfile profile) {
-        return switch (deniedCommand) {
-            case "context" -> "jsrc mini <Class> --json (for summary)";
-            case "dump" -> "Not available under " + profile + " profile";
-            case "tour" -> "jsrc overview --json (for project overview)";
-            case "call-chain" -> "jsrc callers <Class.method> --json (for single-level callers)";
-            case "map" -> "jsrc overview --json (for project overview)";
-            default -> "Try jsrc describe --json to see available commands";
-        };
-    }
 }

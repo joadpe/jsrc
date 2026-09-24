@@ -33,6 +33,8 @@ jobs:
           sudo ldconfig
       - name: Verify release contracts
         run: scripts/test-native-release.sh
+      - name: Verify generated command catalog
+        run: mvn -q -Dtest=CommandDocumentationContractTest test
       - name: Build with Maven
         run: mvn package -Djava.library.path=/usr/local/lib
         env:

@@ -39,21 +39,14 @@ public class NextCommandsBudgetFilter {
         List<CommandHint> filtered = new ArrayList<>();
         for (CommandHint hint : hints) {
             String commandToken = extractCommandToken(hint.command());
-            
-            // B4: Filter out DENY commands
-            BudgetPolicy.Action action = BudgetPolicy.getAction(commandToken, ctx.profile());
-            if (action == BudgetPolicy.Action.DENY) {
+            var descriptor = DefaultCommandRegistry.create().find(commandToken);
+            if (descriptor.isEmpty()) {
                 continue;
             }
-
-            // B5: Filter out hints whose leading token is not in budgetSurface
-            // when surface is non-null (standard profile has null surface)
-            var surface = BudgetPolicy.budgetSurface(ctx.profile());
-            if (surface != null && !surface.contains(commandToken)) {
+            BudgetRule rule = descriptor.orElseThrow().budgetRule(ctx.profile());
+            if (rule.action() == BudgetPolicy.Action.DENY || !rule.visible()) {
                 continue;
             }
-
-            // Keep if action is ALLOW or DEGRADE and in surface
             filtered.add(hint);
         }
 

@@ -241,12 +241,12 @@ class FrozenIndexContractTest {
         buildValidIndex();
 
         // Test: jsrc --frozen-index overview
-        var cmd1 = new CommandLine(new JsrcCommand());
+        var cmd1 = JsrcCliFactory.create();
         int exit1 = cmd1.execute("--dir", tempDir.toString(), "--frozen-index", "--json", "overview");
         assertEquals(0, exit1, "Should succeed with flag before subcommand");
 
         // Test: jsrc overview --frozen-index
-        var cmd2 = new CommandLine(new JsrcCommand());
+        var cmd2 = JsrcCliFactory.create();
         int exit2 = cmd2.execute("--dir", tempDir.toString(), "--json", "overview", "--frozen-index");
         assertEquals(0, exit2, "Should succeed with flag after subcommand");
         
@@ -293,7 +293,7 @@ class FrozenIndexContractTest {
     @Test
     void testCLI_frozenIndexErrorMessage() {
         // No index exists
-        var cmd = new CommandLine(new JsrcCommand());
+        var cmd = JsrcCliFactory.create();
         
         try {
             // Capture both stdout and stderr

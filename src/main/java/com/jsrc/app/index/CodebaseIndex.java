@@ -89,7 +89,8 @@ public class CodebaseIndex {
                 long lastModified = Files.getLastModifiedTime(file).toMillis();
 
                 IndexEntry prev = existingByPath.get(relativePath);
-                if (prev != null && prev.contentHash().equals(hash)) {
+                if (prev != null && prev.contentHash().equals(hash)
+                        && hasCanonicalCallEdgeSchema(prev)) {
                     entries.add(prev);
                     continue;
                 }
@@ -121,6 +122,14 @@ public class CodebaseIndex {
         edgeResolver.resolveMarkers(entries);
 
         return reindexed;
+    }
+
+    private static boolean hasCanonicalCallEdgeSchema(IndexEntry entry) {
+        return entry.callEdges().stream().allMatch(edge ->
+                (edge.callerParamCount() <= 0
+                        || edge.callerParameterTypes().size() == edge.callerParamCount())
+                        && (edge.argCount() < 0
+                        || edge.calleeParameterTypes().size() == edge.argCount()));
     }
 
     /**
@@ -383,12 +392,16 @@ public class CodebaseIndex {
                 if (e instanceof Map<?, ?> em) {
                     Map<String, Object> edgeMap = (Map<String, Object>) em;
                     int callerParamCount = edgeMap.containsKey("callerParamCount") ? intVal(edgeMap, "callerParamCount") : -1;
+                    List<String> callerParameterTypes = edgeMap.containsKey("callerParameterTypes")
+                            ? strList(edgeMap.get("callerParameterTypes")) : List.of();
+                    List<String> calleeParameterTypes = edgeMap.containsKey("calleeParameterTypes")
+                            ? strList(edgeMap.get("calleeParameterTypes")) : List.of();
                     int argCount = edgeMap.containsKey("argCount") ? intVal(edgeMap, "argCount") : -1;
                     edges.add(new CallEdge(
                             str(edgeMap, "callerClass"), str(edgeMap, "callerMethod"),
-                            callerParamCount,
+                            callerParameterTypes, callerParamCount,
                             str(edgeMap, "calleeClass"), str(edgeMap, "calleeMethod"),
-                            intVal(edgeMap, "line"), argCount));
+                            calleeParameterTypes, intVal(edgeMap, "line"), argCount));
                 }
             }
         }
@@ -438,12 +451,16 @@ public class CodebaseIndex {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> edgeMap = (Map<String, Object>) em;
                     int callerParamCount = edgeMap.containsKey("callerParamCount") ? intVal(edgeMap, "callerParamCount") : -1;
+                    List<String> callerParameterTypes = edgeMap.containsKey("callerParameterTypes")
+                            ? strList(edgeMap.get("callerParameterTypes")) : List.of();
+                    List<String> calleeParameterTypes = edgeMap.containsKey("calleeParameterTypes")
+                            ? strList(edgeMap.get("calleeParameterTypes")) : List.of();
                     int argCount = edgeMap.containsKey("argCount") ? intVal(edgeMap, "argCount") : -1;
                     callEdges.add(new CallEdge(
                             str(edgeMap, "callerClass"), str(edgeMap, "callerMethod"),
-                            callerParamCount,
+                            callerParameterTypes, callerParamCount,
                             str(edgeMap, "calleeClass"), str(edgeMap, "calleeMethod"),
-                            intVal(edgeMap, "line"), argCount));
+                            calleeParameterTypes, intVal(edgeMap, "line"), argCount));
                 }
             }
         }
@@ -618,8 +635,14 @@ public class CodebaseIndex {
         if (edge.callerParamCount() >= 0) {
             map.put("callerParamCount", edge.callerParamCount());
         }
+        if (!edge.callerParameterTypes().isEmpty()) {
+            map.put("callerParameterTypes", edge.callerParameterTypes());
+        }
         map.put("calleeClass", edge.calleeClass());
         map.put("calleeMethod", edge.calleeMethod());
+        if (!edge.calleeParameterTypes().isEmpty()) {
+            map.put("calleeParameterTypes", edge.calleeParameterTypes());
+        }
         map.put("line", edge.line());
         if (edge.argCount() >= 0) {
             map.put("argCount", edge.argCount());

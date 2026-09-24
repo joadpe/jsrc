@@ -27,8 +27,11 @@ public class SourceResolver {
             }
         }
         // Strategy 2: file scan
+        String simpleClassName = className.contains(".")
+                ? className.substring(className.lastIndexOf('.') + 1)
+                : className;
         for (Path file : ctx.javaFiles()) {
-            if (file.getFileName().toString().equals(className + ".java")) {
+            if (file.getFileName().toString().equals(simpleClassName + ".java")) {
                 try {
                     return Files.readString(file);
                 } catch (Exception e) { /* ignore */ }

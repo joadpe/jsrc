@@ -23,7 +23,7 @@ public class SummaryCommand implements Command {
     @Override
     public int execute(CommandContext ctx) {
         var allClasses = ctx.getAllClasses();
-        ClassInfo ci = resolveOrExit(allClasses, className);
+        ClassInfo ci = resolveOrExit(allClasses, className, ctx.formatter());
         if (ci == null) return 0;
 
         // Compact mode (default): prioritize public methods, limit to top 20
@@ -106,12 +106,16 @@ public class SummaryCommand implements Command {
         return prev[b.length()];
     }
 
-    static ClassInfo resolveOrExit(java.util.List<ClassInfo> allClasses, String className) {
+    static ClassInfo resolveOrExit(
+            java.util.List<ClassInfo> allClasses,
+            String className,
+            com.jsrc.app.output.OutputFormatter formatter) {
         var resolution = ClassResolver.resolve(allClasses, className);
         return switch (resolution) {
             case ClassResolver.Resolution.Found found -> found.classInfo();
             case ClassResolver.Resolution.Ambiguous ambiguous -> {
-                ClassResolver.printAmbiguous(ambiguous.candidates(), className);
+                formatter.printResult(
+                        ClassResolver.ambiguousResult(ambiguous.candidates(), className));
                 yield null;
             }
             case ClassResolver.Resolution.NotFound n -> {

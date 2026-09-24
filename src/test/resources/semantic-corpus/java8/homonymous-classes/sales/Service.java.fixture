@@ -1,0 +1,5 @@
+package corpus.java8.sales;
+
+public class Service {
+    public void save(String value) {}
+}

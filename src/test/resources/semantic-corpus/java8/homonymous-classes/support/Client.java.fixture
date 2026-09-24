@@ -1,0 +1,9 @@
+package corpus.java8.support;
+
+import corpus.java8.support.Service;
+
+public class Client {
+    public void run(Service service) {
+        service.save(42);
+    }
+}

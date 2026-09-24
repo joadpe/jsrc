@@ -19,6 +19,11 @@ public class GlobalOptions {
             scope = ScopeType.INHERIT)
     boolean jsonOutput;
 
+    @Option(names = "--protocol", description = "JSON protocol: legacy|1|latest (default: legacy)",
+            defaultValue = "legacy", converter = JsonProtocolConverter.class,
+            scope = ScopeType.INHERIT)
+    com.jsrc.app.output.JsonProtocol protocol;
+
     @Option(names = "--md", description = "Markdown output (for context command)",
             scope = ScopeType.INHERIT)
     boolean mdOutput;
@@ -77,6 +82,9 @@ public class GlobalOptions {
     boolean frozenIndex;
 
     public boolean jsonOutput() { return jsonOutput; }
+    public com.jsrc.app.output.JsonProtocol jsonProtocol() {
+        return protocol == null ? com.jsrc.app.output.JsonProtocol.LEGACY : protocol;
+    }
     public boolean mdOutput() { return mdOutput; }
     public boolean fullOutput() { return fullOutput; }
     public boolean showMetrics() { return showMetrics; }

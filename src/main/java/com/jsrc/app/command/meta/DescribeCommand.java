@@ -17,43 +17,58 @@ public class DescribeCommand implements Command {
     private final BudgetProfile profile;
     private final String specificCommand;
     private final boolean fullCatalog;
+    private final com.jsrc.app.cli.CommandCatalog catalog;
 
     public DescribeCommand(BudgetProfile profile) {
-        this(profile, null, false);
+        this(profile, null, false, com.jsrc.app.cli.DefaultCommandRegistry.create());
+    }
+
+    public DescribeCommand(BudgetProfile profile, com.jsrc.app.cli.CommandCatalog catalog) {
+        this(profile, null, false, catalog);
     }
 
     public DescribeCommand(BudgetProfile profile, String specificCommand) {
-        this(profile, specificCommand, false);
+        this(profile, specificCommand, false, com.jsrc.app.cli.DefaultCommandRegistry.create());
     }
     
     public DescribeCommand(BudgetProfile profile, String specificCommand, boolean fullCatalog) {
+        this(profile, specificCommand, fullCatalog, com.jsrc.app.cli.DefaultCommandRegistry.create());
+    }
+
+    public DescribeCommand(BudgetProfile profile, String specificCommand, boolean fullCatalog,
+            com.jsrc.app.cli.CommandCatalog catalog) {
         this.profile = profile;
         this.specificCommand = specificCommand;
         this.fullCatalog = fullCatalog;
+        this.catalog = java.util.Objects.requireNonNull(catalog, "catalog");
     }
 
     @Override
     public int execute(CommandContext ctx) {
         if (specificCommand != null && !specificCommand.isEmpty()) {
             // Detail lookup for a specific command - always allowed for introspection
-            return CommandRegistry.describeCommand(specificCommand, ctx.formatter() instanceof com.jsrc.app.output.JsonFormatter) 
-                ? ExitCode.OK : ExitCode.NOT_FOUND;
+            if (ctx.formatter() instanceof com.jsrc.app.output.JsonFormatter) {
+                return catalog.find(specificCommand).map(command -> {
+                    ctx.formatter().printResult(CommandRegistry.toMap(command));
+                    return ExitCode.OK;
+                }).orElse(ExitCode.NOT_FOUND);
+            }
+            return CommandRegistry.describeCommand(specificCommand, false)
+                    ? ExitCode.OK : ExitCode.NOT_FOUND;
         }
         
         // Filter CommandRegistry commands by budget visibility
-        String[] allCommands = CommandRegistry.knownCommandNames();
         java.util.List<String> visibleCommands;
         
         if (fullCatalog || profile == BudgetProfile.STANDARD) {
             // Full catalog: all commands
-            visibleCommands = java.util.Arrays.asList(allCommands);
+            visibleCommands = catalog.commands().stream()
+                    .map(com.jsrc.app.cli.CommandDescriptor::name)
+                    .toList();
         } else {
-            // Filtered by budget surface
-            Set<String> surface = BudgetPolicy.budgetSurface(profile);
-            visibleCommands = java.util.Arrays.stream(allCommands)
-                .filter(surface::contains)
-                .sorted()
-                .toList();
+            visibleCommands = catalog.visibleCommands(profile).stream()
+                    .map(com.jsrc.app.cli.CommandDescriptor::name)
+                    .toList();
         }
         
         java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();

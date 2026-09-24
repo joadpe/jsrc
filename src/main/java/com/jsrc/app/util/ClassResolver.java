@@ -64,12 +64,18 @@ public final class ClassResolver {
      * Prints ambiguous result as JSON to stdout and returns exit indication.
      */
     public static void printAmbiguous(List<String> candidates, String className) {
+        System.out.println(JsonWriter.toJson(ambiguousResult(candidates, className)));
+    }
+
+    /** Builds the structured ambiguous-resolution result. */
+    public static Map<String, Object> ambiguousResult(
+            List<String> candidates, String className) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("ambiguous", true);
         result.put("class", className);
         result.put("candidates", candidates);
         result.put("message", "Multiple classes named '" + className
                 + "'. Use qualified name to disambiguate.");
-        System.out.println(JsonWriter.toJson(result));
+        return result;
     }
 }

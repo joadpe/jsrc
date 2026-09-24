@@ -96,6 +96,38 @@ class CodebaseIndexTest {
     }
 
     @Test
+    @DisplayName("Incremental: should reindex unchanged entries with legacy call edges")
+    void shouldReindexLegacyCallEdges() throws IOException {
+        Path javaFile = writeFile("Legacy.java", """
+                public class Legacy {
+                    public void call(String callerValue) { target("value"); }
+                    private void target(String value) {}
+                }
+                """);
+        var parser = new HybridJavaParser();
+        var initial = new CodebaseIndex();
+        initial.build(parser, List.of(javaFile), tempDir, List.of());
+        IndexEntry current = initial.getEntries().getFirst();
+        CallEdge edge = current.callEdges().getFirst();
+        CallEdge legacyEdge = new CallEdge(
+                edge.callerClass(), edge.callerMethod(), edge.callerParameterTypes(),
+                edge.callerParamCount(),
+                edge.calleeClass(), edge.calleeMethod(), edge.line(), edge.argCount());
+        IndexEntry legacy = new IndexEntry(
+                current.path(), current.contentHash(), current.lastModified(),
+                current.classes(), List.of(legacyEdge));
+
+        var rebuilt = new CodebaseIndex();
+        int reindexed = rebuilt.build(parser, List.of(javaFile), tempDir, List.of(legacy));
+
+        assertEquals(1, reindexed);
+        assertEquals(List.of("String"),
+                rebuilt.getEntries().getFirst().callEdges().getFirst().callerParameterTypes());
+        assertEquals(List.of("String"),
+                rebuilt.getEntries().getFirst().callEdges().getFirst().calleeParameterTypes());
+    }
+
+    @Test
     @DisplayName("Incremental: should re-index modified files")
     void shouldReindexModified() throws IOException {
         Path javaFile = writeFile("Mutable.java", """
@@ -221,8 +253,8 @@ class CodebaseIndexTest {
     void callEdgeRoundtrip() throws IOException {
         Path file = writeFile("Roundtrip.java", """
                 public class Roundtrip {
-                    public void a() { b(); }
-                    public void b() {}
+                    public void a(String value) { b(value); }
+                    public void b(String value) {}
                 }
                 """);
 
@@ -239,6 +271,8 @@ class CodebaseIndexTest {
             for (CallEdge edge : entry.callEdges()) {
                 if (edge.callerMethod().equals("a") && edge.calleeMethod().equals("b")) {
                     hasEdge = true;
+                    assertEquals(List.of("String"), edge.callerParameterTypes());
+                    assertEquals(List.of("String"), edge.calleeParameterTypes());
                 }
             }
         }

@@ -71,16 +71,19 @@ public class CallGraphBuilder {
 
         Map<String, ClassContext> classContexts = new HashMap<>();
 
-        // Single pass: parse each file once, register classes and analyze calls together.
-        // Receiver types from files not yet processed resolve to "?" and are fixed up
-        // in the post-processing step (resolveUnknownCallees / resolveFieldMarkers).
         for (Path file : javaFiles) {
             CompilationUnit cu = parseFile(file);
             if (cu == null) continue;
             registerClasses(cu, file, classContexts);
-            analyzeMethodCalls(cu, file, classContexts);
-            // cu goes out of scope → GC can reclaim
         }
+        for (Path file : javaFiles) {
+            CompilationUnit cu = parseFile(file);
+            if (cu == null) continue;
+            analyzeMethodCalls(cu, file, classContexts);
+        }
+
+        resolveUnknownCallees(semanticMetadata(classContexts.values()));
+        canonicalizeRegisteredEdges();
 
         logger.info("Call graph built: {} methods, {} call edges",
                 allMethods.size(), callerIndex.values().stream().mapToInt(Set::size).sum());
@@ -100,8 +103,10 @@ public class CallGraphBuilder {
             // Register methods from classes
             for (var ic : entry.classes()) {
                 for (var im : ic.methods()) {
-                    int paramCount = com.jsrc.app.util.SignatureUtils.countParams(im.signature());
-                    MethodReference ref = new MethodReference(ic.name(), im.name(), paramCount, null);
+                    var parameterTypes = com.jsrc.app.util.SignatureUtils
+                            .extractParameterTypes(im.signature());
+                    MethodReference ref = new MethodReference(
+                            ic.qualifiedName(), im.name(), parameterTypes, null);
                     allMethods.add(ref);
                     methodsByName.computeIfAbsent(im.name(), k -> new HashSet<>()).add(ref);
                 }
@@ -109,12 +114,18 @@ public class CallGraphBuilder {
 
             // Load call edges
             for (var edge : entry.callEdges()) {
-                // Use callerParamCount from edge, fallback to registered method
-                MethodReference caller = edge.callerParamCount() >= 0
-                        ? new MethodReference(edge.callerClass(), edge.callerMethod(), edge.callerParamCount(), null)
-                        : resolveRegistered(edge.callerClass(), edge.callerMethod());
-                MethodReference callee = new MethodReference(edge.calleeClass(), edge.calleeMethod(),
-                        edge.argCount(), null);
+                MethodReference caller = edge.callerParameterTypes().size() == edge.callerParamCount()
+                        ? new MethodReference(edge.callerClass(), edge.callerMethod(),
+                                edge.callerParameterTypes(), null)
+                        : resolveRegistered(edge.callerClass(), edge.callerMethod(),
+                                edge.callerParamCount());
+                MethodReference callee = hasKnownParameterTypes(
+                        edge.calleeParameterTypes(), edge.argCount())
+                        ? resolveRegistered(new MethodReference(
+                                edge.calleeClass(), edge.calleeMethod(),
+                                edge.calleeParameterTypes(), null))
+                        : resolveRegistered(
+                                edge.calleeClass(), edge.calleeMethod(), edge.argCount());
                 MethodCall call = new MethodCall(caller, callee, edge.line());
 
                 allMethods.add(caller);
@@ -127,9 +138,16 @@ public class CallGraphBuilder {
 
         // Post-process: resolve "?" callee classes using return type map
         resolveUnknownCallees(entries);
+        canonicalizeRegisteredEdges();
 
         logger.info("Call graph loaded from index: {} methods, {} call edges",
                 allMethods.size(), callerIndex.values().stream().mapToInt(Set::size).sum());
+    }
+
+    private static boolean hasKnownParameterTypes(List<String> parameterTypes, int parameterCount) {
+        return parameterTypes.size() == parameterCount
+                && parameterTypes.stream().noneMatch(
+                        com.jsrc.app.index.CallEdge.UNKNOWN_PARAMETER_TYPE::equals);
     }
 
     /**
@@ -145,63 +163,81 @@ public class CallGraphBuilder {
      * (because getIdiomaDefecto() was resolved in pass 1 and returns IdiomaDefecto).
      */
     private void resolveUnknownCallees(List<com.jsrc.app.index.IndexEntry> entries) {
-        // Build class name → qualified name map (for all indexed classes)
+        resolveUnknownCallees(semanticMetadata(entries));
+    }
+
+    private void resolveUnknownCallees(SemanticMetadata metadata) {
+        resolveFieldMarkers(metadata.fieldTypes(), metadata.returnTypes());
+        if (metadata.returnTypes().isEmpty()) return;
+
+        for (int pass = 0; pass < 5; pass++) {
+            boolean changed = resolvePass(metadata.returnTypes(), metadata.qualifiedNames());
+            if (!changed) break;
+            logger.debug("Return type resolution pass {} completed", pass + 1);
+        }
+    }
+
+    private SemanticMetadata semanticMetadata(List<com.jsrc.app.index.IndexEntry> entries) {
         Map<String, Set<String>> simpleToQualified = new HashMap<>();
+        Map<String, String> fieldTypeMap = new HashMap<>();
+        Map<String, String> returnTypes = new HashMap<>();
         for (var entry : entries) {
             for (var ic : entry.classes()) {
                 simpleToQualified.computeIfAbsent(ic.name(), k -> new HashSet<>())
                         .add(ic.qualifiedName());
-            }
-        }
-
-        // Build field type map: "ClassName.fieldName" → field type (simple name)
-        Map<String, String> fieldTypeMap = new HashMap<>();
-        for (var entry : entries) {
-            for (var ic : entry.classes()) {
                 for (var f : ic.fields()) {
-                    fieldTypeMap.put(ic.name() + "." + f.name(), f.type());
+                    fieldTypeMap.put(ic.qualifiedName() + "." + f.name(), f.type());
+                    fieldTypeMap.putIfAbsent(ic.name() + "." + f.name(), f.type());
                 }
-            }
-        }
-
-        // Resolve ?field: markers before return-type resolution
-        resolveFieldMarkers(fieldTypeMap);
-
-        // Build return type map: "ClassName.methodName" → resolved simple return type
-        Map<String, String> returnTypes = new HashMap<>();
-        for (var entry : entries) {
-            for (var ic : entry.classes()) {
                 for (var im : ic.methods()) {
                     if (im.returnType() != null && !im.returnType().isEmpty()
                             && !"void".equals(im.returnType())) {
-                        String rt = im.returnType();
-                        int genIdx = rt.indexOf('<');
-                        if (genIdx > 0) rt = rt.substring(0, genIdx);
-
+                        String rt = stripGenerics(im.returnType());
                         String resolved = resolveTypeViaImports(rt, ic.imports(), ic.packageName(), simpleToQualified);
-                        returnTypes.put(ic.name() + "." + im.name(), resolved);
+                        returnTypes.put(ic.qualifiedName() + "." + im.name(), resolved);
+                        returnTypes.putIfAbsent(ic.name() + "." + im.name(), resolved);
                     }
                 }
             }
         }
 
-        if (returnTypes.isEmpty()) return;
+        return new SemanticMetadata(fieldTypeMap, returnTypes, simpleToQualified);
+    }
 
-        // Iterate until no more resolutions (handles chained calls)
-        for (int pass = 0; pass < 5; pass++) {
-            boolean changed = resolvePass(returnTypes, simpleToQualified);
-            if (!changed) break;
-            logger.debug("Return type resolution pass {} completed", pass + 1);
+    private SemanticMetadata semanticMetadata(Iterable<ClassContext> contexts) {
+        Map<String, Set<String>> simpleToQualified = new HashMap<>();
+        Map<String, ClassContext> uniqueContexts = new HashMap<>();
+        for (ClassContext context : contexts) {
+            if (context.qualifiedName == null) continue;
+            uniqueContexts.put(context.qualifiedName, context);
+            simpleToQualified.computeIfAbsent(context.simpleName, ignored -> new HashSet<>())
+                    .add(context.qualifiedName);
         }
+
+        Map<String, String> fieldTypeMap = new HashMap<>();
+        Map<String, String> returnTypes = new HashMap<>();
+        for (ClassContext context : uniqueContexts.values()) {
+            context.fieldTypes.forEach((name, type) -> {
+                fieldTypeMap.put(context.qualifiedName + "." + name, type);
+                fieldTypeMap.putIfAbsent(context.simpleName + "." + name, type);
+            });
+            context.returnTypes.forEach((name, type) -> {
+                String resolved = resolveTypeViaImports(stripGenerics(type), context.imports,
+                        context.packageName, simpleToQualified);
+                returnTypes.put(context.qualifiedName + "." + name, resolved);
+                returnTypes.putIfAbsent(context.simpleName + "." + name, resolved);
+            });
+        }
+
+        return new SemanticMetadata(fieldTypeMap, returnTypes, simpleToQualified);
     }
 
     /**
      * Resolves "?field:" and "?ret:" callee class markers in the call graph.
      * Delegates marker parsing to {@link com.jsrc.app.index.EdgeResolver#resolveMarker}.
      */
-    private void resolveFieldMarkers(Map<String, String> fieldTypeMap) {
-        Map<String, String> returnTypeMap = new HashMap<>();
-
+    private void resolveFieldMarkers(Map<String, String> fieldTypeMap,
+                                     Map<String, String> returnTypeMap) {
         for (int pass = 0; pass < 5; pass++) {
             boolean changed = false;
             Map<MethodReference, Set<MethodCall>> newCalleeIndex = new HashMap<>();
@@ -217,9 +253,9 @@ public class CallGraphBuilder {
                         String resolved = com.jsrc.app.index.EdgeResolver.resolveMarker(
                                 calleeClass, fieldTypeMap, returnTypeMap);
                         if (resolved != null && !resolved.startsWith("?")) {
-                            MethodReference newCallee = new MethodReference(
+                            MethodReference newCallee = resolveRegistered(
                                     resolved, call.callee().methodName(),
-                                    call.callee().parameterCount(), null);
+                                    call.callee().parameterCount());
                             MethodCall newCall = new MethodCall(caller, newCallee, call.line());
                             updatedCalls.add(newCall);
 
@@ -277,9 +313,9 @@ public class CallGraphBuilder {
                 String resolvedClass = resolveCalleeClass(call, resolvedByLine, returnTypes, qualifiedNames);
 
                 if (resolvedClass != null) {
-                    MethodReference newCallee = new MethodReference(
+                    MethodReference newCallee = resolveRegistered(
                             resolvedClass, call.callee().methodName(),
-                            call.callee().parameterCount(), null);
+                            call.callee().parameterCount());
                     MethodCall newCall = new MethodCall(caller, newCallee, call.line());
                     updatedCalls.add(newCall);
 
@@ -329,7 +365,8 @@ public class CallGraphBuilder {
                 // Verify the return type class has the target method
                 Set<MethodReference> candidates = methodsByName.getOrDefault(call.callee().methodName(), Set.of());
                 boolean hasMethod = candidates.stream()
-                        .anyMatch(m -> m.className().equals(simpleRt));
+                        .anyMatch(m -> m.className().equals(simpleRt)
+                                || m.className().endsWith("." + simpleRt));
                 if (!hasMethod) continue;
 
                 // If multiple classes share the simple name, use the qualified return type
@@ -344,11 +381,11 @@ public class CallGraphBuilder {
                     if (methodReturnType != null || hasMethod) {
                         // Accept only if the qualified RT is among known qualifieds
                         if (qualifieds.contains(rt)) {
-                            return simpleRt;
+                            return rt;
                         }
                     }
                 } else {
-                    return simpleRt;
+                    return rt;
                 }
             }
         }
@@ -434,6 +471,28 @@ public class CallGraphBuilder {
         callerIndex.computeIfAbsent(callee, k -> new HashSet<>()).add(call);
     }
 
+    private void canonicalizeRegisteredEdges() {
+        Map<MethodReference, Set<MethodCall>> canonicalCalleeIndex = new HashMap<>();
+        Map<MethodReference, Set<MethodCall>> canonicalCallerIndex = new HashMap<>();
+
+        for (Set<MethodCall> calls : calleeIndex.values()) {
+            for (MethodCall call : calls) {
+                MethodReference caller = resolveRegistered(call.caller());
+                MethodReference callee = resolveRegistered(call.callee());
+                MethodCall canonicalCall = new MethodCall(caller, callee, call.line());
+                canonicalCalleeIndex.computeIfAbsent(caller, ignored -> new HashSet<>())
+                        .add(canonicalCall);
+                canonicalCallerIndex.computeIfAbsent(callee, ignored -> new HashSet<>())
+                        .add(canonicalCall);
+            }
+        }
+
+        calleeIndex.clear();
+        calleeIndex.putAll(canonicalCalleeIndex);
+        callerIndex.clear();
+        callerIndex.putAll(canonicalCallerIndex);
+    }
+
     /**
      * Returns all calls where {@code method} is the callee (who calls this method?).
      */
@@ -501,9 +560,17 @@ public class CallGraphBuilder {
     private void registerClasses(CompilationUnit cu, Path file,
                                  Map<String, ClassContext> classContexts) {
         for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
-            String className = cid.getNameAsString();
             String qualifiedKey = buildQualifiedKey(cid);
-            ClassContext ctx = new ClassContext(file);
+            String className = cid.getNameAsString();
+            String packageName = cu.getPackageDeclaration()
+                    .map(declaration -> declaration.getNameAsString())
+                    .orElse("");
+            List<String> imports = cu.getImports().stream()
+                    .map(declaration -> declaration.getNameAsString()
+                            + (declaration.isAsterisk() ? ".*" : ""))
+                    .toList();
+            ClassContext ctx = new ClassContext(
+                    file, qualifiedKey, className, packageName, imports);
 
             for (FieldDeclaration field : cid.getFields()) {
                 String fieldType = field.getCommonType().asString();
@@ -513,9 +580,10 @@ public class CallGraphBuilder {
             }
 
             for (MethodDeclaration md : cid.getMethods()) {
+                ctx.returnTypes.put(md.getNameAsString(), md.getTypeAsString());
                 MethodReference ref = new MethodReference(
-                        className, md.getNameAsString(),
-                        md.getParameters().size(), file);
+                        qualifiedKey, md.getNameAsString(),
+                        parameterTypes(md), file);
                 allMethods.add(ref);
                 methodsByName.computeIfAbsent(md.getNameAsString(), k -> new HashSet<>()).add(ref);
             }
@@ -523,8 +591,8 @@ public class CallGraphBuilder {
             // Register constructors as methods named after the class
             for (ConstructorDeclaration cd : cid.getConstructors()) {
                 MethodReference ref = new MethodReference(
-                        className, className,
-                        cd.getParameters().size(), file);
+                        qualifiedKey, className,
+                        parameterTypes(cd), file);
                 allMethods.add(ref);
                 methodsByName.computeIfAbsent(className, k -> new HashSet<>()).add(ref);
             }
@@ -541,6 +609,10 @@ public class CallGraphBuilder {
             sb.insert(0, outer.getNameAsString() + ".");
             parent = outer.getParentNode().orElse(null);
         }
+        cid.findCompilationUnit()
+                .flatMap(CompilationUnit::getPackageDeclaration)
+                .map(packageDeclaration -> packageDeclaration.getNameAsString() + ".")
+                .ifPresent(prefix -> sb.insert(0, prefix));
         return sb.toString();
     }
 
@@ -549,31 +621,40 @@ public class CallGraphBuilder {
     private void analyzeMethodCalls(CompilationUnit cu, Path file,
                                     Map<String, ClassContext> classContexts) {
         for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
-            String className = cid.getNameAsString();
             String qualifiedKey = buildQualifiedKey(cid);
+            String className = cid.getNameAsString();
             ClassContext classCtx = classContexts.getOrDefault(qualifiedKey,
                     classContexts.getOrDefault(className, new ClassContext(file)));
 
             for (MethodDeclaration md : cid.getMethods()) {
                 MethodReference caller = new MethodReference(
-                        className, md.getNameAsString(),
-                        md.getParameters().size(), file);
+                        qualifiedKey, md.getNameAsString(),
+                        parameterTypes(md), file);
 
                 Map<String, String> localTypes = buildLocalTypeMap(md);
 
-                analyzeCallsInBody(caller, md, className, localTypes, classCtx, classContexts);
+                analyzeCallsInBody(caller, md, qualifiedKey, localTypes, classCtx, classContexts);
             }
 
             // Analyze constructor bodies
             for (ConstructorDeclaration cd : cid.getConstructors()) {
                 MethodReference caller = new MethodReference(
-                        className, className,
-                        cd.getParameters().size(), file);
+                        qualifiedKey, className,
+                        parameterTypes(cd), file);
 
                 Map<String, String> localTypes = buildLocalTypeMap(cd);
-                analyzeCallsInBody(caller, cd, className, localTypes, classCtx, classContexts);
+                analyzeCallsInBody(caller, cd, qualifiedKey, localTypes, classCtx, classContexts);
             }
         }
+    }
+
+    private List<String> parameterTypes(
+            com.github.javaparser.ast.body.CallableDeclaration<?> callable) {
+        return callable.getParameters().stream()
+                .map(parameter -> parameter.getTypeAsString()
+                        + (parameter.isVarArgs() ? "..." : ""))
+                .map(com.jsrc.app.util.SignatureUtils::normalizeType)
+                .toList();
     }
 
     private void analyzeCallsInBody(MethodReference caller, Node body, String className,
@@ -582,6 +663,15 @@ public class CallGraphBuilder {
         // Method calls
         for (MethodCallExpr callExpr : body.findAll(MethodCallExpr.class)) {
             MethodReference callee = resolveCallee(callExpr, className, localTypes, classCtx, classContexts);
+            List<String> calleeParameterTypes = argumentTypes(
+                    callExpr.getArguments(), className, localTypes, classCtx, classContexts);
+            if (calleeParameterTypes.size() == callExpr.getArguments().size()) {
+                callee = new MethodReference(callee.className(), callee.methodName(),
+                        calleeParameterTypes, callee.filePath());
+            }
+            if (!"?".equals(callee.className()) && !callee.className().startsWith("?")) {
+                callee = resolveRegistered(callee);
+            }
             int line = callExpr.getBegin().map(p -> p.line).orElse(-1);
             MethodCall call = new MethodCall(caller, callee, line);
             calleeIndex.computeIfAbsent(caller, k -> new HashSet<>()).add(call);
@@ -593,6 +683,13 @@ public class CallGraphBuilder {
             String targetClass = newExpr.getType().getNameAsString();
             MethodReference callee = new MethodReference(targetClass, targetClass,
                     newExpr.getArguments().size(), null);
+            List<String> calleeParameterTypes = argumentTypes(
+                    newExpr.getArguments(), className, localTypes, classCtx, classContexts);
+            if (calleeParameterTypes.size() == newExpr.getArguments().size()) {
+                callee = new MethodReference(targetClass, targetClass,
+                        calleeParameterTypes, null);
+            }
+            callee = resolveRegistered(callee);
             int line = newExpr.getBegin().map(p -> p.line).orElse(-1);
             MethodCall call = new MethodCall(caller, callee, line);
             calleeIndex.computeIfAbsent(caller, k -> new HashSet<>()).add(call);
@@ -644,6 +741,45 @@ public class CallGraphBuilder {
         return MethodReference.unresolved(methodName, argCount);
     }
 
+    private List<String> argumentTypes(
+            com.github.javaparser.ast.NodeList<Expression> arguments,
+            String currentClass,
+            Map<String, String> localTypes,
+            ClassContext classCtx,
+            Map<String, ClassContext> allClasses) {
+        List<String> types = new java.util.ArrayList<>();
+        for (Expression argument : arguments) {
+            String type = argumentType(
+                    argument, currentClass, localTypes, classCtx, allClasses);
+            if (type == null) return List.of();
+            types.add(com.jsrc.app.util.SignatureUtils.normalizeType(type));
+        }
+        return List.copyOf(types);
+    }
+
+    private String argumentType(Expression argument,
+                                String currentClass,
+                                Map<String, String> localTypes,
+                                ClassContext classCtx,
+                                Map<String, ClassContext> allClasses) {
+        String resolved = resolveExpressionType(
+                argument, currentClass, localTypes, classCtx, allClasses);
+        if (resolved != null && !resolved.startsWith("?")) return resolved;
+        if (argument instanceof com.github.javaparser.ast.expr.StringLiteralExpr) return "String";
+        if (argument instanceof com.github.javaparser.ast.expr.IntegerLiteralExpr) return "int";
+        if (argument instanceof com.github.javaparser.ast.expr.LongLiteralExpr) return "long";
+        if (argument instanceof com.github.javaparser.ast.expr.DoubleLiteralExpr) return "double";
+        if (argument instanceof com.github.javaparser.ast.expr.BooleanLiteralExpr) return "boolean";
+        if (argument instanceof com.github.javaparser.ast.expr.CharLiteralExpr) return "char";
+        if (argument instanceof com.github.javaparser.ast.expr.ObjectCreationExpr creation) {
+            return creation.getTypeAsString();
+        }
+        if (argument instanceof com.github.javaparser.ast.expr.CastExpr cast) {
+            return cast.getTypeAsString();
+        }
+        return null;
+    }
+
     /**
      * Resolves the type of a field access expression like {@code obj.field}.
      * Determines the type of {@code obj}, then looks up the field type in that class's context.
@@ -663,6 +799,9 @@ public class CallGraphBuilder {
         if (ownerCtx != null) {
             String fieldType = ownerCtx.fieldTypes.get(fieldName);
             if (fieldType != null) return stripGenerics(fieldType);
+        }
+        if (objType.startsWith("?")) {
+            return "?field:" + objType + "." + fieldName;
         }
         return null;
     }
@@ -686,10 +825,14 @@ public class CallGraphBuilder {
             return resolveFieldAccessType(fae, currentClass, localTypes, classCtx, allClasses);
         }
         if (expr instanceof MethodCallExpr mce) {
-            // For method().field.method() chains: resolve receiver, then lookup return type
-            // This requires return type info which we don't have in build() pass
-            // Return null — will be resolved in post-processing
-            return null;
+            if (mce.getScope().isEmpty()) {
+                return "?ret:" + currentClass + "." + mce.getNameAsString();
+            }
+            String scopeType = resolveExpressionType(
+                    mce.getScope().get(), currentClass, localTypes, classCtx, allClasses);
+            return scopeType == null
+                    ? null
+                    : "?ret:" + scopeType + "." + mce.getNameAsString();
         }
         return null;
     }
@@ -755,21 +898,66 @@ public class CallGraphBuilder {
      * Returns the first match, or a new MR with -1 if not found.
      */
     private MethodReference resolveRegistered(String className, String methodName) {
-        Set<MethodReference> byName = methodsByName.get(methodName);
-        if (byName != null) {
-            for (MethodReference ref : byName) {
-                if (ref.className().equals(className)) return ref;
+        return resolveRegistered(className, methodName, -1);
+    }
+
+    private MethodReference resolveRegistered(MethodReference reference) {
+        if (reference.hasKnownParameterTypes()) {
+            Set<MethodReference> byName = methodsByName.get(reference.methodName());
+            if (byName != null) {
+                List<MethodReference> candidates = byName.stream()
+                        .filter(candidate -> candidate.className().equals(reference.className())
+                                || candidate.className().endsWith("." + reference.className()))
+                        .filter(candidate -> candidate.parameterTypes()
+                                .equals(reference.parameterTypes()))
+                        .toList();
+                if (candidates.size() == 1) return candidates.getFirst();
             }
         }
-        return new MethodReference(className, methodName, -1, null);
+        return resolveRegistered(reference.className(), reference.methodName(),
+                reference.parameterCount());
+    }
+
+    private MethodReference resolveRegistered(String className, String methodName, int parameterCount) {
+        Set<MethodReference> byName = methodsByName.get(methodName);
+        if (byName != null) {
+            List<MethodReference> candidates = byName.stream()
+                    .filter(ref -> ref.className().equals(className)
+                            || ref.className().endsWith("." + className))
+                    .filter(ref -> parameterCount < 0 || ref.parameterCount() == parameterCount)
+                    .toList();
+            if (candidates.size() == 1) return candidates.getFirst();
+        }
+        return new MethodReference(className, methodName, parameterCount, null);
     }
 
     private static class ClassContext {
         final Path filePath;
+        final String qualifiedName;
+        final String simpleName;
+        final String packageName;
+        final List<String> imports;
         final Map<String, String> fieldTypes = new HashMap<>();
+        final Map<String, String> returnTypes = new HashMap<>();
 
         ClassContext(Path filePath) {
+            this(filePath, null, null, "", List.of());
+        }
+
+        ClassContext(Path filePath, String qualifiedName, String simpleName,
+                     String packageName, List<String> imports) {
             this.filePath = filePath;
+            this.qualifiedName = qualifiedName;
+            this.simpleName = simpleName;
+            this.packageName = packageName;
+            this.imports = List.copyOf(imports);
         }
     }
+
+    private record SemanticMetadata(
+            Map<String, String> fieldTypes,
+            Map<String, String> returnTypes,
+            Map<String, Set<String>> qualifiedNames) {
+    }
+
 }

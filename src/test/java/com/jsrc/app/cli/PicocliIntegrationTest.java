@@ -1,25 +1,21 @@
 package com.jsrc.app.cli;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import picocli.CommandLine;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import static org.junit.jupiter.api.Assertions.*;
-
-/**
- * Integration tests for picocli-based CLI entry point.
- */
 class PicocliIntegrationTest {
 
     @Test
     void helpShowsSubcommands() {
         var out = new ByteArrayOutputStream();
-        var cmd = new CommandLine(new JsrcCommand());
+        var cmd = JsrcCliFactory.create();
         cmd.setOut(new java.io.PrintWriter(out, true));
         int exitCode = cmd.execute("--help");
         assertEquals(0, exitCode);
@@ -31,16 +27,15 @@ class PicocliIntegrationTest {
     @Test
     void versionPrintsVersion() {
         var out = new ByteArrayOutputStream();
-        var cmd = new CommandLine(new JsrcCommand());
+        var cmd = JsrcCliFactory.create();
         cmd.setOut(new java.io.PrintWriter(out, true));
         int exitCode = cmd.execute("--version");
         assertEquals(0, exitCode);
-        assertTrue(out.toString().contains("2.1.0"));
+        assertEquals("jsrc 2.5.0" + System.lineSeparator(), out.toString());
     }
 
     @Test
     void overviewSubcommandProducesOutput(@TempDir Path tempDir) throws Exception {
-        // Create a minimal Java file
         Path javaFile = tempDir.resolve("Hello.java");
         Files.writeString(javaFile, """
                 package demo;
@@ -49,13 +44,13 @@ class PicocliIntegrationTest {
                 }
                 """);
 
-        // Capture System.out (commands write to System.out, not picocli's writer)
         var originalOut = System.out;
         var captured = new ByteArrayOutputStream();
         System.setOut(new PrintStream(captured));
         try {
-            var cmd = new CommandLine(new JsrcCommand());
+            var cmd = JsrcCliFactory.create();
             int exitCode = cmd.execute("--dir", tempDir.toString(), "--json", "overview");
+            assertEquals(0, exitCode);
             String output = captured.toString();
             assertTrue(output.contains("totalFiles") || output.contains("totalClasses"),
                     "Overview should produce JSON output, got: " + output);
@@ -65,14 +60,210 @@ class PicocliIntegrationTest {
     }
 
     @Test
-    void noSubcommandShowsUsage() {
-        // When no subcommand is given, JsrcCommand.run() calls CommandLine.usage()
-        // which writes to System.out
+    void overviewAcceptsRelativeSourceRoot(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("Hello.java"), "public class Hello {}");
+        Path relativeRoot = Path.of("").toAbsolutePath().relativize(tempDir.toAbsolutePath());
+
         var originalOut = System.out;
         var captured = new ByteArrayOutputStream();
         System.setOut(new PrintStream(captured));
         try {
-            var cmd = new CommandLine(new JsrcCommand());
+            int exitCode = JsrcCliFactory.create().execute(
+                    "--dir", relativeRoot.toString(), "--json", "overview");
+
+            assertEquals(0, exitCode);
+            assertTrue(captured.toString().contains("totalFiles"));
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    void versionOneProtocolWrapsCommandOutput(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("Hello.java"), "public class Hello {}");
+
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            int exitCode = JsrcCliFactory.create().execute(
+                    "--dir", tempDir.toString(), "--json", "--protocol", "1", "overview");
+
+            assertEquals(0, exitCode);
+            Object parsed = com.jsrc.app.output.JsonReader.parse(captured.toString().trim());
+            java.util.Map<?, ?> envelope = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class, parsed);
+            assertEquals(1L, envelope.get("protocolVersion"));
+            assertEquals("overview", envelope.get("command"));
+            assertTrue(envelope.containsKey("data"));
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    void legacyRemainsTheDefaultProtocol(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("Hello.java"), "public class Hello {}");
+
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            int exitCode = JsrcCliFactory.create().execute(
+                    "--dir", tempDir.toString(), "--json", "overview");
+
+            assertEquals(0, exitCode);
+            java.util.Map<?, ?> output = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class,
+                    com.jsrc.app.output.JsonReader.parse(captured.toString().trim()));
+            assertTrue(!output.containsKey("protocolVersion"));
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    void versionOneBudgetDenialProducesStructuredError(@TempDir Path tempDir) {
+        var originalErr = System.err;
+        var captured = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(captured));
+        try {
+            int exitCode = JsrcCliFactory.create().execute(
+                    "--dir", tempDir.toString(), "--json", "--protocol", "1",
+                    "--budget", "tiny", "context", "Missing");
+
+            assertEquals(2, exitCode);
+            java.util.Map<?, ?> envelope = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class,
+                    com.jsrc.app.output.JsonReader.parse(captured.toString().trim()));
+            assertEquals("error", envelope.get("status"));
+            assertEquals("context", envelope.get("command"));
+            java.util.List<?> diagnostics = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.List.class, envelope.get("diagnostics"));
+            java.util.Map<?, ?> diagnostic = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class, diagnostics.getFirst());
+            assertEquals("BUDGET_DENIED", diagnostic.get("code"));
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
+    void versionOneWrapsSpecificDescribeOutput(@TempDir Path tempDir) {
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            int exitCode = JsrcCliFactory.create().execute(
+                    "--dir", tempDir.toString(), "--json", "--protocol", "1",
+                    "describe", "overview");
+
+            assertEquals(1, exitCode);
+            java.util.Map<?, ?> envelope = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class,
+                    com.jsrc.app.output.JsonReader.parse(captured.toString().trim()));
+            assertEquals(1L, envelope.get("protocolVersion"));
+            assertEquals("describe", envelope.get("command"));
+            java.util.Map<?, ?> data = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class, envelope.get("data"));
+            assertEquals("urn:jsrc:output:overview:1", data.get("schema"));
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    void versionOneWrapsDumpOutput(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("Hello.java"), "public class Hello {}");
+        JsrcCliFactory.create().execute("--dir", tempDir.toString(), "index");
+
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            int exitCode = JsrcCliFactory.create().execute(
+                    "--dir", tempDir.toString(), "--json", "--protocol", "1", "dump");
+
+            assertEquals(0, exitCode);
+            java.util.Map<?, ?> envelope = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class,
+                    com.jsrc.app.output.JsonReader.parse(captured.toString().trim()));
+            assertEquals(1L, envelope.get("protocolVersion"));
+            assertEquals("dump", envelope.get("command"));
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    void invalidProtocolProducesVersionOneParameterError() {
+        assertParameterError(executeCapturingError(
+                "--json", "--protocol", "2", "overview"));
+    }
+
+    @Test
+    void unknownOptionProducesVersionOneParameterError() {
+        assertParameterError(executeCapturingError(
+                "--json", "--protocol", "1", "--unknown-option", "overview"));
+    }
+
+    @Test
+    void unknownCommandProducesVersionOneParameterError() {
+        assertParameterError(executeCapturingError(
+                "--json", "--protocol", "1", "unknown-command"));
+    }
+
+    @Test
+    void missingArgumentProducesVersionOneParameterError() {
+        assertParameterError(executeCapturingError(
+                "--json", "--protocol", "1", "summary"));
+    }
+
+    @Test
+    void tinyAndSmallBudgetsForceVersionOneParameterErrorsWithoutJsonFlag() {
+        assertParameterError(executeCapturingError(
+                "--budget", "tiny", "--protocol", "1", "--unknown-option"));
+        assertParameterError(executeCapturingError(
+                "--budget", "small", "--protocol", "1", "--unknown-option"));
+    }
+
+    @Test
+    void configuredTinyBudgetForcesVersionOneParameterErrorWithoutJsonFlag(
+            @TempDir Path tempDir) throws Exception {
+        Path config = tempDir.resolve("jsrc.yaml");
+        Files.writeString(config, "budget: tiny\n");
+
+        assertParameterError(executeCapturingError(
+                "--config", config.toString(), "--protocol", "1", "--unknown-option"));
+    }
+
+    @Test
+    void earlyParameterErrorsRespectMinimumByteBudget() {
+        CapturedError result = executeCapturingError(
+                "--json", "--protocol", "1", "--max-bytes", "320",
+                "--unknown-option-with-a-long-name");
+
+        assertParameterError(result);
+        assertTrue(result.byteSize() <= 320);
+    }
+
+    @Test
+    void earlyParameterErrorsTruncateLongMessagesToRequestedByteBudget() {
+        String option = "--" + "unknown".repeat(200);
+        CapturedError result = executeCapturingError(
+                "--json", "--protocol", "1", "--max-bytes", "512", option);
+
+        assertParameterError(result);
+        assertTrue(result.byteSize() <= 512);
+    }
+
+    @Test
+    void noSubcommandShowsUsage() {
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            var cmd = JsrcCliFactory.create();
             int exitCode = cmd.execute();
             assertEquals(0, exitCode);
             String output = captured.toString();
@@ -82,4 +273,32 @@ class PicocliIntegrationTest {
             System.setOut(originalOut);
         }
     }
+
+    private CapturedError executeCapturingError(String... args) {
+        var originalErr = System.err;
+        var captured = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(captured));
+        try {
+            int exitCode = JsrcCliFactory.create().execute(args);
+            return new CapturedError(
+                    exitCode, captured.toString().trim(), captured.toByteArray().length);
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    private void assertParameterError(CapturedError result) {
+        assertEquals(2, result.exitCode());
+        java.util.Map<?, ?> envelope = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                java.util.Map.class,
+                com.jsrc.app.output.JsonReader.parse(result.output()));
+        assertEquals("error", envelope.get("status"));
+        java.util.List<?> diagnostics = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                java.util.List.class, envelope.get("diagnostics"));
+        java.util.Map<?, ?> diagnostic = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                java.util.Map.class, diagnostics.getFirst());
+        assertEquals("INVALID_ARGUMENT", diagnostic.get("code"));
+    }
+
+    private record CapturedError(int exitCode, String output, int byteSize) {}
 }

@@ -374,6 +374,42 @@ class CallChainTracerTest {
                 "Chains through different overloads should have different summaries");
     }
 
+    @Test
+    @DisplayName("Index callers resolve equal-arity overloads by canonical parameter types")
+    void shouldResolveCallersForEqualArityOverloadsViaIndex() throws Exception {
+        Path service = writeFile("Service.java", """
+                package com.app;
+                public class Service {
+                    public void process(String value) {}
+                    public void process(Integer value) {}
+                }
+                """);
+        Path caller = writeFile("Caller.java", """
+                package com.app;
+                public class Caller {
+                    private final Service service = new Service();
+                    public void callString(String value) { service.process(value); }
+                    public void callInteger(Integer value) { service.process(value); }
+                }
+                """);
+        var index = new com.jsrc.app.index.CodebaseIndex();
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(service, caller), tempDir, List.of());
+        CallGraphBuilder graph = new CallGraphBuilder();
+        graph.loadFromIndex(index.getEntries());
+        CallChainTracer tracer = new CallChainTracer(graph);
+
+        var stringTarget = new com.jsrc.app.parser.model.MethodReference(
+                "com.app.Service", "process", List.of("String"), null);
+        var integerTarget = new com.jsrc.app.parser.model.MethodReference(
+                "com.app.Service", "process", List.of("Integer"), null);
+
+        assertEquals(List.of("callString"), tracer.traceToRoots(stringTarget).stream()
+                .map(chain -> chain.root().methodName()).toList());
+        assertEquals(List.of("callInteger"), tracer.traceToRoots(integerTarget).stream()
+                .map(chain -> chain.root().methodName()).toList());
+    }
+
     private CallGraphBuilder buildGraph(Path... files) {
         CallGraphBuilder graph = new CallGraphBuilder();
         graph.build(List.of(files));

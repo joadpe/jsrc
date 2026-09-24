@@ -1,18 +1,5 @@
 package com.jsrc.app.cli;
 
-import picocli.CommandLine;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Mixin;
-import picocli.CommandLine.Option;
-import picocli.CommandLine.Parameters;
-
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
-
-import com.jsrc.app.ExitCode;
 import com.jsrc.app.codebase.CodeBaseLoader;
 import com.jsrc.app.codebase.JavaCodeBase;
 import com.jsrc.app.command.CommandContext;
@@ -20,141 +7,73 @@ import com.jsrc.app.config.ProjectConfig;
 import com.jsrc.app.index.IndexedCodebase;
 import com.jsrc.app.output.OutputFormatter;
 import com.jsrc.app.parser.HybridJavaParser;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Mixin;
+import picocli.CommandLine.Option;
 
-/**
- * Root command for jsrc CLI. Picocli entry point.
- * Subcommands are registered here. Global options are available
- * to all subcommands via the {@link GlobalOptions} mixin.
- */
 @Command(
-    name = "jsrc",
-    description = "Java source code navigator for AI agents",
-    version = "jsrc 2.1.0",
-    mixinStandardHelpOptions = true,
-    subcommands = {
-        CommandLine.HelpCommand.class,
-        // Navigation
-        com.jsrc.app.cli.adapters.OverviewAdapter.class,
-        com.jsrc.app.cli.adapters.ClassesAdapter.class,
-        com.jsrc.app.cli.adapters.SummaryAdapter.class,
-        com.jsrc.app.cli.adapters.MiniAdapter.class,
-        com.jsrc.app.cli.adapters.ReadAdapter.class,
-        com.jsrc.app.cli.adapters.HierarchyAdapter.class,
-        com.jsrc.app.cli.adapters.ImplementsAdapter.class,
-        com.jsrc.app.cli.adapters.DepsAdapter.class,
-        com.jsrc.app.cli.adapters.AnnotationsAdapter.class,
-        com.jsrc.app.cli.adapters.RelatedAdapter.class,
-        // Call graph
-        com.jsrc.app.cli.adapters.CallersAdapter.class,
-        com.jsrc.app.cli.adapters.CalleesAdapter.class,
-        com.jsrc.app.cli.adapters.CallChainAdapter.class,
-        com.jsrc.app.cli.adapters.ImpactAdapter.class,
-        com.jsrc.app.cli.adapters.TestForAdapter.class,
-        // Search
-        com.jsrc.app.cli.adapters.SearchAdapter.class,
-        com.jsrc.app.cli.adapters.FindAdapter.class,
-        com.jsrc.app.cli.adapters.ScopeAdapter.class,
-        com.jsrc.app.cli.adapters.UnusedAdapter.class,
-        // Analysis
-        com.jsrc.app.cli.adapters.SmellsAdapter.class,
-        com.jsrc.app.cli.adapters.ComplexityAdapter.class,
-        com.jsrc.app.cli.adapters.LintAdapter.class,
-        com.jsrc.app.cli.adapters.HotspotsAdapter.class,
-        com.jsrc.app.cli.adapters.PackagesAdapter.class,
-        com.jsrc.app.cli.adapters.StyleAdapter.class,
-        com.jsrc.app.cli.adapters.PatternsAdapter.class,
-        com.jsrc.app.cli.adapters.SnippetAdapter.class,
-        // Architecture
-        com.jsrc.app.cli.adapters.CheckAdapter.class,
-        com.jsrc.app.cli.adapters.EndpointsAdapter.class,
-        com.jsrc.app.cli.adapters.EntryPointsAdapter.class,
-        com.jsrc.app.cli.adapters.ValidateAdapter.class,
-        com.jsrc.app.cli.adapters.ImportsAdapter.class,
-        com.jsrc.app.cli.adapters.LayerAdapter.class,
-        // Reverse engineering
-        com.jsrc.app.cli.adapters.ContextAdapter.class,
-        com.jsrc.app.cli.adapters.ContextForAdapter.class,
-        com.jsrc.app.cli.adapters.ContractAdapter.class,
-        com.jsrc.app.cli.adapters.VerifyAdapter.class,
-        com.jsrc.app.cli.adapters.DriftAdapter.class,
-        com.jsrc.app.cli.adapters.DiffAdapter.class,
-        com.jsrc.app.cli.adapters.ChangedAdapter.class,
-        // Meta
-        com.jsrc.app.cli.adapters.IndexAdapter.class,
-        com.jsrc.app.cli.adapters.MapAdapter.class,
-        com.jsrc.app.cli.adapters.BatchAdapter.class,
-        com.jsrc.app.cli.adapters.WatchAdapter.class,
-        com.jsrc.app.cli.adapters.ExplainAdapter.class,
-        com.jsrc.app.cli.adapters.SimilarAdapter.class,
-        com.jsrc.app.cli.adapters.ResolveAdapter.class,
-        com.jsrc.app.cli.adapters.HistoryAdapter.class,
-        com.jsrc.app.cli.adapters.StatsAdapter.class,
-        com.jsrc.app.cli.adapters.ChecklistAdapter.class,
-        com.jsrc.app.cli.adapters.TypeCheckAdapter.class,
-        com.jsrc.app.cli.adapters.BreakingChangesAdapter.class,
-        com.jsrc.app.cli.adapters.DiffImpactAdapter.class,
-        com.jsrc.app.cli.adapters.DumpAdapter.class,
-        com.jsrc.app.cli.adapters.PerfAdapter.class,
-        com.jsrc.app.cli.adapters.SecurityAdapter.class,
-        com.jsrc.app.cli.adapters.TodoAdapter.class,
-        com.jsrc.app.cli.adapters.FlowAdapter.class,
-        com.jsrc.app.cli.adapters.DebtAdapter.class,
-        com.jsrc.app.cli.adapters.MigrateAdapter.class,
-        com.jsrc.app.cli.adapters.ApiAdapter.class,
-        com.jsrc.app.cli.adapters.CompatAdapter.class,
-        com.jsrc.app.cli.adapters.TourAdapter.class,
-        com.jsrc.app.cli.adapters.DocAdapter.class,
-        com.jsrc.app.cli.adapters.ScaffoldAdapter.class,
-        // Budget-aware meta
-        com.jsrc.app.cli.adapters.DescribeAdapter.class,
-        com.jsrc.app.cli.adapters.SkillAdapter.class,
-        // JFR integration
-        com.jsrc.app.cli.adapters.RecordAdapter.class,
-        com.jsrc.app.cli.adapters.ProfileAdapter.class,
-        com.jsrc.app.cli.adapters.HeapDumpAdapter.class,
-        com.jsrc.app.cli.adapters.HeapAnalyzeAdapter.class
-    }
-)
+        name = "jsrc",
+        description = "Java source code navigator for AI agents",
+        versionProvider = JsrcVersionProvider.class,
+        mixinStandardHelpOptions = true)
 public class JsrcCommand implements Runnable {
+
+    private final CommandCatalog commandCatalog;
 
     @Mixin
     GlobalOptions globalOptions = new GlobalOptions();
 
-    @Option(names = {"-d", "--dir"}, paramLabel = "<source-root>",
+    @Option(
+            names = {"-d", "--dir"},
+            paramLabel = "<source-root>",
             description = "Source root directory (defaults to current directory)",
-            defaultValue = ".", scope = CommandLine.ScopeType.INHERIT)
+            defaultValue = ".",
+            scope = CommandLine.ScopeType.INHERIT)
     String sourceRoot;
+
+    public JsrcCommand() {
+        this(DefaultCommandRegistry.create());
+    }
+
+    public JsrcCommand(CommandCatalog commandCatalog) {
+        this.commandCatalog = Objects.requireNonNull(commandCatalog, "commandCatalog");
+    }
+
+    public CommandCatalog commandCatalog() {
+        return commandCatalog;
+    }
 
     @Override
     public void run() {
-        // When invoked without subcommand, print help
         CommandLine.usage(this, System.out);
     }
 
-    /**
-     * Returns the global options mixin.
-     */
     public GlobalOptions globalOptions() {
         return globalOptions;
     }
 
+    public boolean versionedJsonEnabled() {
+        BudgetProfile profile = resolveBudgetProfile();
+        boolean effectiveJson = OutputModeResolver.effectiveJson(
+                globalOptions.jsonOutput(), globalOptions.mdOutput(), profile);
+        return effectiveJson
+                && globalOptions.jsonProtocol() == com.jsrc.app.output.JsonProtocol.V1;
+    }
 
-
-    /**
-     * Resolves the effective source root path.
-     * If --dir is set explicitly, use it. Otherwise use .jsrc.yaml config or ".".
-     */
     public String resolvedRoot() {
         if (sourceRoot != null && !".".equals(sourceRoot)) {
             return sourceRoot;
         }
-        // Default to current directory (config sourceRoots handled in buildContext)
         return ".";
     }
 
-    /**
-     * Loads project configuration from .jsrc.yaml.
-     */
     public ProjectConfig loadConfig() {
         if (globalOptions.configPath() != null) {
             return ProjectConfig.loadFrom(Path.of(globalOptions.configPath())).orElse(null);
@@ -162,113 +81,96 @@ public class JsrcCommand implements Runnable {
         return ProjectConfig.load(Path.of(".")).orElse(null);
     }
 
-    /**
-     * Resolves the effective budget profile with precedence: CLI > env > yaml > standard.
-     */
     public BudgetProfile resolveBudgetProfile() {
-        // Priority 1: CLI flag
-        if (globalOptions.budget() != null) {
-            return BudgetProfile.fromString(globalOptions.budget());
-        }
-        
-        // Priority 2: Environment variable
-        String envBudget = System.getenv("JSRC_BUDGET");
-        if (envBudget != null && !envBudget.isBlank()) {
-            return BudgetProfile.fromString(envBudget);
-        }
-        
-        // Priority 3: .jsrc.yaml config
-        ProjectConfig config = loadConfig();
-        if (config != null && config.budget() != null) {
-            return BudgetProfile.fromString(config.budget());
-        }
-        
-        // Priority 4: Default to standard
-        return BudgetProfile.STANDARD;
+        return OutputModeResolver.resolveBudgetProfile(
+                globalOptions.budget(), globalOptions.configPath());
     }
 
-    /**
-     * Builds a BudgetContext from resolved profile and options.
-     */
     public BudgetContext buildBudgetContext() {
         BudgetProfile profile = resolveBudgetProfile();
         return new BudgetContext(
-            profile,
-            globalOptions.limit(),
-            globalOptions.maxBytes(),
-            globalOptions.noBudgetMeta(),
-            globalOptions.noNextCommands(),
-            globalOptions.fields()
-        );
+                profile,
+                globalOptions.limit(),
+                globalOptions.maxBytes(),
+                globalOptions.noBudgetMeta(),
+                globalOptions.noNextCommands(),
+                globalOptions.fields());
     }
 
-    /**
-     * Builds a CommandContext from the current global options.
-     * This is the bridge between picocli-parsed options and the existing
-     * Command infrastructure.
-     */
     public CommandContext buildContext() {
-        return buildContext(null);
+        return buildContext(null, "unknown");
     }
 
-    /**
-     * Builds a CommandContext, optionally skipping index load for specific commands.
-     *
-     * @param skipIndex command name that doesn't need index (e.g., "--diff")
-     */
     public CommandContext buildContext(String skipIndex) {
+        return buildContext(skipIndex, "unknown");
+    }
+
+    public CommandContext buildContext(String skipIndex, String commandName) {
         String rootPath = resolvedRoot();
         ProjectConfig config = loadConfig();
         BudgetContext budgetContext = buildBudgetContext();
         BudgetProfile profile = budgetContext.profile();
-
-        // Force JSON output under budget profiles if --md is not set
-        boolean effectiveJson = globalOptions.jsonOutput() || 
-                                (profile.forceJson() && !globalOptions.mdOutput());
+        boolean effectiveJson = OutputModeResolver.effectiveJson(
+                globalOptions.jsonOutput(), globalOptions.mdOutput(), profile);
 
         var loader = new CodeBaseLoader();
-        var javaFiles = new ArrayList<Path>();
-        if (config != null && config.sourceRoots().size() > 1) {
+        var projectModel = new com.jsrc.app.project.ProjectModelDetector()
+                .detect(Path.of(rootPath));
+        var javaFiles = new ArrayList<Path>(
+                new com.jsrc.app.project.ProjectFileDiscovery().discover(projectModel));
+        if (config != null && !config.sourceRoots().isEmpty()) {
             for (String root : config.sourceRoots()) {
                 Path rootDir = Path.of(root);
-                if (!rootDir.isAbsolute()) rootDir = Path.of(rootPath).resolve(root);
+                if (!rootDir.isAbsolute()) {
+                    rootDir = Path.of(rootPath).resolve(root);
+                }
                 if (Files.isDirectory(rootDir)) {
                     javaFiles.addAll(loader.loadFilesFrom(rootDir.toString(), "java"));
                 }
             }
-        } else {
-            var project = new JavaCodeBase(rootPath, loader);
-            javaFiles.addAll(project.getFiles());
         }
 
-        // Apply excludes
+        javaFiles = new ArrayList<>(javaFiles.stream().distinct().sorted().toList());
+
         if (config != null && !config.excludes().isEmpty()) {
             javaFiles = new ArrayList<>(filterExcludes(javaFiles, config.excludes()));
         }
 
         var parser = new HybridJavaParser();
-        
-        // Create budget-aware formatter with shared budget context
         OutputFormatter formatter = OutputFormatter.create(
-                effectiveJson, 
-                globalOptions.signatureOnly(), 
+                effectiveJson,
+                globalOptions.signatureOnly(),
                 globalOptions.fields(),
                 System.out,
-                budgetContext);
+                budgetContext,
+                globalOptions.jsonProtocol(),
+                commandName);
+        IndexedCodebase indexed = skipIndex != null
+                ? null
+                : IndexedCodebase.tryLoad(
+                        projectModel.root(), javaFiles, globalOptions.frozenIndex());
 
-        IndexedCodebase indexed = skipIndex != null ? null
-                : IndexedCodebase.tryLoad(Paths.get(rootPath), javaFiles, globalOptions.frozenIndex());
-
-        return new CommandContext(javaFiles, rootPath, config, formatter, indexed, parser,
-                globalOptions.mdOutput(), globalOptions.outDir(),
-                globalOptions.fullOutput(), globalOptions.noTest(), budgetContext, globalOptions.frozenIndex());
+        return new CommandContext(
+                javaFiles,
+                rootPath,
+                config,
+                formatter,
+                indexed,
+                parser,
+                globalOptions.mdOutput(),
+                globalOptions.outDir(),
+                globalOptions.fullOutput(),
+                globalOptions.noTest(),
+                budgetContext,
+                globalOptions.frozenIndex(),
+                projectModel);
     }
 
     private static List<Path> filterExcludes(List<Path> files, List<String> excludes) {
         return files.stream()
-                .filter(f -> excludes.stream().noneMatch(ex -> {
-                    String pattern = ex.replace("**", ".*").replace("*", "[^/]*");
-                    return f.toString().matches(".*" + pattern + ".*");
+                .filter(file -> excludes.stream().noneMatch(exclude -> {
+                    String pattern = exclude.replace("**", ".*").replace("*", "[^/]*");
+                    return file.toString().matches(".*" + pattern + ".*");
                 }))
                 .toList();
     }

@@ -33,6 +33,7 @@ public final class CommandContext {
     private final boolean noTest;
     private final com.jsrc.app.cli.BudgetContext budgetContext;
     private final boolean frozenIndex;
+    private final com.jsrc.app.project.ProjectModel projectModel;
 
     private CallGraph callGraphCache;
     private DependencyAnalyzer dependencyAnalyzerCache;
@@ -72,6 +73,15 @@ public final class CommandContext {
                           OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
                           boolean mdOutput, String outDir, boolean fullOutput, boolean noTest,
                           com.jsrc.app.cli.BudgetContext budgetContext, boolean frozenIndex) {
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir,
+                fullOutput, noTest, budgetContext, frozenIndex, null);
+    }
+
+    public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
+                          OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
+                          boolean mdOutput, String outDir, boolean fullOutput, boolean noTest,
+                          com.jsrc.app.cli.BudgetContext budgetContext, boolean frozenIndex,
+                          com.jsrc.app.project.ProjectModel projectModel) {
         this.javaFiles = javaFiles;
         this.rootPath = rootPath;
         this.config = config;
@@ -84,6 +94,7 @@ public final class CommandContext {
         this.noTest = noTest;
         this.budgetContext = budgetContext;
         this.frozenIndex = frozenIndex;
+        this.projectModel = projectModel;
     }
 
     public List<Path> javaFiles() { return javaFiles; }
@@ -98,6 +109,7 @@ public final class CommandContext {
     public boolean noTest() { return noTest; }
     public com.jsrc.app.cli.BudgetContext budgetContext() { return budgetContext; }
     public boolean frozenIndex() { return frozenIndex; }
+    public com.jsrc.app.project.ProjectModel projectModel() { return projectModel; }
 
     private java.util.Map<String, String> qualifiedNameCache;
 

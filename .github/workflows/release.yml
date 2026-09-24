@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -19,29 +20,35 @@ jobs:
           distribution: 'temurin'
           java-version: '22'
           cache: 'maven'
-      - name: Install Tree-sitter native libraries
-        run: |
-          git clone --depth 1 https://github.com/tree-sitter/tree-sitter.git /tmp/tree-sitter
-          cd /tmp/tree-sitter && make -j$(nproc)
-          sudo make install PREFIX=/usr/local
-          git clone --depth 1 https://github.com/tree-sitter/tree-sitter-java.git /tmp/tree-sitter-java
-          cd /tmp/tree-sitter-java
-          cc -shared -fPIC -Isrc src/parser.c -o libtree-sitter-java.so
-          sudo cp libtree-sitter-java.so /usr/local/lib/
-          sudo ldconfig
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: scripts/verify-release-version.sh "${GITHUB_REF_NAME}"
       - name: Build fat JAR
-        run: mvn package -DskipTests -Djava.library.path=/usr/local/lib
-        env:
-          MAVEN_OPTS: "--enable-native-access=ALL-UNNAMED"
+        run: mvn -B -DskipTests package
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: jsrc-jar
           path: target/jsrc.jar
+          if-no-files-found: error
 
-  native-linux-x64:
-    runs-on: ubuntu-latest
+  native-unix:
+    name: Native ${{ matrix.target }}
     needs: build-jar
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-latest
+            archive: jsrc-linux-x64.tar.gz
+          - target: macos-x64
+            runner: macos-15-intel
+            archive: jsrc-macos-x64.tar.gz
+          - target: macos-arm64
+            runner: macos-15
+            archive: jsrc-macos-arm64.tar.gz
     steps:
       - uses: actions/checkout@v4
       - name: Download JAR
@@ -54,46 +61,21 @@ jobs:
         with:
           java-version: '25'
           distribution: 'graalvm-community'
-      - name: Install Tree-sitter native libraries
-        run: |
-          git clone --depth 1 https://github.com/tree-sitter/tree-sitter.git /tmp/tree-sitter
-          cd /tmp/tree-sitter && make -j$(nproc)
-          sudo make install PREFIX=/usr/local
-          git clone --depth 1 https://github.com/tree-sitter/tree-sitter-java.git /tmp/tree-sitter-java
-          cd /tmp/tree-sitter-java
-          cc -shared -fPIC -Isrc src/parser.c -o libtree-sitter-java.so
-          sudo cp libtree-sitter-java.so /usr/local/lib/
-          sudo ldconfig
-      - name: Build native image
-        run: |
-          native-image --enable-native-access=ALL-UNNAMED \
-            -Djava.library.path=/usr/local/lib \
-            -jar target/jsrc.jar \
-            -o jsrc-linux-x64 \
-            -H:+UnlockExperimentalVMOptions \
-            -H:+SharedArenaSupport \
-            --no-fallback
-      - name: Smoke test (basic)
-        run: |
-          ./jsrc-linux-x64 --help > /dev/null
-          ./jsrc-linux-x64 --version
-          echo "✓ Native binary starts"
-      - name: Smoke test (full)
-        run: |
-          # Index jsrc's own codebase as test target
-          ./jsrc-linux-x64 -d . index 2>&1 || true
-          # Run full smoke test with performance gates
-          chmod +x scripts/smoke-test.sh
-          ./scripts/smoke-test.sh ./jsrc-linux-x64 .
-      - name: Upload native artifact
+      - name: Install Linux native dependencies
+        if: matrix.target == 'linux-x64'
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      - name: Build and smoke-test native bundle
+        run: scripts/build-native-unix.sh "${{ matrix.target }}"
+      - name: Upload native bundle
         uses: actions/upload-artifact@v4
         with:
-          name: jsrc-linux-x64
-          path: jsrc-linux-x64
+          name: jsrc-${{ matrix.target }}
+          path: dist/${{ matrix.archive }}
+          if-no-files-found: error
 
-  native-macos-arm64:
-    runs-on: macos-14
+  native-windows-x64:
     needs: build-jar
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Download JAR
@@ -106,62 +88,38 @@ jobs:
         with:
           java-version: '25'
           distribution: 'graalvm-community'
-      - name: Install Tree-sitter native libraries
-        run: |
-          git clone --depth 1 https://github.com/tree-sitter/tree-sitter.git /tmp/tree-sitter
-          cd /tmp/tree-sitter && make -j$(sysctl -n hw.ncpu)
-          sudo make install PREFIX=/usr/local
-          git clone --depth 1 https://github.com/tree-sitter/tree-sitter-java.git /tmp/tree-sitter-java
-          cd /tmp/tree-sitter-java
-          cc -dynamiclib -fPIC -Isrc src/parser.c \
-            -L/usr/local/lib -ltree-sitter \
-            -install_name @rpath/libtree-sitter-java.dylib \
-            -o libtree-sitter-java.dylib
-          sudo cp libtree-sitter-java.dylib /usr/local/lib/
-      - name: Build native image
-        run: |
-          native-image --enable-native-access=ALL-UNNAMED \
-            -Djava.library.path=/usr/local/lib \
-            -jar target/jsrc.jar \
-            -o jsrc-macos-arm64 \
-            -H:+UnlockExperimentalVMOptions \
-            -H:+SharedArenaSupport \
-            --no-fallback
-      - name: Smoke test
-        run: |
-          ./jsrc-macos-arm64 --help > /dev/null
-          ./jsrc-macos-arm64 --version
-          echo "✓ Native binary works"
-      - name: Upload native artifact
+      - name: Build and smoke-test native bundle
+        shell: pwsh
+        run: ./scripts/build-native-windows.ps1
+      - name: Upload native bundle
         uses: actions/upload-artifact@v4
         with:
-          name: jsrc-macos-arm64
-          path: jsrc-macos-arm64
+          name: jsrc-windows-x64
+          path: dist/jsrc-windows-x64.zip
+          if-no-files-found: error
 
   release:
     runs-on: ubuntu-latest
-    needs: [build-jar, native-linux-x64, native-macos-arm64]
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-jar, native-unix, native-windows-x64]
     permissions:
       contents: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
-      - name: Prepare release assets
-        run: |
-          mkdir -p release
-          cp artifacts/jsrc-jar/jsrc.jar release/
-          cp artifacts/jsrc-linux-x64/jsrc-linux-x64 release/
-          cp artifacts/jsrc-macos-arm64/jsrc-macos-arm64 release/
-          chmod +x release/jsrc-*
-          cd release && sha256sum * > checksums.txt
-      - name: Create Release
+          pattern: jsrc-*
+          path: release/
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: release
+        run: sha256sum jsrc.jar jsrc-*.tar.gz jsrc-*.zip > checksums.txt
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             release/jsrc.jar
-            release/jsrc-linux-x64
-            release/jsrc-macos-arm64
+            release/jsrc-*.tar.gz
+            release/jsrc-*.zip
             release/checksums.txt
           generate_release_notes: true

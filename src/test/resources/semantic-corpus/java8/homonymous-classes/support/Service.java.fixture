@@ -1,0 +1,5 @@
+package corpus.java8.support;
+
+public class Service {
+    public void save(Integer value) {}
+}

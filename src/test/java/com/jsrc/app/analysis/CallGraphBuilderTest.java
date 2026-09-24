@@ -98,7 +98,8 @@ class CallGraphBuilderTest {
 
         builder.build(List.of(serviceFile, orchestratorFile));
 
-        MethodReference orch = new MethodReference("Orch", "orchestrate", 1, orchestratorFile);
+        MethodReference orch = new MethodReference(
+                "Orch", "orchestrate", List.of("Svc"), orchestratorFile);
         Set<MethodCall> callees = builder.getCalleesOf(orch);
         assertTrue(callees.stream().anyMatch(c ->
                 c.callee().className().equals("Svc") && c.callee().methodName().equals("execute")),
@@ -421,6 +422,52 @@ class CallGraphBuilderTest {
         assertTrue(call2HasOther, "call(String,int) should call other()");
     }
 
+    @Test
+    @DisplayName("Equal-arity overloaded callers retain distinct index edges")
+    void equalArityOverloadedCallersDistinct() throws IOException {
+        Path file = writeFile("EqualArityCaller.java", """
+                public class EqualArityCaller {
+                    public void call(String value) { target(); }
+                    public void call(Integer value) { other(); }
+                    private void target() {}
+                    private void other() {}
+                }
+                """);
+        var index = new com.jsrc.app.index.CodebaseIndex();
+        index.build(new com.jsrc.app.parser.HybridJavaParser(), List.of(file), tempDir, List.of());
+        var loaded = new CallGraphBuilder();
+        loaded.loadFromIndex(index.getEntries());
+
+        MethodReference stringCaller = new MethodReference(
+                "EqualArityCaller", "call", List.of("String"), null);
+        MethodReference integerCaller = new MethodReference(
+                "EqualArityCaller", "call", List.of("Integer"), null);
+
+        assertTrue(loaded.getCalleesOf(stringCaller).stream()
+                .anyMatch(call -> call.callee().methodName().equals("target")));
+        assertTrue(loaded.getCalleesOf(integerCaller).stream()
+                .anyMatch(call -> call.callee().methodName().equals("other")));
+    }
+
+    @Test
+    @DisplayName("Direct graph preserves canonical edges through parameterized methods")
+    void directGraphPreservesParameterizedCallerEdges() throws IOException {
+        Path file = writeFile("DeepService.java", """
+                public class DeepService {
+                    public void processAll() { processItem("value"); }
+                    private void processItem(String value) { writeResult(value); }
+                    private void writeResult(String value) {}
+                }
+                """);
+
+        builder.build(List.of(file));
+
+        MethodReference processItem = new MethodReference(
+                "DeepService", "processItem", List.of("String"), file);
+        assertTrue(builder.getCalleesOf(processItem).stream()
+                .anyMatch(call -> call.callee().methodName().equals("writeResult")));
+    }
+
     // ---- Field access chain resolution (jsrc-xum) ----
 
     @Test
@@ -454,6 +501,7 @@ class CallGraphBuilderTest {
     @DisplayName("TC2: build resolves field access on this")
     void fieldAccessOnThis() throws IOException {
         Path file = writeFile("Service.java", """
+                package com.app;
                 public class Service {
                     public StringBuilder buffer = new StringBuilder();
                     public void run() {
@@ -464,12 +512,37 @@ class CallGraphBuilderTest {
 
         builder.build(List.of(file));
 
-        MethodReference run = new MethodReference("Service", "run", 0, file);
+        MethodReference run = new MethodReference("com.app.Service", "run", 0, file);
         Set<MethodCall> callees = builder.getCalleesOf(run);
         assertTrue(callees.stream().anyMatch(c ->
                 c.callee().methodName().equals("toString")
                         && c.callee().className().equals("StringBuilder")),
                 "this.buffer.toString() should resolve to StringBuilder.toString()");
+    }
+
+    @Test
+    @DisplayName("loadFromIndex resolves this.field.method() inside a package")
+    void fieldAccessOnThisViaIndexWithPackage() throws IOException {
+        Path file = writeFile("PackagedService.java", """
+                package com.app;
+                public class PackagedService {
+                    public StringBuilder buffer = new StringBuilder();
+                    public void run() {
+                        this.buffer.toString();
+                    }
+                }
+                """);
+        var index = new com.jsrc.app.index.CodebaseIndex();
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+        var loaded = new CallGraphBuilder();
+        loaded.loadFromIndex(index.getEntries());
+
+        MethodReference run = new MethodReference("com.app.PackagedService", "run", 0, null);
+        assertTrue(loaded.getCalleesOf(run).stream().anyMatch(call ->
+                        call.callee().className().equals("StringBuilder")
+                                && call.callee().methodName().equals("toString")),
+                "Packaged this.buffer.toString() should resolve to StringBuilder.toString()");
     }
 
     @Test
@@ -495,7 +568,8 @@ class CallGraphBuilderTest {
 
         builder.build(List.of(orderFile, customerFile, processorFile));
 
-        MethodReference process = new MethodReference("Processor", "process", 1, processorFile);
+        MethodReference process = new MethodReference(
+                "Processor", "process", List.of("Order"), processorFile);
         Set<MethodCall> callees = builder.getCalleesOf(process);
         assertTrue(callees.stream().anyMatch(c ->
                 c.callee().methodName().equals("getAddress")

@@ -15,37 +15,132 @@ All responses are compact JSON optimized for token efficiency.
 
 ## Installation
 
-### macOS / Linux (recommended)
+Native release bundles include the executable and the Tree-sitter libraries required at runtime. Verify downloads with `checksums.txt` from the same release.
+
+### Linux x64
 
 ```bash
-brew install jsrc
+curl -fsSL https://github.com/joadpe/jsrc/releases/latest/download/jsrc-linux-x64.tar.gz -o /tmp/jsrc.tar.gz
+tar -xzf /tmp/jsrc.tar.gz -C /tmp
+mkdir -p ~/.local/bin ~/lib
+install /tmp/jsrc-linux-x64/jsrc ~/.local/bin/jsrc
+install /tmp/jsrc-linux-x64/lib/*.so ~/lib/
+export PATH="$HOME/.local/bin:$PATH"
+jsrc describe --json
 ```
 
-Or install the native binary directly:
+Persist `~/.local/bin` in `PATH` through your shell profile.
+
+### macOS
+
+Both Apple Silicon and Intel are published:
 
 ```bash
-curl -fsSL https://github.com/joadpe/jsrc/releases/latest/download/jsrc-$(uname -s | tr A-Z a-z)-$(uname -m) \
-  -o ~/bin/jsrc
-chmod +x ~/bin/jsrc
+case "$(uname -m)" in
+  arm64) asset="jsrc-macos-arm64" ;;
+  x86_64) asset="jsrc-macos-x64" ;;
+  *) echo "Unsupported architecture"; exit 1 ;;
+esac
+
+curl -fsSL "https://github.com/joadpe/jsrc/releases/latest/download/$asset.tar.gz" -o /tmp/jsrc.tar.gz
+tar -xzf /tmp/jsrc.tar.gz -C /tmp
+mkdir -p ~/.local/bin ~/lib
+install "/tmp/$asset/jsrc" ~/.local/bin/jsrc
+install "/tmp/$asset/lib/"*.dylib ~/lib/
+export PATH="$HOME/.local/bin:$PATH"
+jsrc describe --json
 ```
 
-### From source
+Persist `~/.local/bin` in `PATH` through your shell profile.
+
+### Windows x64
+
+Run in PowerShell:
+
+```powershell
+$archive = "$env:TEMP\jsrc-windows-x64.zip"
+$extract = "$env:TEMP\jsrc-install"
+$bin = "$env:LOCALAPPDATA\jsrc\bin"
+$lib = "$env:USERPROFILE\lib"
+
+Invoke-WebRequest "https://github.com/joadpe/jsrc/releases/latest/download/jsrc-windows-x64.zip" -OutFile $archive
+Remove-Item $extract -Recurse -Force -ErrorAction SilentlyContinue
+Expand-Archive $archive -DestinationPath $extract
+New-Item -ItemType Directory -Force -Path $bin, $lib | Out-Null
+Copy-Item "$extract\jsrc-windows-x64\jsrc.exe" "$bin\jsrc.exe"
+Copy-Item "$extract\jsrc-windows-x64\lib\*.dll" $lib
+
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (($userPath -split ";") -notcontains $bin) {
+    [Environment]::SetEnvironmentVariable("Path", "$userPath;$bin", "User")
+}
+$env:Path += ";$bin"
+jsrc describe --json
+```
+
+## Build native binaries from source
+
+All platforms require Git, Maven, GraalVM Community 25+, and the repository:
 
 ```bash
 git clone https://github.com/joadpe/jsrc.git
 cd jsrc
-mvn clean package -DskipTests
-java -jar target/jsrc.jar [command]
+mvn -B -DskipTests package
 ```
 
-### Native binary (fastest)
+The build scripts compile Tree-sitter from pinned immutable commits, build the native image, run functional index, overview, and read smoke tests, verify that an invalid command fails, and create the distribution archive.
 
-Requires GraalVM CE 25+:
+### Linux
+
+Install a C compiler first (for Debian/Ubuntu: `sudo apt install build-essential zlib1g-dev`), then run:
 
 ```bash
-sdk install java 25.0.2-graalce
-mvn clean package -DskipTests
-native-image -jar target/jsrc.jar -o target/jsrc
+scripts/build-native-unix.sh linux-x64
+```
+
+Output: `dist/jsrc-linux-x64.tar.gz`.
+
+### macOS from source
+
+Install Xcode Command Line Tools with `xcode-select --install`, then run the command matching the machine:
+
+```bash
+scripts/build-native-unix.sh macos-arm64  # Apple Silicon
+scripts/build-native-unix.sh macos-x64    # Intel
+```
+
+Output: `dist/jsrc-macos-arm64.tar.gz` or `dist/jsrc-macos-x64.tar.gz`.
+
+### Windows from source
+
+Install:
+
+- Visual Studio 2022 Build Tools with **Desktop development with C++**
+- Git
+- Maven
+- GraalVM Community 25+, with `JAVA_HOME` and `native-image.cmd` in `PATH`
+
+The Windows build is implemented by `scripts/build-native-windows.ps1`.
+
+Open PowerShell and run (the script imports the Visual Studio build environment through `vswhere.exe`):
+
+```powershell
+git clone https://github.com/joadpe/jsrc.git
+cd jsrc
+mvn -B -DskipTests package
+.\scripts\build-native-windows.ps1
+```
+
+Output: `dist\jsrc-windows-x64.zip`.
+
+### Run the JAR
+
+The JAR requires Java 22+ and the Tree-sitter native libraries from the matching bundle:
+
+```bash
+java --enable-native-access=ALL-UNNAMED \
+  -Djava.library.path="$HOME/lib" \
+  -jar target/jsrc.jar describe --json
 ```
 
 ## Quick Start
@@ -63,86 +158,82 @@ jsrc callers validate --json  # Who calls this method?
 
 ## Commands
 
-### Navigation
-
-| Command | Description |
-|---------|-------------|
-| `overview` | Stats: files, classes, interfaces, methods, packages |
-| `classes` | List all classes/interfaces/enums/records (ranked by callers) |
-| `summary <Class>` | Class metadata + method signatures (no bodies) |
-| `mini <Class>` | Quick class overview (~120 tokens, prefer over summary) |
-| `read <Class>` | Full source code of a class |
-| `read <Class.method>` | Source code of a specific method |
-| `hierarchy <Class>` | Inheritance tree: extends, implements, subclasses |
-| `implements <Interface>` | Find all implementors of an interface |
-| `deps <Class>` | Dependencies: imports, fields, constructor params |
-| `annotations <Name>` | Find all elements with a specific annotation |
-| `related <Class>` | Related classes by coupling (shared imports/callers) |
-
-### Call Graph
-
-| Command | Description |
-|---------|-------------|
-| `callers <method>` | Who calls this method? (includes reflective calls) |
-| `callers <Class.method> --full` | Full signature + caller count |
-| `callees <method>` | What does this method call? |
-| `call-chain <method>` | Full call chains from roots to target |
-| `impact <method>` | Change risk: callers + transitive callers + depth |
-| `test-for <method>` | Find tests that cover this method |
-
-### Search
-
-| Command | Description |
-|---------|-------------|
-| `search <pattern>` | Text search (supports OR: `TODO\|FIXME`) |
-| `find <keywords>` | Semantic search by keywords |
-| `scope <task>` | Find relevant classes for a task |
-| `unused` | Dead code: classes/methods never called |
-
-### Analysis
-
-| Command | Description |
-|---------|-------------|
-| `smells <Class>` | Code smells for a class (12 rules) |
-| `smells --all` | All smells in codebase (with topFindings) |
-| `complexity <Class>` | Cyclomatic complexity per method |
-| `complexity --all` | Top 30 classes by complexity |
-| `lint <Class>` | Pre-compile checks + architecture rules |
-| `lint --all` | God classes, mutable statics, high-param methods |
-| `hotspots` | Top classes by callers + imports + test coverage |
-| `packages` | Package stats: import counts, circular deps |
-| `style` | Code style conventions (~75 tokens) |
-| `patterns` | Naming patterns and layer conventions |
-| `snippet <type>` | Code template (service, controller, repo) |
-
-### Architecture
-
-| Command | Description |
-|---------|-------------|
-| `check` | Evaluate all architecture rules from `.jsrc.yaml` |
-| `check <ruleId>` | Evaluate a specific rule |
-| `endpoints` | REST endpoints (path, HTTP method, controller) |
-| `entry-points` | Main methods and entry points |
-| `validate <Method(Type1,Type2)>` | Validate method exists with exact signature |
-
-### Reverse Engineering
-
-| Command | Description |
-|---------|-------------|
-| `context <Class> --json` | Full context: summary + deps + hierarchy + call graph + smells + source |
-| `context <Class> --md` | Markdown spec draft for the class |
-| `contract <Interface>` | Formal contract: methods, params, throws, javadoc |
-| `verify <Class> --spec spec.md` | Compare implementation against spec |
-| `drift` | Architecture check + changed file detection |
-| `diff` | Files changed since last index (by content hash) |
-| `changed` | Java files changed in git (vs HEAD) |
-
-### Meta
-
-| Command | Description |
-|---------|-------------|
-| `index` | Build/refresh persistent index |
-| `dump` | Dump binary index as JSON (debugging) |
+<!-- BEGIN GENERATED COMMAND CATALOG -->
+| Command | Category | Summary |
+|---|---|---|
+| `help` | meta | When no COMMAND is given, the usage help for the main command is displayed. |
+| `overview` | navigation | Codebase overview: files, classes, methods, packages |
+| `classes` | navigation | List all classes/interfaces/enums/records (ranked by callers) |
+| `summary` | navigation | Class metadata + method signatures |
+| `mini` | navigation | Quick class overview (~120 tokens) |
+| `read` | navigation | Source code of a class or method |
+| `hierarchy` | navigation | Inheritance tree: extends, implements, subclasses |
+| `implements` | navigation | Find all implementors of an interface |
+| `deps` | navigation | Dependencies: imports, fields, constructor params |
+| `annotations` | navigation | Find all elements with a specific annotation |
+| `related` | navigation | Related classes by coupling (shared imports/callers) |
+| `callers` | call-graph | Find all methods that call a given method |
+| `callees` | call-graph | Find all methods called by a given method |
+| `call-chain` | call-graph | Full call chains from roots to target |
+| `impact` | call-graph | Change risk: callers + transitive callers + depth |
+| `test-for` | call-graph | Find tests that cover a method |
+| `search` | search | Text search (supports OR: TODO\|FIXME) |
+| `find` | search | Semantic search by keywords |
+| `scope` | search | Find relevant classes for a task |
+| `unused` | search | Dead code: classes/methods never called |
+| `smells` | analysis | Code smell detection (9 rules) |
+| `complexity` | analysis | Cyclomatic complexity per method |
+| `lint` | analysis | Pre-compile checks + architecture rules |
+| `hotspots` | analysis | Top classes by callers + imports + test coverage |
+| `packages` | analysis | Package stats import counts circular deps |
+| `style` | analysis | Code style conventions |
+| `patterns` | analysis | Naming patterns and layer conventions |
+| `snippet` | analysis | Code template service controller repo |
+| `check` | architecture | Evaluate architecture rules from .jsrc.yaml |
+| `endpoints` | architecture | REST endpoints path HTTP method controller |
+| `entry-points` | architecture | Main methods and entry points |
+| `validate` | architecture | Validate method exists with exact signature |
+| `imports` | architecture | Who imports this class |
+| `layer` | architecture | List classes in an architectural layer |
+| `context` | reverse-engineering | Full context: summary + deps + hierarchy + call graph + smells + source |
+| `context-for` | reverse-engineering | Find relevant context for a task |
+| `contract` | reverse-engineering | Formal contract methods params throws javadoc |
+| `verify` | reverse-engineering | Compare implementation against Markdown spec |
+| `drift` | reverse-engineering | Architecture check + changed file detection |
+| `diff` | reverse-engineering | Files changed since last index by content hash |
+| `changed` | reverse-engineering | Java files changed in git vs HEAD |
+| `index` | meta | Build or refresh persistent codebase index |
+| `map` | meta | Visual codebase map |
+| `batch` | meta | Execute multiple queries from stdin |
+| `watch` | meta | Daemon mode send queries via stdin |
+| `explain` | meta | Detailed explanation of a class |
+| `similar` | meta | Find similar classes |
+| `resolve` | meta | Resolve a simple name to fully qualified |
+| `history` | meta | Change history for a class |
+| `stats` | meta | Metrics for a class |
+| `checklist` | meta | Review checklist for a class |
+| `type-check` | meta | Type check a class |
+| `breaking-changes` | meta | Impact of breaking changes to a class |
+| `diff-impact` | meta | Impact analysis of changed files |
+| `dump` | meta | Dump binary index as JSON to stdout (debugging) |
+| `perf` | meta | Detect performance bottlenecks (loops with linear scan, I/O, allocations) |
+| `security` | meta | Static security analysis — SQL injection, path traversal, XXE, secrets |
+| `todo` | meta | Extract TODO/FIXME/HACK/XXX with git blame context |
+| `flow` | meta | Trace execution flow downward (happy path) |
+| `debt` | meta | Technical debt score with ranking |
+| `migrate` | meta | Detect Java modernization opportunities (Java 8→17/21) |
+| `api` | meta | List public API: classes + methods grouped by package |
+| `compat` | meta | Check compatibility for Java version migration |
+| `tour` | meta | Guided tour of the codebase for onboarding |
+| `doc` | meta | Generate Javadoc drafts for undocumented methods |
+| `scaffold` | meta | Generate code following project conventions |
+| `describe` | meta | List available commands (budget-aware) |
+| `skill` | meta | Compact skill guide for agents (budget-aware) |
+| `record` | jfr | Record JFR data from a running JVM |
+| `profile` | jfr | Profile a JFR recording file |
+| `heap-dump` | jfr | Generate heap dump from a running JVM |
+| `heap-analyze` | jfr | Live memory analysis of a running JVM |
+<!-- END GENERATED COMMAND CATALOG -->
 
 ## Global Flags
 
@@ -151,6 +242,7 @@ Flags work before or after the subcommand: `jsrc --json overview` = `jsrc overvi
 | Flag | Description |
 |------|-------------|
 | `--json` | Machine-readable JSON (always use for agents) |
+| `--protocol legacy\|1\|latest` | JSON protocol version (default: legacy) |
 | `--md` | Markdown output (for context command) |
 | `--metrics` | Append execution metrics to stderr |
 | `--full` | Verbose output (full signatures, all details) |
@@ -161,6 +253,20 @@ Flags work before or after the subcommand: `jsrc --json overview` = `jsrc overvi
 | `--limit N` | Maximum number of items in output lists |
 | `--max-bytes N` | Maximum output size in bytes |
 | `--no-budget-meta` | Omit _budget metadata from JSON output |
+
+## Versioned JSON protocol
+
+The existing JSON shapes remain the default under `--protocol legacy`. Agents that need a
+stable envelope can opt into protocol v1:
+
+```bash
+jsrc overview --json --protocol 1
+```
+
+Every v1 document contains `schema`, `protocolVersion`, `command`, `status`, `data`,
+`diagnostics`, and `meta`. Status is one of `ok`, `empty`, `partial`, or `error`.
+`watch` emits one complete v1 envelope per line. In v1, output limits remove complete
+payload fields or items and preserve valid JSON plus truncation diagnostics.
 
 ## Budget Profiles
 
@@ -214,7 +320,8 @@ All JSON output under budget includes `_budget` metadata (opt-out: `--no-budget-
 {"_budget":{"profile":"tiny","degradedFrom":"summary","applied":["limit:10"],"truncated":true},"name":"OrderService",...}
 ```
 
-**Important:** Array-shaped JSON responses preserve their contract (no wrapper object). `_budget` metadata is only added to object roots.
+**Legacy protocol:** Array-shaped responses preserve their root contract and `_budget`
+metadata is only added to object roots. Protocol v1 always uses the stable envelope.
 
 ## CLI Dialect
 

@@ -238,11 +238,13 @@ class CallChainCommandTest {
         boolean hasNewFactoryEdge = false;
         for (var entry : index.getEntries()) {
             for (var edge : entry.callEdges()) {
-                if (edge.callerClass().equals("Factory") && edge.callerMethod().equals("Factory")
+                if (edge.callerClass().equals("com.test.Factory")
+                        && edge.callerMethod().equals("Factory")
                         && edge.calleeMethod().equals("doWork")) {
                     hasConstructorEdge = true;
                 }
-                if (edge.callerClass().equals("Main") && edge.calleeClass().equals("Factory")
+                if (edge.callerClass().equals("com.test.Main")
+                        && edge.calleeClass().equals("Factory")
                         && edge.calleeMethod().equals("Factory")) {
                     hasNewFactoryEdge = true;
                 }

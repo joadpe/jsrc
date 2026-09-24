@@ -18,23 +18,46 @@ public final class SignatureUtils {
      * @return "(Type1, Type2)" or "()" if no params or unparseable
      */
     public static String extractParams(String signature) {
+        List<String> parameterTypes = extractParameterTypes(signature);
+        return "(" + String.join(", ", parameterTypes) + ")";
+    }
+
+    /**
+     * Extracts and normalizes parameter types from a method signature.
+     */
+    public static List<String> extractParameterTypes(String signature) {
+        if (signature == null) return List.of();
         int open = signature.indexOf('(');
         int close = signature.lastIndexOf(')');
-        if (open < 0 || close < 0 || close <= open) return "()";
+        if (open < 0 || close < 0 || close <= open) return List.of();
         String inner = signature.substring(open + 1, close).trim();
-        if (inner.isEmpty()) return "()";
+        if (inner.isEmpty()) return List.of();
 
         List<String> params = splitOutsideGenerics(inner);
-        StringBuilder sb = new StringBuilder("(");
-        for (int i = 0; i < params.size(); i++) {
-            String part = params.get(i).trim();
-            // Take type only (first token), skip param name
-            String[] tokens = part.split("\\s+");
-            sb.append(tokens[0]);
-            if (i < params.size() - 1) sb.append(", ");
-        }
-        sb.append(")");
-        return sb.toString();
+        return params.stream()
+                .map(SignatureUtils::extractParameterType)
+                .toList();
+    }
+
+    /**
+     * Normalizes a type for canonical method identity.
+     */
+    public static String normalizeType(String type) {
+        String normalized = type.trim()
+                .replace("...", "[]")
+                .replaceAll("\\s+", "")
+                .replace(",", ",");
+        return normalized;
+    }
+
+    /**
+     * Parses and normalizes a comma-separated parameter type list.
+     */
+    public static List<String> parseParameterTypes(String parameterTypes) {
+        if (parameterTypes == null || parameterTypes.isBlank()) return List.of();
+        return splitOutsideGenerics(parameterTypes).stream()
+                .map(SignatureUtils::normalizeType)
+                .toList();
     }
 
     /**
@@ -81,4 +104,20 @@ public final class SignatureUtils {
         result.add(params.substring(start));
         return result;
     }
+
+    private static String extractParameterType(String parameter) {
+        String value = parameter.trim()
+                .replaceFirst("^(?:final\\s+)", "");
+        int genericDepth = 0;
+        for (int i = value.length() - 1; i >= 0; i--) {
+            char c = value.charAt(i);
+            if (c == '>') genericDepth++;
+            else if (c == '<') genericDepth--;
+            else if (Character.isWhitespace(c) && genericDepth == 0) {
+                return normalizeType(value.substring(0, i));
+            }
+        }
+        return normalizeType(value);
+    }
+
 }

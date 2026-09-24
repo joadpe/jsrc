@@ -160,7 +160,7 @@ public class CallChainTracer {
             return Set.of();
         }
 
-        // Fuzzy match: same method name + compatible param count.
+        // Fuzzy match: same method name + compatible canonical parameters.
         // Only match across classes if target class is unresolved ("?"),
         // otherwise require same class name to avoid mixing callers
         // from unrelated methods with the same name.
@@ -168,8 +168,8 @@ public class CallChainTracer {
         boolean unresolvedTarget = "?".equals(target.className()) || target.className() == null;
         for (MethodReference registered : graph.getAllCallerIndexKeys()) {
             if (!registered.methodName().equals(target.methodName())) continue;
-            if (!matchesParameterCount(registered, target)) continue;
-            if (!unresolvedTarget && !registered.className().equals(target.className())) continue;
+            if (!matchesParameters(registered, target)) continue;
+            if (!unresolvedTarget && !classMatches(registered.className(), target.className())) continue;
             fuzzy.addAll(graph.getCallersOf(registered));
         }
         return fuzzy;
@@ -200,8 +200,17 @@ public class CallChainTracer {
         return text.matches(regex.toString());
     }
 
-    private boolean matchesParameterCount(MethodReference a, MethodReference b) {
+    private boolean matchesParameters(MethodReference a, MethodReference b) {
+        if (a.hasKnownParameterTypes() && b.hasKnownParameterTypes()) {
+            return a.parameterTypes().equals(b.parameterTypes());
+        }
         if (a.parameterCount() < 0 || b.parameterCount() < 0) return true;
         return a.parameterCount() == b.parameterCount();
+    }
+
+    private boolean classMatches(String canonicalClassName, String requestedClassName) {
+        return canonicalClassName.equals(requestedClassName)
+                || canonicalClassName.endsWith("." + requestedClassName)
+                || requestedClassName.endsWith("." + canonicalClassName);
     }
 }

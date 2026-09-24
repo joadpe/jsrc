@@ -1,0 +1,9 @@
+package corpus.java8.sales;
+
+import corpus.java8.sales.Service;
+
+public class Client {
+    public void run(Service service) {
+        service.save("value");
+    }
+}

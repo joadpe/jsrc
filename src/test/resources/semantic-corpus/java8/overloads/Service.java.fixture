@@ -1,0 +1,9 @@
+package corpus.java8;
+
+class Order {}
+
+public class Service {
+    public void process(String value) {}
+
+    public void process(Order order) {}
+}

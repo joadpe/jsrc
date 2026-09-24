@@ -1,0 +1,7 @@
+package corpus.java11;
+
+public interface Repository<T> {
+    default T find(T id) {
+        return id;
+    }
+}

@@ -69,8 +69,7 @@ public class WatchCommand implements Command {
                             Map<String, Object> error = new LinkedHashMap<>();
                             error.put("error", "Invalid budget type. Expected string, got: " + budgetValue.getClass().getSimpleName() + ". Valid values: tiny, small, standard");
                             envelope.put("result", error);
-                            System.out.println(JsonWriter.toJson(envelope));
-                            System.out.flush();
+                            emit(ctx, envelope);
                             continue;
                         }
                         String budgetStr = (String) budgetValue;
@@ -84,8 +83,7 @@ public class WatchCommand implements Command {
                             Map<String, Object> error = new LinkedHashMap<>();
                             error.put("error", e.getMessage());
                             envelope.put("result", error);
-                            System.out.println(JsonWriter.toJson(envelope));
-                            System.out.flush();
+                            emit(ctx, envelope);
                             continue;
                         }
                     }
@@ -118,8 +116,7 @@ public class WatchCommand implements Command {
                         Map<String, Object> error = new LinkedHashMap<>();
                         error.put("error", "Unknown command: " + command);
                         envelope.put("result", error);
-                        System.out.println(JsonWriter.toJson(envelope));
-                        System.out.flush();
+                        emit(ctx, envelope);
                         continue;
                     }
 
@@ -145,8 +142,7 @@ public class WatchCommand implements Command {
                     Map<String, Object> envelope = new LinkedHashMap<>();
                     envelope.put("exit", exitCode);
                     envelope.put("result", resultBody);
-                    System.out.println(JsonWriter.toJson(envelope));
-                    System.out.flush();
+                    emit(ctx, envelope);
 
                 } catch (Exception e) {
                     Map<String, Object> envelope = new LinkedHashMap<>();
@@ -154,14 +150,18 @@ public class WatchCommand implements Command {
                     Map<String, Object> error = new LinkedHashMap<>();
                     error.put("error", e.getMessage());
                     envelope.put("result", error);
-                    System.out.println(JsonWriter.toJson(envelope));
-                    System.out.flush();
+                    emit(ctx, envelope);
                 }
             }
         } catch (IOException e) {
             System.err.println("Error reading stdin: " + e.getMessage());
         }
         return 0;
+    }
+
+    private static void emit(CommandContext context, Map<String, Object> response) {
+        context.formatter().printResult(response);
+        context.formatter().flush();
     }
 
     /**

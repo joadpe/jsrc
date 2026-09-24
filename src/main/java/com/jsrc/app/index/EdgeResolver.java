@@ -55,7 +55,7 @@ public class EdgeResolver {
 
             CompilationUnit cu = result.getResult().get();
             for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
-                String className = cid.getNameAsString();
+                String className = qualifiedClassName(cid);
 
                 Map<String, String> fieldTypes = new HashMap<>();
                 for (FieldDeclaration field : cid.getFields()) {
@@ -69,11 +69,11 @@ public class EdgeResolver {
 
                 for (MethodDeclaration md : cid.getMethods()) {
                     extractEdgesFromCallable(edges, md, className, md.getNameAsString(),
-                            md.getParameters().size(), fieldTypes);
+                            fieldTypes);
                 }
                 for (ConstructorDeclaration cd : cid.getConstructors()) {
-                    extractEdgesFromCallable(edges, cd, className, className,
-                            cd.getParameters().size(), fieldTypes);
+                    extractEdgesFromCallable(edges, cd, className, cid.getNameAsString(),
+                            fieldTypes);
                 }
             }
         } catch (IOException ex) {
@@ -101,8 +101,13 @@ public class EdgeResolver {
             }
 
             for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
-                String callerClass = cid.getNameAsString();
+                String callerClass = qualifiedClassName(cid);
                 for (MethodDeclaration md : cid.getMethods()) {
+                    List<String> callerParameterTypes = md.getParameters().stream()
+                            .map(parameter -> parameter.getTypeAsString()
+                                    + (parameter.isVarArgs() ? "..." : ""))
+                            .map(com.jsrc.app.util.SignatureUtils::normalizeType)
+                            .toList();
                     for (MethodCallExpr call : md.findAll(MethodCallExpr.class)) {
                         var inv = invokerMap.get(call.getNameAsString());
                         if (inv == null) continue;
@@ -124,7 +129,8 @@ public class EdgeResolver {
 
                         int line = call.getBegin().map(p -> p.line).orElse(-1);
                         edges.add(new CallEdge(callerClass, md.getNameAsString(),
-                                targetClass, targetMethod, line));
+                                callerParameterTypes, callerParameterTypes.size(),
+                                targetClass, targetMethod, List.of(), line, -1));
                     }
                 }
             }
@@ -147,7 +153,8 @@ public class EdgeResolver {
         for (IndexEntry entry : entries) {
             for (IndexedClass ic : entry.classes()) {
                 for (IndexedField f : ic.fields()) {
-                    fieldTypeMap.put(ic.name() + "." + f.name(), f.type());
+                    fieldTypeMap.put(ic.qualifiedName() + "." + f.name(), f.type());
+                    fieldTypeMap.putIfAbsent(ic.name() + "." + f.name(), f.type());
                 }
                 for (IndexedMethod im : ic.methods()) {
                     if (im.returnType() != null && !im.returnType().isEmpty()
@@ -155,7 +162,8 @@ public class EdgeResolver {
                         String rt = im.returnType();
                         int genIdx = rt.indexOf('<');
                         if (genIdx > 0) rt = rt.substring(0, genIdx);
-                        returnTypeMap.put(ic.name() + "." + im.name(), rt);
+                        returnTypeMap.put(ic.qualifiedName() + "." + im.name(), rt);
+                        returnTypeMap.putIfAbsent(ic.name() + "." + im.name(), rt);
                     }
                 }
             }
@@ -175,8 +183,9 @@ public class EdgeResolver {
                                 fieldTypeMap, returnTypeMap);
                         if (resolved != null && !resolved.startsWith("?")) {
                             newEdges.add(new CallEdge(edge.callerClass(), edge.callerMethod(),
-                                    edge.callerParamCount(), resolved, edge.calleeMethod(),
-                                    edge.line(), edge.argCount()));
+                                    edge.callerParameterTypes(), edge.callerParamCount(),
+                                    resolved, edge.calleeMethod(),
+                                    edge.calleeParameterTypes(), edge.line(), edge.argCount()));
                             entryChanged = true;
                             changed = true;
                             continue;
@@ -200,8 +209,13 @@ public class EdgeResolver {
     private static void extractEdgesFromCallable(List<CallEdge> edges,
                                                   com.github.javaparser.ast.body.CallableDeclaration<?> callable,
                                                   String className, String callerMethod,
-                                                  int callerParamCount,
                                                   Map<String, String> fieldTypes) {
+        List<String> callerParameterTypes = callable.getParameters().stream()
+                .map(parameter -> parameter.getTypeAsString()
+                        + (parameter.isVarArgs() ? "..." : ""))
+                .map(com.jsrc.app.util.SignatureUtils::normalizeType)
+                .toList();
+        int callerParamCount = callerParameterTypes.size();
         Map<String, String> localTypes = new HashMap<>();
         for (Parameter param : callable.getParameters()) {
             String pType = param.getTypeAsString();
@@ -223,16 +237,70 @@ public class EdgeResolver {
             String calleeClass = resolveCalleeClass(call, className, fieldTypes, localTypes);
             int line = call.getBegin().map(p -> p.line).orElse(-1);
             int argCount = call.getArguments().size();
-            edges.add(new CallEdge(className, callerMethod, callerParamCount,
-                    calleeClass, calleeMethod, line, argCount));
+            List<String> calleeParameterTypes = argumentTypes(
+                    call.getArguments(), fieldTypes, localTypes);
+            edges.add(new CallEdge(className, callerMethod, callerParameterTypes, callerParamCount,
+                    calleeClass, calleeMethod, calleeParameterTypes, line, argCount));
         }
         for (ObjectCreationExpr newExpr : callable.findAll(ObjectCreationExpr.class)) {
             String targetClass = newExpr.getType().getNameAsString();
             int line = newExpr.getBegin().map(p -> p.line).orElse(-1);
             int argCount = newExpr.getArguments().size();
-            edges.add(new CallEdge(className, callerMethod, callerParamCount,
-                    targetClass, targetClass, line, argCount));
+            List<String> calleeParameterTypes = argumentTypes(
+                    newExpr.getArguments(), fieldTypes, localTypes);
+            edges.add(new CallEdge(className, callerMethod, callerParameterTypes, callerParamCount,
+                    targetClass, targetClass, calleeParameterTypes, line, argCount));
         }
+    }
+
+    private static List<String> argumentTypes(
+            com.github.javaparser.ast.NodeList<Expression> arguments,
+            Map<String, String> fieldTypes,
+            Map<String, String> localTypes) {
+        List<String> types = new ArrayList<>();
+        for (Expression argument : arguments) {
+            String type = argumentType(argument, fieldTypes, localTypes);
+            types.add(type == null
+                    ? CallEdge.UNKNOWN_PARAMETER_TYPE
+                    : com.jsrc.app.util.SignatureUtils.normalizeType(type));
+        }
+        return List.copyOf(types);
+    }
+
+    private static String argumentType(Expression argument,
+                                       Map<String, String> fieldTypes,
+                                       Map<String, String> localTypes) {
+        if (argument instanceof NameExpr nameExpr) {
+            return localTypes.getOrDefault(nameExpr.getNameAsString(),
+                    fieldTypes.get(nameExpr.getNameAsString()));
+        }
+        if (argument instanceof com.github.javaparser.ast.expr.StringLiteralExpr) return "String";
+        if (argument instanceof com.github.javaparser.ast.expr.IntegerLiteralExpr) return "int";
+        if (argument instanceof com.github.javaparser.ast.expr.LongLiteralExpr) return "long";
+        if (argument instanceof com.github.javaparser.ast.expr.DoubleLiteralExpr) return "double";
+        if (argument instanceof com.github.javaparser.ast.expr.BooleanLiteralExpr) return "boolean";
+        if (argument instanceof com.github.javaparser.ast.expr.CharLiteralExpr) return "char";
+        if (argument instanceof com.github.javaparser.ast.expr.ObjectCreationExpr creation) {
+            return creation.getTypeAsString();
+        }
+        if (argument instanceof com.github.javaparser.ast.expr.CastExpr cast) {
+            return cast.getTypeAsString();
+        }
+        return null;
+    }
+
+    private static String qualifiedClassName(ClassOrInterfaceDeclaration declaration) {
+        StringBuilder result = new StringBuilder(declaration.getNameAsString());
+        var parent = declaration.getParentNode().orElse(null);
+        while (parent instanceof ClassOrInterfaceDeclaration outer) {
+            result.insert(0, outer.getNameAsString() + ".");
+            parent = outer.getParentNode().orElse(null);
+        }
+        declaration.findCompilationUnit()
+                .flatMap(CompilationUnit::getPackageDeclaration)
+                .map(packageDeclaration -> packageDeclaration.getNameAsString() + ".")
+                .ifPresent(prefix -> result.insert(0, prefix));
+        return result.toString();
     }
 
     /**

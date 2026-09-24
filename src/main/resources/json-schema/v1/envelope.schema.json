@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jsrc:output-envelope:1",
+  "title": "jsrc JSON output envelope v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "protocolVersion",
+    "command",
+    "status",
+    "data",
+    "diagnostics",
+    "meta"
+  ],
+  "properties": {
+    "schema": {"type": "string"},
+    "protocolVersion": {"const": 1},
+    "command": {"type": "string"},
+    "status": {"enum": ["ok", "empty", "partial", "error"]},
+    "data": {},
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "message"],
+        "properties": {
+          "code": {"type": "string"},
+          "severity": {"enum": ["info", "warning", "error"]},
+          "message": {"type": "string"},
+          "details": {"type": "object"},
+          "remediation": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    },
+    "meta": {
+      "type": "object",
+      "required": ["budget", "confidence", "partial"],
+      "properties": {
+        "budget": {
+          "type": "object",
+          "required": ["profile", "truncated"],
+          "properties": {
+            "profile": {"type": "string"},
+            "truncated": {"type": "boolean"}
+          },
+          "additionalProperties": true
+        },
+        "confidence": {
+          "type": "object",
+          "required": ["level", "reasons"],
+          "properties": {
+            "level": {"enum": ["exact", "inferred", "partial", "unknown"]},
+            "reasons": {"type": "array", "items": {"type": "string"}}
+          },
+          "additionalProperties": true
+        },
+        "partial": {
+          "type": "object",
+          "required": ["reasons"],
+          "properties": {
+            "reasons": {"type": "array", "items": {"type": "string"}}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -422,18 +422,32 @@ public final class ProjectModelDetector {
             String description) {
         try {
             Path path = base.resolve(declaredPath).toAbsolutePath().normalize();
-            if (path.startsWith(projectRoot)) {
+            if (path.startsWith(projectRoot) && realPathIsWithinRoot(projectRoot, path)) {
                 return path;
             }
             diagnostics.add(new ProjectDiagnostic(
                     "BUILD_MODEL_PARTIAL",
                     description + " escapes project root: " + declaredPath));
+        } catch (IOException exception) {
+            diagnostics.add(new ProjectDiagnostic(
+                    "BUILD_MODEL_PARTIAL",
+                    description + " could not be resolved safely: " + declaredPath));
         } catch (java.nio.file.InvalidPathException | SecurityException exception) {
             diagnostics.add(new ProjectDiagnostic(
                     "BUILD_MODEL_PARTIAL",
                     description + " is invalid: " + declaredPath));
         }
         return null;
+    }
+
+    private static boolean realPathIsWithinRoot(Path projectRoot, Path path) throws IOException {
+        Path existingAncestor = path;
+        while (existingAncestor != null
+                && !Files.exists(existingAncestor, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            existingAncestor = existingAncestor.getParent();
+        }
+        return existingAncestor != null
+                && existingAncestor.toRealPath().startsWith(projectRoot.toRealPath());
     }
 
     private static boolean hasExistingSources(ProjectModule module) {

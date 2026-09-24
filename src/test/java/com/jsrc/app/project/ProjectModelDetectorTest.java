@@ -174,6 +174,55 @@ class ProjectModelDetectorTest {
     }
 
     @Test
+    void rejectsMavenModuleAndSourceRootSymlinksOutsideProjectRoot() throws Exception {
+        Path outside = Files.createDirectories(projectRoot.getParent().resolve("outside-maven"));
+        Files.createDirectories(outside.resolve("src"));
+        Files.writeString(outside.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion><artifactId>outside</artifactId></project>
+                """);
+        Files.createSymbolicLink(projectRoot.resolve("outside-module"), outside);
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion><artifactId>root</artifactId>
+                  <modules><module>outside-module</module><module>inside</module></modules>
+                </project>
+                """);
+        writePom("inside", """
+                <artifactId>inside</artifactId>
+                <build><sourceDirectory>linked-src/generated/java</sourceDirectory></build>
+                """);
+        Files.createSymbolicLink(projectRoot.resolve("inside/linked-src"), outside.resolve("src"));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertTrue(model.module("outside").isEmpty());
+        assertEquals(List.of(), model.module("inside").orElseThrow().mainSourceRoots());
+        assertEquals(2, model.diagnostics().size());
+    }
+
+    @Test
+    void rejectsGradleModuleAndSourceRootSymlinksOutsideProjectRoot() throws Exception {
+        Path outside = Files.createDirectories(projectRoot.getParent().resolve("outside-gradle"));
+        Files.createDirectories(outside.resolve("src"));
+        Files.writeString(outside.resolve("build.gradle"), "plugins { id 'java' }");
+        Files.createSymbolicLink(projectRoot.resolve("outside-module"), outside);
+        Files.writeString(
+                projectRoot.resolve("settings.gradle"), "include('outside-module', 'inside')");
+        Files.writeString(projectRoot.resolve("build.gradle"), "plugins { id 'java' }");
+        Path inside = Files.createDirectories(projectRoot.resolve("inside"));
+        Files.writeString(inside.resolve("build.gradle"), """
+                sourceSets { main.java.srcDirs = ['linked-src/generated/java'] }
+                """);
+        Files.createSymbolicLink(inside.resolve("linked-src"), outside.resolve("src"));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertTrue(model.module("outside-module").isEmpty());
+        assertEquals(List.of(), model.module("inside").orElseThrow().mainSourceRoots());
+        assertEquals(2, model.diagnostics().size());
+    }
+
+    @Test
     void includesMavenRootSourcesAlongsideChildModules() throws Exception {
         Files.createDirectories(projectRoot.resolve("src/main/java"));
         Files.writeString(projectRoot.resolve("pom.xml"), """

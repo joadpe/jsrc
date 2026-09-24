@@ -1,0 +1,150 @@
+package com.jsrc.app.project;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ProjectModelDetectorTest {
+
+    @TempDir
+    Path projectRoot;
+
+    @Test
+    void detectsMavenModulesJavaVersionAndInternalDependencies() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>shop</artifactId>
+                  <version>1.0.0</version>
+                  <packaging>pom</packaging>
+                  <properties><maven.compiler.release>21</maven.compiler.release></properties>
+                  <modules><module>domain</module><module>application</module></modules>
+                </project>
+                """);
+        writePom("domain", """
+                <artifactId>domain</artifactId>
+                """);
+        writePom("application", """
+                <artifactId>application</artifactId>
+                <dependencies><dependency>
+                  <groupId>com.example</groupId><artifactId>domain</artifactId><version>1.0.0</version>
+                </dependency></dependencies>
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(BuildSystem.MAVEN, model.buildSystem());
+        assertEquals("21", model.javaVersion());
+        assertEquals(2, model.modules().size());
+        ProjectModule application = model.module("application").orElseThrow();
+        assertEquals(
+                projectRoot.resolve("application/src/main/java"),
+                application.mainSourceRoots().getFirst());
+        assertEquals(
+                projectRoot.resolve("application/src/test/java"),
+                application.testSourceRoots().getFirst());
+        assertEquals(java.util.List.of("domain"), application.internalDependencies());
+        assertTrue(model.diagnostics().isEmpty());
+    }
+
+    @Test
+    void detectsGradleModulesToolchainAndProjectDependencies() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle.kts"), """
+                rootProject.name = "shop"
+                include(":domain", ":application")
+                """);
+        Files.writeString(projectRoot.resolve("build.gradle.kts"), """
+                java {
+                    toolchain.languageVersion.set(JavaLanguageVersion.of(17))
+                }
+                """);
+        writeGradleModule("domain", "");
+        writeGradleModule("application", "implementation(project(\":domain\"))");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(BuildSystem.GRADLE, model.buildSystem());
+        assertEquals("17", model.javaVersion());
+        assertEquals(2, model.modules().size());
+        assertEquals(
+                java.util.List.of("domain"),
+                model.module("application").orElseThrow().internalDependencies());
+        assertTrue(model.diagnostics().isEmpty());
+    }
+
+    @Test
+    void fallsBackToConventionalRootsWithStructuredDiagnostic() {
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(BuildSystem.UNKNOWN, model.buildSystem());
+        assertEquals(1, model.modules().size());
+        assertEquals(
+                projectRoot.resolve("src/main/java"),
+                model.modules().getFirst().mainSourceRoots().getFirst());
+        assertEquals("BUILD_MODEL_FALLBACK", model.diagnostics().getFirst().code());
+    }
+
+    @Test
+    void detectsSingleModuleMavenCustomSourceRoots() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId><artifactId>single</artifactId><version>1</version>
+                  <properties><maven.compiler.source>1.8</maven.compiler.source></properties>
+                  <build>
+                    <sourceDirectory>src/core/java</sourceDirectory>
+                    <testSourceDirectory>src/spec/java</testSourceDirectory>
+                  </build>
+                </project>
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("8", model.javaVersion());
+        ProjectModule module = model.modules().getFirst();
+        assertEquals(List.of(projectRoot.resolve("src/core/java")), module.mainSourceRoots());
+        assertEquals(List.of(projectRoot.resolve("src/spec/java")), module.testSourceRoots());
+    }
+
+    @Test
+    void detectsSingleModuleGradleStaticSourceSets() throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                sourceCompatibility = JavaVersion.VERSION_11
+                sourceSets {
+                    main.java.srcDirs = ['src/core/java']
+                    test.java.srcDirs = ['src/spec/java']
+                }
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("11", model.javaVersion());
+        ProjectModule module = model.modules().getFirst();
+        assertEquals(List.of(projectRoot.resolve("src/core/java")), module.mainSourceRoots());
+        assertEquals(List.of(projectRoot.resolve("src/spec/java")), module.testSourceRoots());
+        assertTrue(model.diagnostics().isEmpty());
+    }
+
+    private void writePom(String module, String body) throws Exception {
+        Path directory = Files.createDirectories(projectRoot.resolve(module));
+        Files.writeString(directory.resolve("pom.xml"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <parent>
+                    <groupId>com.example</groupId><artifactId>shop</artifactId>
+                    <version>1.0.0</version>
+                  </parent>
+                """ + body + "</project>");
+    }
+
+    private void writeGradleModule(String module, String body) throws Exception {
+        Path directory = Files.createDirectories(projectRoot.resolve(module));
+        Files.writeString(directory.resolve("build.gradle.kts"), "plugins { java }\n" + body);
+    }
+}

@@ -114,8 +114,11 @@ public class JsrcCommand implements Runnable {
                 globalOptions.jsonOutput(), globalOptions.mdOutput(), profile);
 
         var loader = new CodeBaseLoader();
-        var javaFiles = new ArrayList<Path>();
-        if (config != null && config.sourceRoots().size() > 1) {
+        var projectModel = new com.jsrc.app.project.ProjectModelDetector()
+                .detect(Path.of(rootPath));
+        var javaFiles = new ArrayList<Path>(
+                new com.jsrc.app.project.ProjectFileDiscovery().discover(projectModel));
+        if (config != null && !config.sourceRoots().isEmpty()) {
             for (String root : config.sourceRoots()) {
                 Path rootDir = Path.of(root);
                 if (!rootDir.isAbsolute()) {
@@ -125,10 +128,9 @@ public class JsrcCommand implements Runnable {
                     javaFiles.addAll(loader.loadFilesFrom(rootDir.toString(), "java"));
                 }
             }
-        } else {
-            var project = new JavaCodeBase(rootPath, loader);
-            javaFiles.addAll(project.getFiles());
         }
+
+        javaFiles = new ArrayList<>(javaFiles.stream().distinct().sorted().toList());
 
         if (config != null && !config.excludes().isEmpty()) {
             javaFiles = new ArrayList<>(filterExcludes(javaFiles, config.excludes()));
@@ -160,7 +162,8 @@ public class JsrcCommand implements Runnable {
                 globalOptions.fullOutput(),
                 globalOptions.noTest(),
                 budgetContext,
-                globalOptions.frozenIndex());
+                globalOptions.frozenIndex(),
+                projectModel);
     }
 
     private static List<Path> filterExcludes(List<Path> files, List<String> excludes) {

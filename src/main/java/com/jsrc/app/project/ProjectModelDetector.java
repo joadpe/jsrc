@@ -49,26 +49,52 @@ public final class ProjectModelDetector {
             if (modulePaths.isEmpty()) {
                 String name = valueOrDefault(directText(rootPom, "artifactId"), rootName(root));
                 return new ProjectModel(root, BuildSystem.MAVEN, javaVersion,
-                        List.of(mavenModule(root, name, Set.of(), rootPom)), diagnostics);
+                        List.of(mavenModule(root, root, name, Set.of(), rootPom, diagnostics)),
+                        diagnostics);
             }
 
             List<MavenModuleData> moduleData = new ArrayList<>();
             for (String modulePath : modulePaths) {
-                Path path = root.resolve(modulePath).normalize();
-                Element pom = parseXml(path.resolve("pom.xml"));
-                moduleData.add(new MavenModuleData(
-                        valueOrDefault(directText(pom, "artifactId"), path.getFileName().toString()),
-                        path,
-                        dependencyArtifacts(pom),
-                        pom));
+                Path path = resolveWithinRoot(
+                        root, root, modulePath, diagnostics, "Maven module " + modulePath);
+                if (path == null) {
+                    continue;
+                }
+                try {
+                    Element pom = parseXml(path.resolve("pom.xml"));
+                    moduleData.add(new MavenModuleData(
+                            valueOrDefault(
+                                    directText(pom, "artifactId"), path.getFileName().toString()),
+                            path,
+                            dependencyArtifacts(pom),
+                            pom));
+                } catch (IOException | ParserConfigurationException | SAXException exception) {
+                    diagnostics.add(new ProjectDiagnostic(
+                            "BUILD_MODEL_PARTIAL",
+                            "Could not interpret Maven module " + modulePath + ": "
+                                    + exception.getMessage()));
+                }
             }
             Set<String> moduleNames = moduleData.stream()
                     .map(MavenModuleData::name)
                     .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-            List<ProjectModule> modules = moduleData.stream()
-                    .map(data -> mavenModule(data.path(), data.name(), intersection(
-                            data.dependencies(), moduleNames), data.pom()))
-                    .toList();
+            List<ProjectModule> modules = new ArrayList<>();
+            String rootModuleName = valueOrDefault(directText(rootPom, "artifactId"), rootName(root));
+            ProjectModule rootModule = mavenModule(
+                    root, root, rootModuleName, intersection(dependencyArtifacts(rootPom), moduleNames),
+                    rootPom, diagnostics);
+            if (hasExistingSources(rootModule)) {
+                modules.add(rootModule);
+            }
+            moduleData.stream()
+                    .map(data -> mavenModule(
+                            root,
+                            data.path(),
+                            data.name(),
+                            intersection(data.dependencies(), moduleNames),
+                            data.pom(),
+                            diagnostics))
+                    .forEach(modules::add);
             return new ProjectModel(root, BuildSystem.MAVEN, javaVersion, modules, diagnostics);
         } catch (IOException | ParserConfigurationException | SAXException exception) {
             diagnostics.add(new ProjectDiagnostic(
@@ -88,19 +114,56 @@ public final class ProjectModelDetector {
             String javaVersion = gradleJavaVersion(buildText);
             if (modulePaths.isEmpty()) {
                 return new ProjectModel(root, BuildSystem.GRADLE, javaVersion,
-                        List.of(gradleModule(root, rootName(root), Set.of(), diagnostics)), diagnostics);
+                        List.of(gradleModule(
+                                root, root, rootName(root), Set.of(), buildText, diagnostics)),
+                        diagnostics);
             }
 
-            Set<String> moduleNames = modulePaths.stream()
-                    .map(ProjectModelDetector::gradleModuleName)
+            List<GradleModuleData> moduleData = new ArrayList<>();
+            for (String modulePath : modulePaths) {
+                Path path = resolveWithinRoot(
+                        root,
+                        root,
+                        modulePath.replace(':', '/'),
+                        diagnostics,
+                        "Gradle module " + modulePath);
+                if (path == null) {
+                    continue;
+                }
+                try {
+                    Path buildFile = gradleBuild(path);
+                    String moduleBuild = buildFile == null ? "" : Files.readString(buildFile);
+                    moduleData.add(new GradleModuleData(
+                            gradleModuleName(modulePath), path, moduleBuild));
+                } catch (IOException exception) {
+                    diagnostics.add(new ProjectDiagnostic(
+                            "BUILD_MODEL_PARTIAL",
+                            "Could not interpret Gradle module " + modulePath + ": "
+                                    + exception.getMessage()));
+                }
+            }
+            Set<String> moduleNames = moduleData.stream()
+                    .map(GradleModuleData::name)
                     .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
             List<ProjectModule> modules = new ArrayList<>();
-            for (String modulePath : modulePaths) {
-                Path path = root.resolve(modulePath.replace(':', '/')).normalize();
-                Path buildFile = gradleBuild(path);
-                String moduleBuild = buildFile == null ? "" : Files.readString(buildFile);
-                modules.add(gradleModule(path, gradleModuleName(modulePath),
-                        intersection(gradleDependencies(moduleBuild), moduleNames), diagnostics));
+            ProjectModule rootModule = gradleModule(
+                    root,
+                    root,
+                    rootName(root),
+                    intersection(gradleDependencies(buildText), moduleNames),
+                    buildText,
+                    diagnostics);
+            if (hasExistingSources(rootModule)) {
+                modules.add(rootModule);
+            }
+            for (GradleModuleData data : moduleData) {
+                modules.add(gradleModule(
+                        root,
+                        data.path(),
+                        data.name(),
+                        intersection(gradleDependencies(data.buildFile()), moduleNames),
+                        data.buildFile(),
+                        diagnostics));
             }
             return new ProjectModel(root, BuildSystem.GRADLE, javaVersion, modules, diagnostics);
         } catch (IOException exception) {
@@ -122,7 +185,12 @@ public final class ProjectModelDetector {
     }
 
     private ProjectModule mavenModule(
-            Path path, String name, Set<String> dependencies, Element pom) {
+            Path projectRoot,
+            Path path,
+            String name,
+            Set<String> dependencies,
+            Element pom,
+            List<ProjectDiagnostic> diagnostics) {
         Element build = directElement(pom, "build");
         String sourceDirectory = build == null ? null : directText(build, "sourceDirectory");
         String testSourceDirectory = build == null ? null : directText(build, "testSourceDirectory");
@@ -132,29 +200,31 @@ public final class ProjectModelDetector {
                 dependencies,
                 sourceDirectory == null
                         ? List.of(path.resolve("src/main/java"))
-                        : List.of(path.resolve(sourceDirectory).normalize()),
+                        : confinedRoot(projectRoot, path, sourceDirectory, diagnostics,
+                                "Maven main source root"),
                 testSourceDirectory == null
                         ? List.of(path.resolve("src/test/java"), path.resolve("src/testFixtures/java"))
-                        : List.of(path.resolve(testSourceDirectory).normalize()));
+                        : confinedRoot(projectRoot, path, testSourceDirectory, diagnostics,
+                                "Maven test source root"));
     }
 
     private ProjectModule gradleModule(
+            Path projectRoot,
             Path path,
             String name,
             Set<String> dependencies,
-            List<ProjectDiagnostic> diagnostics) throws IOException {
-        Path buildFile = gradleBuild(path);
-        String content = buildFile == null ? "" : Files.readString(buildFile);
-        if (buildFile != null) {
-            if (content.contains("sourceSets") && !containsSimpleSourceDirectory(content)) {
-                diagnostics.add(new ProjectDiagnostic(
-                        "BUILD_MODEL_PARTIAL",
-                        "Dynamic Gradle source-set configuration in " + path));
-            }
+            String content,
+            List<ProjectDiagnostic> diagnostics) {
+        if (content.contains("sourceSets") && !containsSimpleSourceDirectory(content)) {
+            diagnostics.add(new ProjectDiagnostic(
+                    "BUILD_MODEL_PARTIAL",
+                    "Dynamic Gradle source-set configuration in " + path));
         }
-        List<Path> mainRoots = gradleSourceRoots(content, "main", path)
+        List<Path> mainRoots = gradleSourceRoots(
+                        content, "main", projectRoot, path, diagnostics)
                 .orElse(List.of(path.resolve("src/main/java")));
-        List<Path> testRoots = gradleSourceRoots(content, "test", path)
+        List<Path> testRoots = gradleSourceRoots(
+                        content, "test", projectRoot, path, diagnostics)
                 .orElse(List.of(path.resolve("src/test/java"), path.resolve("src/testFixtures/java")));
         return module(path, name, dependencies, mainRoots, testRoots);
     }
@@ -303,7 +373,11 @@ public final class ProjectModelDetector {
     }
 
     private static java.util.Optional<List<Path>> gradleSourceRoots(
-            String buildFile, String sourceSet, Path modulePath) {
+            String buildFile,
+            String sourceSet,
+            Path projectRoot,
+            Path modulePath,
+            List<ProjectDiagnostic> diagnostics) {
         Pattern pattern = Pattern.compile(
                 sourceSet + "\\.java\\.srcDirs\\s*(?:=\\s*)?(?:\\(([^)]*)\\)|\\[([^]]*)\\])");
         Matcher sourceRoots = pattern.matcher(buildFile);
@@ -316,11 +390,56 @@ public final class ProjectModelDetector {
         List<Path> paths = new ArrayList<>();
         Matcher quoted = QUOTED_VALUE.matcher(values);
         while (quoted.find()) {
-            paths.add(modulePath.resolve(quoted.group(1)).normalize());
+            Path path = resolveWithinRoot(
+                    projectRoot,
+                    modulePath,
+                    quoted.group(1),
+                    diagnostics,
+                    "Gradle " + sourceSet + " source root");
+            if (path != null) {
+                paths.add(path);
+            }
         }
-        return paths.isEmpty()
-                ? java.util.Optional.empty()
-                : java.util.Optional.of(List.copyOf(paths));
+        return java.util.Optional.of(List.copyOf(paths));
+    }
+
+    private static List<Path> confinedRoot(
+            Path projectRoot,
+            Path modulePath,
+            String declaredPath,
+            List<ProjectDiagnostic> diagnostics,
+            String description) {
+        Path path = resolveWithinRoot(
+                projectRoot, modulePath, declaredPath, diagnostics, description);
+        return path == null ? List.of() : List.of(path);
+    }
+
+    private static Path resolveWithinRoot(
+            Path projectRoot,
+            Path base,
+            String declaredPath,
+            List<ProjectDiagnostic> diagnostics,
+            String description) {
+        try {
+            Path path = base.resolve(declaredPath).toAbsolutePath().normalize();
+            if (path.startsWith(projectRoot)) {
+                return path;
+            }
+            diagnostics.add(new ProjectDiagnostic(
+                    "BUILD_MODEL_PARTIAL",
+                    description + " escapes project root: " + declaredPath));
+        } catch (java.nio.file.InvalidPathException | SecurityException exception) {
+            diagnostics.add(new ProjectDiagnostic(
+                    "BUILD_MODEL_PARTIAL",
+                    description + " is invalid: " + declaredPath));
+        }
+        return null;
+    }
+
+    private static boolean hasExistingSources(ProjectModule module) {
+        return java.util.stream.Stream.concat(
+                        module.mainSourceRoots().stream(), module.testSourceRoots().stream())
+                .anyMatch(Files::isDirectory);
     }
 
     private static String normalizeJavaVersion(String version) {
@@ -366,4 +485,6 @@ public final class ProjectModelDetector {
 
     private record MavenModuleData(
             String name, Path path, Set<String> dependencies, Element pom) {}
+
+    private record GradleModuleData(String name, Path path, String buildFile) {}
 }

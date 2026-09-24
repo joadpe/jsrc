@@ -131,6 +131,100 @@ class ProjectModelDetectorTest {
         assertTrue(model.diagnostics().isEmpty());
     }
 
+    @Test
+    void rejectsMavenModulesAndSourceRootsOutsideProjectRoot() throws Exception {
+        Path outside = Files.createDirectories(projectRoot.getParent().resolve("outside"));
+        Files.writeString(outside.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion><artifactId>outside</artifactId></project>
+                """);
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion><artifactId>root</artifactId>
+                  <modules><module>../outside</module><module>inside</module></modules>
+                </project>
+                """);
+        writePom("inside", """
+                <artifactId>inside</artifactId>
+                <build><sourceDirectory>../../outside/src</sourceDirectory></build>
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertTrue(model.module("outside").isEmpty());
+        assertEquals(List.of(), model.module("inside").orElseThrow().mainSourceRoots());
+        assertEquals(2, model.diagnostics().size());
+        assertTrue(model.diagnostics().stream()
+                .allMatch(diagnostic -> "BUILD_MODEL_PARTIAL".equals(diagnostic.code())));
+    }
+
+    @Test
+    void rejectsGradleModulesAndSourceRootsOutsideProjectRoot() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include('../outside', 'inside')");
+        Files.writeString(projectRoot.resolve("build.gradle"), "plugins { id 'java' }");
+        Path inside = Files.createDirectories(projectRoot.resolve("inside"));
+        Files.writeString(inside.resolve("build.gradle"), """
+                sourceSets { main.java.srcDirs = ['../../outside/src'] }
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertTrue(model.module("outside").isEmpty());
+        assertEquals(List.of(), model.module("inside").orElseThrow().mainSourceRoots());
+        assertEquals(2, model.diagnostics().size());
+    }
+
+    @Test
+    void includesMavenRootSourcesAlongsideChildModules() throws Exception {
+        Files.createDirectories(projectRoot.resolve("src/main/java"));
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion><artifactId>root</artifactId>
+                  <modules><module>child</module></modules>
+                </project>
+                """);
+        writePom("child", "<artifactId>child</artifactId>");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(2, model.modules().size());
+        assertTrue(model.module("root").isPresent());
+        assertTrue(model.module("child").isPresent());
+    }
+
+    @Test
+    void includesGradleRootSourcesAlongsideChildModules() throws Exception {
+        Files.createDirectories(projectRoot.resolve("src/main/java"));
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include('child')");
+        Files.writeString(projectRoot.resolve("build.gradle"), "plugins { id 'java' }");
+        writeGradleModule("child", "");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(2, model.modules().size());
+        assertTrue(model.module(projectRoot.getFileName().toString()).isPresent());
+        assertTrue(model.module("child").isPresent());
+    }
+
+    @Test
+    void keepsValidMavenModulesWhenAnotherModuleIsInvalid() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion><artifactId>root</artifactId>
+                  <modules><module>valid</module><module>invalid</module></modules>
+                </project>
+                """);
+        writePom("valid", "<artifactId>valid</artifactId>");
+        Path invalid = Files.createDirectories(projectRoot.resolve("invalid"));
+        Files.writeString(invalid.resolve("pom.xml"), "<project>");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(1, model.modules().size());
+        assertTrue(model.module("valid").isPresent());
+        assertTrue(model.module("invalid").isEmpty());
+        assertEquals("BUILD_MODEL_PARTIAL", model.diagnostics().getFirst().code());
+    }
+
     private void writePom(String module, String body) throws Exception {
         Path directory = Files.createDirectories(projectRoot.resolve(module));
         Files.writeString(directory.resolve("pom.xml"), """

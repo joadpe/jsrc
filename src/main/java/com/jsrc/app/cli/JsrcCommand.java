@@ -148,7 +148,7 @@ public class JsrcCommand implements Runnable {
         IndexedCodebase indexed = skipIndex != null
                 ? null
                 : IndexedCodebase.tryLoad(
-                        Paths.get(rootPath), javaFiles, globalOptions.frozenIndex());
+                        projectModel.root(), javaFiles, globalOptions.frozenIndex());
 
         return new CommandContext(
                 javaFiles,

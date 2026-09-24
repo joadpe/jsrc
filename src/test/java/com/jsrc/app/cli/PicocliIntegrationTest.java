@@ -60,6 +60,25 @@ class PicocliIntegrationTest {
     }
 
     @Test
+    void overviewAcceptsRelativeSourceRoot(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("Hello.java"), "public class Hello {}");
+        Path relativeRoot = Path.of("").toAbsolutePath().relativize(tempDir.toAbsolutePath());
+
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            int exitCode = JsrcCliFactory.create().execute(
+                    "--dir", relativeRoot.toString(), "--json", "overview");
+
+            assertEquals(0, exitCode);
+            assertTrue(captured.toString().contains("totalFiles"));
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
     void versionOneProtocolWrapsCommandOutput(@TempDir Path tempDir) throws Exception {
         Files.writeString(tempDir.resolve("Hello.java"), "public class Hello {}");
 

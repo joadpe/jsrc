@@ -61,8 +61,7 @@ class BudgetAdapterBehaviorTest {
         System.setErr(new PrintStream(errContent));
 
         try {
-            JsrcCommand jsrcCmd = new JsrcCommand();
-            CommandLine cli = new CommandLine(jsrcCmd);
+            CommandLine cli = JsrcCliFactory.create();
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "summary", "TestClass");
             
             // Should succeed or be NOT_FOUND, not BAD_USAGE (not denied)
@@ -117,8 +116,7 @@ class BudgetAdapterBehaviorTest {
         System.setErr(new PrintStream(errContent));
 
         try {
-            JsrcCommand jsrcCmd = new JsrcCommand();
-            CommandLine cli = new CommandLine(jsrcCmd);
+            CommandLine cli = JsrcCliFactory.create();
             // Method read (has dot, specifies method)
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "read", "TestClass.methodA");
             
@@ -147,8 +145,7 @@ class BudgetAdapterBehaviorTest {
         System.setErr(new PrintStream(errContent));
 
         try {
-            JsrcCommand jsrcCmd = new JsrcCommand();
-            CommandLine cli = new CommandLine(jsrcCmd);
+            CommandLine cli = JsrcCliFactory.create();
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "describe");
             
             // Verify it's not denied by budget
@@ -191,8 +188,7 @@ class BudgetAdapterBehaviorTest {
         System.setErr(new PrintStream(errContent));
 
         try {
-            JsrcCommand jsrcCmd = new JsrcCommand();
-            CommandLine cli = new CommandLine(jsrcCmd);
+            CommandLine cli = JsrcCliFactory.create();
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "small", "summary", "TestClass");
             
             // Should succeed

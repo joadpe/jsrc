@@ -36,7 +36,7 @@ class IndexExitCodeContractTest {
         System.setErr(new PrintStream(capturedErr));
 
         try {
-            var cmd = new CommandLine(new JsrcCommand());
+            var cmd = JsrcCliFactory.create();
             int exitCode = cmd.execute("--dir", tempDir.toString(), "index");
 
             String stderr = capturedErr.toString();

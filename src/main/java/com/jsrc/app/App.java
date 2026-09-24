@@ -1,7 +1,6 @@
 package com.jsrc.app;
 
-import com.jsrc.app.cli.JsrcCommand;
-import picocli.CommandLine;
+import com.jsrc.app.cli.JsrcCliFactory;
 
 /**
  * CLI entry point for jsrc — Java source code analysis tool.
@@ -10,7 +9,7 @@ import picocli.CommandLine;
 public class App {
 
     public static void main(String[] args) {
-        int exitCode = new CommandLine(new JsrcCommand()).execute(args);
+        int exitCode = JsrcCliFactory.create().execute(args);
         System.exit(exitCode);
     }
 }

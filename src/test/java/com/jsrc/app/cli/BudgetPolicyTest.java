@@ -47,7 +47,8 @@ class BudgetPolicyTest {
     void standardShouldAllowAll() {
         assertEquals(BudgetPolicy.Action.ALLOW, BudgetPolicy.getAction("context", BudgetProfile.STANDARD));
         assertEquals(BudgetPolicy.Action.ALLOW, BudgetPolicy.getAction("call-chain", BudgetProfile.STANDARD));
-        assertEquals(BudgetPolicy.Action.ALLOW, BudgetPolicy.getAction("any-command", BudgetProfile.STANDARD));
+        assertThrows(IllegalArgumentException.class,
+                () -> BudgetPolicy.getAction("any-command", BudgetProfile.STANDARD));
     }
 
     @Test
@@ -75,7 +76,7 @@ class BudgetPolicyTest {
     void standardShouldShowAll() {
         assertTrue(BudgetPolicy.isVisibleCommand("index", BudgetProfile.STANDARD));
         assertTrue(BudgetPolicy.isVisibleCommand("context", BudgetProfile.STANDARD));
-        assertTrue(BudgetPolicy.isVisibleCommand("any-command", BudgetProfile.STANDARD));
+        assertFalse(BudgetPolicy.isVisibleCommand("any-command", BudgetProfile.STANDARD));
     }
 
     @Test

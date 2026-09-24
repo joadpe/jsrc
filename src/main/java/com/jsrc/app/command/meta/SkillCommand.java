@@ -15,9 +15,15 @@ import java.util.*;
 public class SkillCommand implements Command {
 
     private final BudgetProfile profile;
+    private final com.jsrc.app.cli.CommandCatalog catalog;
 
     public SkillCommand(BudgetProfile profile) {
+        this(profile, com.jsrc.app.cli.DefaultCommandRegistry.create());
+    }
+
+    public SkillCommand(BudgetProfile profile, com.jsrc.app.cli.CommandCatalog catalog) {
         this.profile = profile;
+        this.catalog = java.util.Objects.requireNonNull(catalog, "catalog");
     }
 
     @Override
@@ -34,28 +40,18 @@ public class SkillCommand implements Command {
             // Markdown output: compact skill guide
             System.out.println(generateSkillMarkdown(profile));
             // Return surface size for markdown mode
-            Set<String> surface = BudgetPolicy.budgetSurface(profile);
-            if (surface == null) {
-                // STANDARD profile - use all commands count
-                return CommandRegistry.knownCommandNames().length;
-            }
-            return surface.size();
+            return catalog.visibleCommands(profile).size();
         }
     }
 
     private Map<String, Object> buildJsonSkill(BudgetProfile profile) {
-        Set<String> surface = BudgetPolicy.budgetSurface(profile);
-        if (surface == null) {
-            // Standard profile - use all commands
-            surface = new LinkedHashSet<>(Arrays.asList(CommandRegistry.knownCommandNames()));
-        }
-        
         List<Map<String, Object>> commands = new ArrayList<>();
-        for (String cmdName : surface) {
+        for (com.jsrc.app.cli.CommandDescriptor descriptor : catalog.visibleCommands(profile)) {
+            String cmdName = descriptor.name();
             commands.add(Map.of(
                 "name", cmdName,
-                "summary", getCommandSummary(cmdName),
-                "example", "jsrc " + cmdName + " --budget " + profile.profileName() + " --json"
+                "summary", descriptor.summary(),
+                "example", descriptor.examples().getFirst()
             ));
         }
         
@@ -69,31 +65,9 @@ public class SkillCommand implements Command {
     }
 
     private String getCommandSummary(String cmdName) {
-        return switch (cmdName) {
-            case "index" -> "Build/refresh persistent index";
-            case "overview" -> "Codebase stats: files, classes, methods";
-            case "mini" -> "Ultra-compact class summary";
-            case "read" -> "Read source code of class or method";
-            case "scope" -> "Find relevant classes by keywords";
-            case "callers" -> "Who calls this method";
-            case "validate" -> "Verify method exists (anti-hallucination)";
-            case "classes" -> "List all classes";
-            case "describe" -> "List available commands";
-            case "skill" -> "This agent guide";
-            case "summary" -> "Class metadata + method signatures";
-            case "hierarchy" -> "Class inheritance tree";
-            case "deps" -> "Class dependencies";
-            case "callees" -> "What this method calls";
-            case "related" -> "Related classes by coupling";
-            case "search" -> "Text search with context";
-            case "find" -> "Semantic search by keywords";
-            case "smells" -> "Detect code smells";
-            case "lint" -> "Pre-compile checks";
-            case "type-check" -> "Verify method return type";
-            case "impact" -> "Change impact analysis";
-            case "checklist" -> "Step-by-step change guide";
-            default -> "Command: " + cmdName;
-        };
+        return catalog.find(cmdName)
+                .map(com.jsrc.app.cli.CommandDescriptor::summary)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown command: " + cmdName));
     }
 
     private List<String> getRulesForProfile(BudgetProfile profile) {
@@ -160,7 +134,9 @@ public class SkillCommand implements Command {
     }
 
     private String generateTinySkill() {
-        Set<String> commands = BudgetPolicy.budgetSurface(BudgetProfile.TINY);
+        java.util.List<String> commands = catalog.visibleCommands(BudgetProfile.TINY).stream()
+                .map(com.jsrc.app.cli.CommandDescriptor::name)
+                .toList();
         StringBuilder sb = new StringBuilder();
         sb.append("# jsrc — Java Navigator (TINY)\n\n");
         sb.append("## Commands (").append(commands.size()).append(")\n\n");
@@ -187,7 +163,9 @@ public class SkillCommand implements Command {
     }
 
     private String generateSmallSkill() {
-        Set<String> commands = BudgetPolicy.budgetSurface(BudgetProfile.SMALL);
+        java.util.List<String> commands = catalog.visibleCommands(BudgetProfile.SMALL).stream()
+                .map(com.jsrc.app.cli.CommandDescriptor::name)
+                .toList();
         StringBuilder sb = new StringBuilder();
         sb.append("# jsrc — Java Navigator (SMALL)\n\n");
         sb.append("## Commands (").append(commands.size()).append(")\n\n");
@@ -208,13 +186,14 @@ public class SkillCommand implements Command {
     }
 
     private String generateStandardSkill() {
-        return """
-# jsrc — Java Navigator (STANDARD)
-
-Full documentation in SKILL.md.
-No budget restrictions apply.
-
-Use `jsrc skill --budget tiny` or `jsrc skill --budget small` for constrained guides.
-""";
+        StringBuilder result = new StringBuilder("# jsrc — Java Navigator (STANDARD)\n\n");
+        result.append("## Commands (").append(catalog.commands().size()).append(")\n\n");
+        for (com.jsrc.app.cli.CommandDescriptor command : catalog.commands()) {
+            result.append("- `jsrc ").append(command.name()).append(" --json` — ")
+                    .append(command.summary()).append("\n");
+        }
+        result.append("\nNo budget restrictions apply.\n");
+        result.append("Use `jsrc skill --budget tiny` or `jsrc skill --budget small` for constrained guides.\n");
+        return result.toString();
     }
 }

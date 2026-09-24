@@ -61,8 +61,7 @@ class BudgetDenyGateTest {
         System.setErr(new PrintStream(errContent));
 
         try {
-            JsrcCommand jsrcCmd = new JsrcCommand();
-            CommandLine cli = new CommandLine(jsrcCmd);
+            CommandLine cli = JsrcCliFactory.create();
             
             // When: context command is invoked with TINY budget
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "context", "TestClass");
@@ -92,8 +91,7 @@ class BudgetDenyGateTest {
         System.setErr(new PrintStream(errContent));
 
         try {
-            JsrcCommand jsrcCmd = new JsrcCommand();
-            CommandLine cli = new CommandLine(jsrcCmd);
+            CommandLine cli = JsrcCliFactory.create();
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "call-chain", "TestClass.method1");
             
             assertEquals(ExitCode.BAD_USAGE, exitCode);
@@ -115,8 +113,7 @@ class BudgetDenyGateTest {
         System.setErr(new PrintStream(errContent));
 
         try {
-            JsrcCommand jsrcCmd = new JsrcCommand();
-            CommandLine cli = new CommandLine(jsrcCmd);
+            CommandLine cli = JsrcCliFactory.create();
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "dump");
             
             assertEquals(ExitCode.BAD_USAGE, exitCode);
@@ -138,8 +135,7 @@ class BudgetDenyGateTest {
         System.setErr(new PrintStream(errContent));
 
         try {
-            JsrcCommand jsrcCmd = new JsrcCommand();
-            CommandLine cli = new CommandLine(jsrcCmd);
+            CommandLine cli = JsrcCliFactory.create();
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "tour");
             
             assertEquals(ExitCode.BAD_USAGE, exitCode);
@@ -161,8 +157,7 @@ class BudgetDenyGateTest {
         System.setErr(new PrintStream(errContent));
 
         try {
-            JsrcCommand jsrcCmd = new JsrcCommand();
-            CommandLine cli = new CommandLine(jsrcCmd);
+            CommandLine cli = JsrcCliFactory.create();
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "map");
             
             assertEquals(ExitCode.BAD_USAGE, exitCode);
@@ -184,8 +179,7 @@ class BudgetDenyGateTest {
         System.setErr(new PrintStream(errContent));
 
         try {
-            JsrcCommand jsrcCmd = new JsrcCommand();
-            CommandLine cli = new CommandLine(jsrcCmd);
+            CommandLine cli = JsrcCliFactory.create();
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "small", "context", "TestClass");
             
             assertEquals(ExitCode.BAD_USAGE, exitCode);
@@ -211,8 +205,7 @@ class BudgetDenyGateTest {
         System.setErr(new PrintStream(errContent));
 
         try {
-            JsrcCommand jsrcCmd = new JsrcCommand();
-            CommandLine cli = new CommandLine(jsrcCmd);
+            CommandLine cli = JsrcCliFactory.create();
             // mini is ALLOW under TINY, should not be denied
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "mini", "TestClass");
             
@@ -232,11 +225,9 @@ class BudgetDenyGateTest {
     }
 
     @Test
-    @DisplayName("B1: Unknown command under TINY is DENIED by default")
-    void unknownCommandUnderTinyIsDeniedByDefault() throws IOException {
-        // BudgetPolicy.getAction returns DENY for unknown commands under TINY
-        var action = BudgetPolicy.getAction("nonexistent-command", BudgetProfile.TINY);
-        assertEquals(BudgetPolicy.Action.DENY, action,
-            "Unknown commands should default to DENY under TINY");
+    @DisplayName("B1: Unknown commands are rejected instead of receiving a silent default")
+    void unknownCommandUnderTinyIsRejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> BudgetPolicy.getAction("nonexistent-command", BudgetProfile.TINY));
     }
 }

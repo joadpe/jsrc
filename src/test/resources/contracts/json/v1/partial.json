@@ -1,0 +1,1 @@
+{"schema":"urn:jsrc:output:search:1","protocolVersion":1,"command":"search","status":"partial","data":[],"diagnostics":[{"code":"OUTPUT_TRUNCATED","severity":"warning","message":"Output truncated"}],"meta":{"budget":{"profile":"standard","truncated":true},"confidence":{"level":"partial","reasons":["truncated"]},"partial":{"reasons":["truncated"]}}}

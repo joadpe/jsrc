@@ -242,6 +242,7 @@ Flags work before or after the subcommand: `jsrc --json overview` = `jsrc overvi
 | Flag | Description |
 |------|-------------|
 | `--json` | Machine-readable JSON (always use for agents) |
+| `--protocol legacy\|1\|latest` | JSON protocol version (default: legacy) |
 | `--md` | Markdown output (for context command) |
 | `--metrics` | Append execution metrics to stderr |
 | `--full` | Verbose output (full signatures, all details) |
@@ -252,6 +253,20 @@ Flags work before or after the subcommand: `jsrc --json overview` = `jsrc overvi
 | `--limit N` | Maximum number of items in output lists |
 | `--max-bytes N` | Maximum output size in bytes |
 | `--no-budget-meta` | Omit _budget metadata from JSON output |
+
+## Versioned JSON protocol
+
+The existing JSON shapes remain the default under `--protocol legacy`. Agents that need a
+stable envelope can opt into protocol v1:
+
+```bash
+jsrc overview --json --protocol 1
+```
+
+Every v1 document contains `schema`, `protocolVersion`, `command`, `status`, `data`,
+`diagnostics`, and `meta`. Status is one of `ok`, `empty`, `partial`, or `error`.
+`watch` emits one complete v1 envelope per line. In v1, output limits remove complete
+payload fields or items and preserve valid JSON plus truncation diagnostics.
 
 ## Budget Profiles
 
@@ -305,7 +320,8 @@ All JSON output under budget includes `_budget` metadata (opt-out: `--no-budget-
 {"_budget":{"profile":"tiny","degradedFrom":"summary","applied":["limit:10"],"truncated":true},"name":"OrderService",...}
 ```
 
-**Important:** Array-shaped JSON responses preserve their contract (no wrapper object). `_budget` metadata is only added to object roots.
+**Legacy protocol:** Array-shaped responses preserve their root contract and `_budget`
+metadata is only added to object roots. Protocol v1 always uses the stable envelope.
 
 ## CLI Dialect
 

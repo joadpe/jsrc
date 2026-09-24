@@ -61,16 +61,21 @@ public abstract class PicocliAdapter implements Callable<Integer> {
                 // Command is denied by budget policy - return structured error
                 String suggestion = rule.alternative().orElse(
                         "Try jsrc describe --json to see available commands");
+                if (parent.versionedJsonEnabled()) {
+                    new com.jsrc.app.output.VersionedJsonPrintStream(
+                            System.err, commandName(), budgetCtx)
+                            .printError(com.jsrc.app.output.DiagnosticCode.BUDGET_DENIED,
+                                    commandName() + " exceeds "
+                                            + budgetCtx.profile().profileName() + " budget");
+                    return ExitCode.BAD_USAGE;
+                }
                 var deniedCmd = new com.jsrc.app.command.BudgetDeniedCommand(
-                    commandName(), 
-                    budgetCtx.profile(), 
-                    suggestion
-                );
+                        commandName(), budgetCtx.profile(), suggestion);
                 return deniedCmd.execute(null);
             }
             
             var timer = StopWatch.start();
-            CommandContext ctx = parent.buildContext(skipIndex());
+            CommandContext ctx = parent.buildContext(skipIndex(), commandName());
             Command cmd = createCommand();
 
             if (cmd == null) {
@@ -89,6 +94,13 @@ public abstract class PicocliAdapter implements Callable<Integer> {
 
             return ExitCodeMapper.mapToExitCode(result);
         } catch (JsrcException e) {
+            if (parent.versionedJsonEnabled()) {
+                new com.jsrc.app.output.VersionedJsonPrintStream(
+                        System.err, commandName(), parent.buildBudgetContext())
+                        .printError(com.jsrc.app.output.ExceptionDiagnosticMapper.codeFor(e),
+                                e.getMessage());
+                return e.exitCode();
+            }
             System.err.println("Error: " + e.getMessage());
             return e.exitCode();
         }

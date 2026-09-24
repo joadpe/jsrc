@@ -48,7 +48,7 @@ public class DumpAdapter extends PicocliAdapter {
                 dump.put("totalSmells", totalSmells);
                 dump.put("indexSizeBytes", Files.size(indexBin));
 
-                System.out.println(JsonWriter.toJson(dump));
+                ctx.formatter().printResult(dump);
                 return 1;
             } catch (Exception e) {
                 System.err.println("Error reading binary index: " + e.getMessage());

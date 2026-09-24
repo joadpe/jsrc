@@ -34,8 +34,15 @@ record CommandRegistration(
                 .map(option -> String.join("|", option.names()))
                 .toList();
         List<String> aliases = List.of(spec.aliases());
+        String schemaId = outputType == CommandOutputType.NONE
+                ? null
+                : "urn:jsrc:output:" + name + ":1";
+        List<Integer> protocolVersions = outputType == CommandOutputType.NONE
+                ? List.of()
+                : List.of(1);
         return new CommandDescriptor(name, aliases, summary, category, arguments, options,
-                outputType, cost, budgets, List.of("jsrc " + name + " --json"));
+                outputType, schemaId, protocolVersions, cost, budgets,
+                List.of("jsrc " + name + " --json"));
     }
 
     private static String normalizeSummary(String summary) {

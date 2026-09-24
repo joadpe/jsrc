@@ -61,13 +61,15 @@ public final class CommandRegistry {
         return DefaultCommandRegistry.create().commands();
     }
 
-    private static Map<String, Object> toMap(CommandDescriptor command) {
+    static Map<String, Object> toMap(CommandDescriptor command) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("name", command.name());
         map.put("description", command.summary());
         map.put("args", command.arguments());
         map.put("flags", command.options());
         map.put("outputType", command.outputType().name().toLowerCase());
+        map.put("schema", command.schemaId());
+        map.put("protocolVersions", command.protocolVersions());
         map.put("category", command.category().name().toLowerCase());
         map.put("cost", command.cost().name().toLowerCase());
         return map;

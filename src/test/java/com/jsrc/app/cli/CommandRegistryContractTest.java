@@ -3,6 +3,7 @@ package com.jsrc.app.cli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -41,6 +42,12 @@ class CommandRegistryContractTest {
             assertNotNull(command.category(), command.name() + " category");
             assertNotNull(command.outputType(), command.name() + " output type");
             assertNotNull(command.cost(), command.name() + " cost");
+            if (command.outputType() != CommandOutputType.NONE) {
+                assertEquals("urn:jsrc:output:" + command.name() + ":1", command.schemaId(),
+                        command.name() + " schema");
+                assertTrue(command.protocolVersions().contains(1),
+                        command.name() + " protocol versions");
+            }
             for (BudgetProfile profile : BudgetProfile.values()) {
                 assertNotNull(command.budgetRule(profile),
                         command.name() + " budget rule for " + profile);

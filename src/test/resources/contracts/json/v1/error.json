@@ -1,0 +1,1 @@
+{"schema":"urn:jsrc:output:overview:1","protocolVersion":1,"command":"overview","status":"error","data":null,"diagnostics":[{"code":"INVALID_ARGUMENT","severity":"error","message":"Invalid argument"}],"meta":{"budget":{"profile":"standard","truncated":false},"confidence":{"level":"exact","reasons":[]},"partial":{"reasons":[]}}}

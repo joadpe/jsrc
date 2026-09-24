@@ -59,6 +59,14 @@ public class JsrcCommand implements Runnable {
         return globalOptions;
     }
 
+    public boolean versionedJsonEnabled() {
+        BudgetProfile profile = resolveBudgetProfile();
+        boolean effectiveJson = OutputModeResolver.effectiveJson(
+                globalOptions.jsonOutput(), globalOptions.mdOutput(), profile);
+        return effectiveJson
+                && globalOptions.jsonProtocol() == com.jsrc.app.output.JsonProtocol.V1;
+    }
+
     public String resolvedRoot() {
         if (sourceRoot != null && !".".equals(sourceRoot)) {
             return sourceRoot;
@@ -74,18 +82,8 @@ public class JsrcCommand implements Runnable {
     }
 
     public BudgetProfile resolveBudgetProfile() {
-        if (globalOptions.budget() != null) {
-            return BudgetProfile.fromString(globalOptions.budget());
-        }
-        String envBudget = System.getenv("JSRC_BUDGET");
-        if (envBudget != null && !envBudget.isBlank()) {
-            return BudgetProfile.fromString(envBudget);
-        }
-        ProjectConfig config = loadConfig();
-        if (config != null && config.budget() != null) {
-            return BudgetProfile.fromString(config.budget());
-        }
-        return BudgetProfile.STANDARD;
+        return OutputModeResolver.resolveBudgetProfile(
+                globalOptions.budget(), globalOptions.configPath());
     }
 
     public BudgetContext buildBudgetContext() {
@@ -100,16 +98,20 @@ public class JsrcCommand implements Runnable {
     }
 
     public CommandContext buildContext() {
-        return buildContext(null);
+        return buildContext(null, "unknown");
     }
 
     public CommandContext buildContext(String skipIndex) {
+        return buildContext(skipIndex, "unknown");
+    }
+
+    public CommandContext buildContext(String skipIndex, String commandName) {
         String rootPath = resolvedRoot();
         ProjectConfig config = loadConfig();
         BudgetContext budgetContext = buildBudgetContext();
         BudgetProfile profile = budgetContext.profile();
-        boolean effectiveJson = globalOptions.jsonOutput()
-                || (profile.forceJson() && !globalOptions.mdOutput());
+        boolean effectiveJson = OutputModeResolver.effectiveJson(
+                globalOptions.jsonOutput(), globalOptions.mdOutput(), profile);
 
         var loader = new CodeBaseLoader();
         var javaFiles = new ArrayList<Path>();
@@ -138,7 +140,9 @@ public class JsrcCommand implements Runnable {
                 globalOptions.signatureOnly(),
                 globalOptions.fields(),
                 System.out,
-                budgetContext);
+                budgetContext,
+                globalOptions.jsonProtocol(),
+                commandName);
         IndexedCodebase indexed = skipIndex != null
                 ? null
                 : IndexedCodebase.tryLoad(

@@ -162,6 +162,9 @@ public interface OutputFormatter {
         printResult(data);
     }
 
+    /** Flushes the effective output destination. */
+    default void flush() {}
+
     /**
      * Factory method to create the appropriate formatter.
      *
@@ -217,12 +220,24 @@ public interface OutputFormatter {
      */
     static OutputFormatter create(boolean json, boolean signatureOnly, java.util.Set<String> fields,
                                    java.io.PrintStream out, com.jsrc.app.cli.BudgetContext budgetContext) {
+        return create(json, signatureOnly, fields, out, budgetContext, JsonProtocol.LEGACY, "unknown");
+    }
+
+    /**
+     * Factory method with an explicit JSON protocol and canonical command name.
+     */
+    static OutputFormatter create(boolean json, boolean signatureOnly, java.util.Set<String> fields,
+                                   java.io.PrintStream out, com.jsrc.app.cli.BudgetContext budgetContext,
+                                   JsonProtocol protocol, String commandName) {
         if (!json) {
             return new TextFormatter(signatureOnly, out);
         }
+        java.io.PrintStream effectiveOut = protocol == JsonProtocol.V1
+                ? new VersionedJsonPrintStream(out, commandName, budgetContext)
+                : out;
         if (budgetContext != null && budgetContext.profile() != com.jsrc.app.cli.BudgetProfile.STANDARD) {
-            return new BudgetAwareJsonFormatter(signatureOnly, fields, out, budgetContext);
+            return new BudgetAwareJsonFormatter(signatureOnly, fields, effectiveOut, budgetContext);
         }
-        return new JsonFormatter(signatureOnly, fields, out);
+        return new JsonFormatter(signatureOnly, fields, effectiveOut);
     }
 }

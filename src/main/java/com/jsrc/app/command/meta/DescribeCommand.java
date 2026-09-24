@@ -47,8 +47,14 @@ public class DescribeCommand implements Command {
     public int execute(CommandContext ctx) {
         if (specificCommand != null && !specificCommand.isEmpty()) {
             // Detail lookup for a specific command - always allowed for introspection
-            return CommandRegistry.describeCommand(specificCommand, ctx.formatter() instanceof com.jsrc.app.output.JsonFormatter) 
-                ? ExitCode.OK : ExitCode.NOT_FOUND;
+            if (ctx.formatter() instanceof com.jsrc.app.output.JsonFormatter) {
+                return catalog.find(specificCommand).map(command -> {
+                    ctx.formatter().printResult(CommandRegistry.toMap(command));
+                    return ExitCode.OK;
+                }).orElse(ExitCode.NOT_FOUND);
+            }
+            return CommandRegistry.describeCommand(specificCommand, false)
+                    ? ExitCode.OK : ExitCode.NOT_FOUND;
         }
         
         // Filter CommandRegistry commands by budget visibility

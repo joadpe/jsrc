@@ -594,6 +594,9 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
      * @return truncated JSON or original if under limit
      */
     private String applyMaxBytes(String json) {
+        if (out instanceof VersionedJsonPrintStream) {
+            return json;
+        }
         int maxBytes = budgetContext.effectiveMaxBytes();
         if (maxBytes <= 0) {
             return json;

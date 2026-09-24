@@ -14,7 +14,10 @@ public final class JsrcCliFactory {
         if (!(catalog instanceof DefaultCommandRegistry registry)) {
             throw new IllegalArgumentException("Catalog cannot instantiate CLI commands");
         }
-        CommandLine root = new CommandLine(new JsrcCommand(catalog));
+        JsrcCommand rootCommand = new JsrcCommand(catalog);
+        CommandLine root = new CommandLine(rootCommand);
+        root.setParameterExceptionHandler(
+                new JsonParameterExceptionHandler(catalog, rootCommand));
         for (CommandRegistration registration : registry.registrations()) {
             CommandDescriptor descriptor = registration.descriptor();
             if (!root.getSubcommands().containsKey(descriptor.name())) {

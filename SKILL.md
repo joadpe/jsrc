@@ -141,6 +141,7 @@ Always use `--json`. All commands work with or without explicit source root (def
 ## Global flags
 
 - `--json` — machine-readable JSON output (always use this)
+- `--protocol legacy|1|latest` — select JSON protocol (default: legacy)
 - `--metrics` — append execution metrics to stderr
 - `--signature-only` — compact method output (1 line per method)
 - `--fields name,packageName` — limit JSON to specific fields (saves tokens)
@@ -148,6 +149,14 @@ Always use `--json`. All commands work with or without explicit source root (def
 - `--budget <profile>` — budget profile: tiny|small|standard (default: standard)
 - `--limit N` — maximum items in output lists
 - `--no-budget-meta` — omit _budget metadata from JSON output
+
+## Versioned JSON protocol
+
+Use `--json --protocol 1` for a stable agent-facing envelope. Every response contains
+`schema`, `protocolVersion`, `command`, `status`, `data`, `diagnostics`, and `meta`.
+`status` is `ok`, `empty`, `partial`, or `error`; diagnostic codes are stable API.
+The `watch` command emits one complete envelope per line. Omit `--protocol` only when
+compatibility with the legacy object/array roots is required.
 
 ## Budget Profiles for Small/Local Agents
 
@@ -178,7 +187,8 @@ export JSRC_BUDGET=small
 - Tiny/small force `--json` output automatically
 - **Tiny degrades:** `summary` → runs as `mini`, `read Class` → denies with suggestion to read specific method
 - Denied commands exit with code 2 + structured error JSON
-- All object-shaped output includes `_budget` metadata showing applied limits (array outputs preserve contract)
+- Legacy object-shaped output includes `_budget` metadata (legacy arrays preserve their root contract)
+- Protocol v1 carries budget and truncation information in the envelope `meta` and `diagnostics`
 
 **Quick start for tiny budget:**
 ```bash
@@ -207,7 +217,8 @@ jsrc read ClassName.methodName --json  # whole-class reads denied under tiny
 
 ## Output format (JSON)
 
-All JSON output is compact (no pretty-print) to minimize tokens.
+All JSON output is compact (no pretty-print) to minimize tokens. The examples below show
+the default legacy protocol; use `--protocol 1` for the versioned envelope.
 
 ### overview
 ```json

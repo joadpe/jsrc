@@ -500,4 +500,9 @@ public class JsonFormatter implements OutputFormatter {
             printResult(wrapped);
         }
     }
+
+    @Override
+    public void flush() {
+        out.flush();
+    }
 }

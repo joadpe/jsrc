@@ -672,8 +672,8 @@ public class BudgetAwareJsonFormatter extends JsonFormatter {
             int targetBytes = maxBytes - suffixLen;
             String truncated = truncateUtf8Safe(json, targetBytes);
             
-            // Find last complete item (look for last comma or opening bracket)
-            int lastComma = truncated.lastIndexOf(',');
+            // Find the last complete root item, ignoring commas inside nested objects.
+            int lastComma = findLastRootComma(truncated);
             int openBracket = truncated.indexOf('[');
             
             // If no comma found, return empty array (safer than partial element)

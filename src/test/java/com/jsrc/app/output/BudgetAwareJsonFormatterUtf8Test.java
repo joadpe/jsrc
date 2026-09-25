@@ -39,7 +39,7 @@ class BudgetAwareJsonFormatterUtf8Test {
             validator.parseValue();
             validator.skipWhitespace();
             if (validator.pos < validator.input.length()) {
-                throw new IllegalArgumentException("Trailing content after JSON: " + 
+                throw new IllegalArgumentException("Trailing content after JSON: " +
                     validator.input.substring(validator.pos));
             }
         }
@@ -82,8 +82,8 @@ class BudgetAwareJsonFormatterUtf8Test {
                             throw new IllegalArgumentException("Invalid unicode hex: " + hex);
                         }
                         pos += 4;
-                    } else if (escaped != '"' && escaped != '\\' && escaped != '/' && 
-                               escaped != 'n' && escaped != 'r' && escaped != 't' && 
+                    } else if (escaped != '"' && escaped != '\\' && escaped != '/' &&
+                               escaped != 'n' && escaped != 'r' && escaped != 't' &&
                                escaped != 'b' && escaped != 'f') {
                         throw new IllegalArgumentException("Invalid escape: \\" + escaped);
                     }
@@ -249,12 +249,12 @@ class BudgetAwareJsonFormatterUtf8Test {
         // Oracle 3: Must contain _truncated marker
         @SuppressWarnings("unchecked")
         Map<String, Object> map = (Map<String, Object>) parsed;
-        assertEquals(Boolean.TRUE, map.get("_truncated"), 
+        assertEquals(Boolean.TRUE, map.get("_truncated"),
             "Truncated JSON must have _truncated:true");
 
         // Oracle 4: Byte length must not exceed maxBytes
         byte[] bytes = truncated.getBytes(StandardCharsets.UTF_8);
-        assertTrue(bytes.length <= maxBytes, 
+        assertTrue(bytes.length <= maxBytes,
             "Byte length " + bytes.length + " exceeds maxBytes " + maxBytes);
     }
 
@@ -313,24 +313,10 @@ class BudgetAwareJsonFormatterUtf8Test {
         // Oracle 1: Valid JSON (parseable by JsonReader)
         Object parsed = JsonReader.parse(truncated);
         assertNotNull(parsed, "Truncated list must be parseable");
-        
+
         // Oracle 2: Strict independent validation
-        // Note: For B3, formatter may output partial structures that JsonReader accepts
-        // but strict validator rejects. This is acceptable if JsonReader can parse it.
-        // The key contract is: if under budget → valid; if truncated → has _truncated marker.
-        try {
-            StrictJsonValidator.validate(truncated);
-        } catch (IllegalArgumentException e) {
-            // If strict validation fails, verify JsonReader accepted it and _truncated is present
-            assertTrue(parsed instanceof Map || parsed instanceof List,
-                "If strict validator rejects, must still be parseable by JsonReader");
-            if (parsed instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> map = (Map<String, Object>) parsed;
-                assertEquals(Boolean.TRUE, map.get("_truncated"),
-                    "Rejected by strict validator but must have _truncated marker");
-            }
-        }
+        assertDoesNotThrow(() -> StrictJsonValidator.validate(truncated),
+                "Truncated list must pass strict independent validation");
 
         // Oracle 3: Root is array or truncated object
         assertTrue(parsed instanceof List || parsed instanceof Map, "Root must be array or object");
@@ -381,10 +367,10 @@ class BudgetAwareJsonFormatterUtf8Test {
             // Oracle 4: Must contain _truncated marker if budget allows
             @SuppressWarnings("unchecked")
             Map<String, Object> map = (Map<String, Object>) parsed;
-            
+
             String minFallback = "{\"_truncated\":true}";
             int minFallbackBytes = minFallback.getBytes(StandardCharsets.UTF_8).length;
-            
+
             if (maxBytes >= minFallbackBytes) {
                 // If budget allows, must have _truncated marker and be minimal fallback
                 assertEquals(Boolean.TRUE, map.get("_truncated"),

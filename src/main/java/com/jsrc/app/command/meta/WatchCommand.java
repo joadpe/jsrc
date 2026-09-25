@@ -19,6 +19,8 @@ import com.jsrc.app.index.IndexedCodebase;
 import com.jsrc.app.output.JsonReader;
 import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.output.OutputFormatter;
+import com.jsrc.app.project.ProjectFileDiscovery;
+import com.jsrc.app.project.ProjectModelDetector;
 
 /**
  * Daemon mode: watches filesystem for changes and serves queries via stdin.
@@ -205,15 +207,8 @@ public class WatchCommand implements Command {
      * Discover all .java files under root (rediscovery for watch refresh).
      */
     private List<Path> discoverJavaFiles(Path root) {
-        try (var stream = Files.walk(root)) {
-            return stream
-                .filter(Files::isRegularFile)
-                .filter(p -> p.toString().endsWith(".java"))
-                .toList();
-        } catch (IOException e) {
-            // Fallback: return empty list on error
-            return List.of();
-        }
+        var model = new ProjectModelDetector().detect(root);
+        return new ProjectFileDiscovery().discover(model);
     }
 
     /**

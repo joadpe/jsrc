@@ -1,6 +1,8 @@
 package com.jsrc.app.command.meta;
 
+import com.jsrc.app.index.CodebaseIndex;
 import com.jsrc.app.index.IndexedCodebase;
+import com.jsrc.app.parser.HybridJavaParser;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -45,7 +47,7 @@ class WatchCommandRediscoverTest {
         // Second load - should rediscover and reload
         var result2 = watch.loadOrRefreshIndex(tempDir, List.of(existing), result1.index(), false);
         assertEquals(2, tryLoadCallCount, "After creating file, should call tryLoad again");
-        
+
         // Verify: discovery should find both files
         assertEquals(2, result2.files().size(), "Should discover both files");
     }
@@ -82,7 +84,7 @@ class WatchCommandRediscoverTest {
     void testW3_deleteJavaDetectedByRediscovery(@TempDir Path tempDir) throws Exception {
         Path victim = tempDir.resolve("Victim.java");
         Files.writeString(victim, "public class Victim {}");
-        
+
         Path survivor = tempDir.resolve("Survivor.java");
         Files.writeString(survivor, "public class Survivor {}");
 
@@ -101,7 +103,7 @@ class WatchCommandRediscoverTest {
         // Second load - should rediscover and find only survivor
         var result2 = watch.loadOrRefreshIndex(tempDir, List.of(victim, survivor), result1.index(), false);
         assertEquals(2, tryLoadCallCount, "After deleting file, should call tryLoad again");
-        
+
         assertEquals(1, result2.files().size(), "Should discover only survivor");
         assertTrue(result2.files().contains(survivor));
     }
@@ -115,21 +117,9 @@ class WatchCommandRediscoverTest {
         Path existing = tempDir.resolve("InitialClass.java");
         Files.writeString(existing, "package com.test; public class InitialClass { public void existingMethod() {} }");
 
-        // Build initial index - tryLoad may return null if no index exists, so we force indexing
-        var initialIndex = IndexedCodebase.tryLoad(tempDir, List.of(existing), false);
-        if (initialIndex == null) {
-            // No index exists, need to create one via indexing command
-            // For test purposes, we'll use the watch refresh mechanism which builds index
-            var watch = new WatchCommand();
-            var result = watch.loadOrRefreshIndex(tempDir, List.of(existing), null, false);
-            initialIndex = result.index();
-        }
-        
-        // If still null, skip test (environment doesn't support indexing)
-        if (initialIndex == null) {
-            return; // Skip test when indexing not available
-        }
-        
+        var initialIndex = buildIndex(tempDir, List.of(existing));
+        assertNotNull(initialIndex, "Initial index must be available");
+
         // Verify InitialClass is queryable
         var initialClasses = initialIndex.getAllClasses();
         assertTrue(initialClasses.stream().anyMatch(c -> c.name().equals("InitialClass")),
@@ -143,19 +133,16 @@ class WatchCommandRediscoverTest {
         // Refresh index - should rediscover and reindex
         var watch = new WatchCommand();
         var result2 = watch.loadOrRefreshIndex(tempDir, List.of(existing), initialIndex, false);
-        
-        // If refresh returns null index, indexing may not be working in test env
-        if (result2.index() == null) {
-            return; // Skip verification
-        }
-        
+
+        assertNotNull(result2.index(), "Refreshed index must be available");
+
         // Oracle: NewlyCreated type must be queryable via index (W1s)
         var allClasses = result2.index().getAllClasses();
         assertTrue(allClasses.stream().anyMatch(c -> c.name().equals("NewlyCreated")),
             "W1s: After create, NewlyCreated type must be queryable via index");
         assertTrue(allClasses.stream().anyMatch(c -> c.name().equals("InitialClass")),
             "InitialClass should still be queryable");
-        
+
         // Also verify via method search API
         var newMethods = result2.index().findMethodsByName("newMethod");
         assertFalse(newMethods.isEmpty(), "newMethod should be findable via index API");
@@ -170,22 +157,13 @@ class WatchCommandRediscoverTest {
     void testW3s_deleteJavaStaleTypeNotQueryable(@TempDir Path tempDir) throws Exception {
         Path victim = tempDir.resolve("VictimClass.java");
         Files.writeString(victim, "package com.test; public class VictimClass { public void victimMethod() {} }");
-        
+
         Path survivor = tempDir.resolve("SurvivorClass.java");
         Files.writeString(survivor, "package com.test; public class SurvivorClass { public void survivorMethod() {} }");
 
-        // Build initial index with both files
-        var initialIndex = IndexedCodebase.tryLoad(tempDir, List.of(victim, survivor), false);
-        if (initialIndex == null) {
-            var watch = new WatchCommand();
-            var result = watch.loadOrRefreshIndex(tempDir, List.of(victim, survivor), null, false);
-            initialIndex = result.index();
-        }
-        
-        if (initialIndex == null) {
-            return; // Skip test when indexing not available
-        }
-        
+        var initialIndex = buildIndex(tempDir, List.of(victim, survivor));
+        assertNotNull(initialIndex, "Initial index must be available");
+
         // Verify both classes are queryable initially
         var initialClasses = initialIndex.getAllClasses();
         assertTrue(initialClasses.stream().anyMatch(c -> c.name().equals("VictimClass")),
@@ -200,23 +178,21 @@ class WatchCommandRediscoverTest {
         // Refresh index - should detect deletion and reindex
         var watch = new WatchCommand();
         var result2 = watch.loadOrRefreshIndex(tempDir, List.of(victim, survivor), initialIndex, false);
-        
-        if (result2.index() == null) {
-            return; // Skip verification
-        }
-        
+
+        assertNotNull(result2.index(), "Refreshed index must be available");
+
         // Oracle: VictimClass must NOT be queryable (W3s)
         var finalClasses = result2.index().getAllClasses();
         assertFalse(finalClasses.stream().anyMatch(c -> c.name().equals("VictimClass")),
             "W3s: After delete, VictimClass must NOT be queryable via index");
         assertTrue(finalClasses.stream().anyMatch(c -> c.name().equals("SurvivorClass")),
             "SurvivorClass should still be queryable");
-        
+
         // Also verify via method search API
         var victimMethods = result2.index().findMethodsByName("victimMethod");
         assertTrue(victimMethods.isEmpty(),
             "victimMethod should NOT be findable after delete");
-        
+
         var survivorMethods = result2.index().findMethodsByName("survivorMethod");
         assertFalse(survivorMethods.isEmpty(),
             "survivorMethod should still be findable");
@@ -250,6 +226,29 @@ class WatchCommandRediscoverTest {
         assertTrue(result2.files().contains(added), "Fresh file list must include newly created file");
     }
 
+    @Test
+    void rediscoveryHonorsMavenSourceRoots(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>demo</groupId>
+                  <artifactId>watch-model</artifactId>
+                  <version>1.0</version>
+                </project>
+                """);
+        Path source = tempDir.resolve("src/main/java/demo/Included.java");
+        Path excluded = tempDir.resolve("target/arbitrary/demo/Excluded.java");
+        Files.createDirectories(source.getParent());
+        Files.createDirectories(excluded.getParent());
+        Files.writeString(source, "package demo; public class Included {}");
+        Files.writeString(excluded, "package demo; public class Excluded {}");
+
+        var result = new WatchCommand().loadOrRefreshIndex(
+                tempDir, List.of(source), null, false);
+
+        assertEquals(List.of(source), result.files());
+    }
+
     /**
      * W4: frozen-index → no rediscovery refresh.
      */
@@ -257,16 +256,16 @@ class WatchCommandRediscoverTest {
     void testW4_frozenIndexNoRediscoveryRefresh(@TempDir Path tempDir) throws Exception {
         Path javaFile = tempDir.resolve("Frozen.java");
         Files.writeString(javaFile, "public class Frozen {}");
-        
+
         // W4 test is about frozen behavior WITHOUT a real index
         // The key contract: frozen-index with cached!=null should NOT call tryLoad again
         // We test this by checking tryLoad call count, not by verifying index content
-        
+
         tryLoadCallCount = 0;
         mockIndex = null;
         var watch = new WatchCommand() {
             private IndexedCodebase fakeIndex = null;
-            
+
             @Override
             protected IndexedCodebase callTryLoad(Path root, List<Path> files, boolean frozenIndex) {
                 tryLoadCallCount++;
@@ -298,7 +297,7 @@ class WatchCommandRediscoverTest {
         // Second load with frozenIndex=true - should NOT reload
         var result2 = watch.loadOrRefreshIndex(tempDir, List.of(javaFile), result1.index(), true);
         assertEquals(1, tryLoadCallCount, "With frozen-index, should NOT call tryLoad again");
-        
+
         // Verify we got the same cached instance back
         if (result1.index() != null) {
             assertSame(result1.index(), result2.index(), "Frozen index should return cached instance");
@@ -315,6 +314,13 @@ class WatchCommandRediscoverTest {
                 return IndexedCodebase.tryLoad(root, files, frozenIndex);
             }
         };
+    }
+
+    private IndexedCodebase buildIndex(Path root, List<Path> files) throws IOException {
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), files, root, List.of());
+        index.save(root);
+        return IndexedCodebase.tryLoad(root, files, false);
     }
 
 }

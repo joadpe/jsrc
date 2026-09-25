@@ -54,6 +54,32 @@ class IndexedSemanticObserverTest {
                 observation.edges());
     }
 
+    @Test
+    void observesMethodReferenceAsCallEdge() throws Exception {
+        Path mapper = writeSource("com/example/Mapper.java", """
+                package com.example;
+                public interface Mapper {
+                    String map(String value);
+                }
+                """);
+        Path client = writeSource("com/example/Client.java", """
+                package com.example;
+                import java.util.function.Function;
+                public class Client {
+                    public Function<String, String> adapter(Mapper mapper) {
+                        return mapper::map;
+                    }
+                }
+                """);
+
+        SemanticObservation observation = IndexedSemanticObserver.observe(
+                tempDir, List.of(mapper, client));
+
+        assertEquals(Set.of(
+                "com.example.Client#adapter(Mapper)->com.example.Mapper#map(String)"),
+                observation.edges());
+    }
+
     private Path writeSource(String relativePath, String source) throws Exception {
         Path file = tempDir.resolve(relativePath);
         Files.createDirectories(file.getParent());

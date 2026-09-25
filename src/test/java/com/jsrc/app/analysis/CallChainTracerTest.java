@@ -410,6 +410,27 @@ class CallChainTracerTest {
                 .map(chain -> chain.root().methodName()).toList());
     }
 
+    @Test
+    @DisplayName("Should not invent callers by fuzzy owner matching")
+    void shouldNotGuessCanonicalOwnerFromSimpleName() {
+        var caller = new com.jsrc.app.parser.model.MethodReference(
+                "com.app.Caller", "run", List.of(), null);
+        var canonicalTarget = new com.jsrc.app.parser.model.MethodReference(
+                "sales.Service", "process", List.of("String"), null);
+        var call = new com.jsrc.app.parser.model.MethodCall(caller, canonicalTarget, 7);
+        CallGraph graph = CallGraph.of(
+                java.util.Map.of(canonicalTarget, java.util.Set.of(call)),
+                java.util.Map.of(caller, java.util.Set.of(call)),
+                java.util.Set.of(caller, canonicalTarget),
+                java.util.Map.of());
+        var requestedTarget = new com.jsrc.app.parser.model.MethodReference(
+                "Service", "process", List.of("String"), null);
+
+        List<CallChain> chains = new CallChainTracer(graph).traceToRoots(requestedTarget);
+
+        assertTrue(chains.isEmpty(), "The tracer must consume canonical graph identities exactly");
+    }
+
     private CallGraphBuilder buildGraph(Path... files) {
         CallGraphBuilder graph = new CallGraphBuilder();
         graph.build(List.of(files));

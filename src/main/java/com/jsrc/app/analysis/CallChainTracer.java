@@ -140,39 +140,12 @@ public class CallChainTracer {
         }
     }
 
-    private static final Set<String> OBJECT_METHODS = Set.of(
-            "toString", "equals", "hashCode", "getClass", "notify", "notifyAll", "wait", "clone", "finalize");
-
     /**
-     * Finds all calls where the given method is the callee, including
-     * fuzzy matches for interface/implementation boundaries.
-     * <p>
-     * Skips fuzzy matching for ubiquitous Object methods to prevent
-     * combinatorial explosion.
+     * Finds all calls where the given canonical method is the callee.
+     * Interface and virtual dispatch expansion is performed while the graph is built.
      */
     private Set<MethodCall> findCallers(MethodReference target) {
-        Set<MethodCall> direct = graph.getCallersOf(target);
-        if (!direct.isEmpty()) {
-            return direct;
-        }
-
-        if (OBJECT_METHODS.contains(target.methodName())) {
-            return Set.of();
-        }
-
-        // Fuzzy match: same method name + compatible canonical parameters.
-        // Only match across classes if target class is unresolved ("?"),
-        // otherwise require same class name to avoid mixing callers
-        // from unrelated methods with the same name.
-        Set<MethodCall> fuzzy = new HashSet<>();
-        boolean unresolvedTarget = "?".equals(target.className()) || target.className() == null;
-        for (MethodReference registered : graph.getAllCallerIndexKeys()) {
-            if (!registered.methodName().equals(target.methodName())) continue;
-            if (!matchesParameters(registered, target)) continue;
-            if (!unresolvedTarget && !classMatches(registered.className(), target.className())) continue;
-            fuzzy.addAll(graph.getCallersOf(registered));
-        }
-        return fuzzy;
+        return graph.getCallersOf(target);
     }
 
     /**
@@ -200,17 +173,4 @@ public class CallChainTracer {
         return text.matches(regex.toString());
     }
 
-    private boolean matchesParameters(MethodReference a, MethodReference b) {
-        if (a.hasKnownParameterTypes() && b.hasKnownParameterTypes()) {
-            return a.parameterTypes().equals(b.parameterTypes());
-        }
-        if (a.parameterCount() < 0 || b.parameterCount() < 0) return true;
-        return a.parameterCount() == b.parameterCount();
-    }
-
-    private boolean classMatches(String canonicalClassName, String requestedClassName) {
-        return canonicalClassName.equals(requestedClassName)
-                || canonicalClassName.endsWith("." + requestedClassName)
-                || requestedClassName.endsWith("." + canonicalClassName);
-    }
 }

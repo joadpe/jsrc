@@ -111,12 +111,16 @@ public class CodebaseIndex {
                 // Extract imports from file for return type resolution
                 List<String> fileImports = extractImports(file, edgeParser);
 
+                EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser);
+
                 List<IndexedClass> indexed = classes.stream()
                         .map(ci -> toIndexedClass(ci, file, parser, fileImports))
+                        .map(indexedClass -> withSyntheticMethods(
+                                indexedClass, extraction.syntheticMethods()))
                         .toList();
 
                 // Extract call edges (direct + reflective) via EdgeResolver
-                List<CallEdge> edges = new ArrayList<>(edgeResolver.extractCallEdges(file, edgeParser));
+                List<CallEdge> edges = new ArrayList<>(extraction.edges());
                 if (!invokers.isEmpty()) {
                     edges.addAll(edgeResolver.extractReflectiveEdges(file, edgeParser, invokers));
                 }
@@ -410,11 +414,22 @@ public class CodebaseIndex {
                     List<String> calleeParameterTypes = edgeMap.containsKey("calleeParameterTypes")
                             ? strList(edgeMap.get("calleeParameterTypes")) : List.of();
                     int argCount = edgeMap.containsKey("argCount") ? intVal(edgeMap, "argCount") : -1;
+                    var invocationKind = edgeMap.containsKey("invocationKind")
+                            ? com.jsrc.app.model.InvocationKind.valueOf(
+                                    str(edgeMap, "invocationKind"))
+                            : com.jsrc.app.model.InvocationKind.UNKNOWN;
+                    var resolutionLevel = edgeMap.containsKey("resolutionLevel")
+                            ? com.jsrc.app.model.ResolutionLevel.valueOf(
+                                    str(edgeMap, "resolutionLevel"))
+                            : com.jsrc.app.model.ResolutionLevel.UNRESOLVED;
+                    List<String> evidence = edgeMap.containsKey("evidence")
+                            ? strList(edgeMap.get("evidence")) : List.of();
                     edges.add(new CallEdge(
                             str(edgeMap, "callerClass"), str(edgeMap, "callerMethod"),
                             callerParameterTypes, callerParamCount,
                             str(edgeMap, "calleeClass"), str(edgeMap, "calleeMethod"),
-                            calleeParameterTypes, intVal(edgeMap, "line"), argCount));
+                            calleeParameterTypes, intVal(edgeMap, "line"), argCount,
+                            invocationKind, resolutionLevel, evidence));
                 }
             }
         }
@@ -459,27 +474,7 @@ public class CodebaseIndex {
                 }
             }
         }
-        List<CallEdge> callEdges = new ArrayList<>();
-        Object edgesRaw = map.get("callEdges");
-        if (edgesRaw instanceof List<?> edgeList) {
-            for (Object e : edgeList) {
-                if (e instanceof Map<?, ?> em) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> edgeMap = (Map<String, Object>) em;
-                    int callerParamCount = edgeMap.containsKey("callerParamCount") ? intVal(edgeMap, "callerParamCount") : -1;
-                    List<String> callerParameterTypes = edgeMap.containsKey("callerParameterTypes")
-                            ? strList(edgeMap.get("callerParameterTypes")) : List.of();
-                    List<String> calleeParameterTypes = edgeMap.containsKey("calleeParameterTypes")
-                            ? strList(edgeMap.get("calleeParameterTypes")) : List.of();
-                    int argCount = edgeMap.containsKey("argCount") ? intVal(edgeMap, "argCount") : -1;
-                    callEdges.add(new CallEdge(
-                            str(edgeMap, "callerClass"), str(edgeMap, "callerMethod"),
-                            callerParameterTypes, callerParamCount,
-                            str(edgeMap, "calleeClass"), str(edgeMap, "calleeMethod"),
-                            calleeParameterTypes, intVal(edgeMap, "line"), argCount));
-                }
-            }
-        }
+        List<CallEdge> callEdges = parseCallEdges(map);
         // Deserialize cached smells
         List<CachedSmell> smells = new ArrayList<>();
         Object smellsRaw = map.get("smells");
@@ -599,6 +594,29 @@ public class CodebaseIndex {
                 ci.interfaces(), methods, annotations, fileImports, fields);
     }
 
+    private static IndexedClass withSyntheticMethods(
+            IndexedClass indexedClass,
+            Map<String, List<IndexedMethod>> syntheticMethods) {
+        List<IndexedMethod> additional = syntheticMethods.get(indexedClass.qualifiedName());
+        if (additional == null || additional.isEmpty()) return indexedClass;
+
+        List<IndexedMethod> methods = new ArrayList<>(indexedClass.methods());
+        methods.addAll(additional);
+        return new IndexedClass(
+                indexedClass.name(),
+                indexedClass.packageName(),
+                indexedClass.startLine(),
+                indexedClass.endLine(),
+                indexedClass.isInterface(),
+                indexedClass.isAbstract(),
+                indexedClass.superClass(),
+                indexedClass.interfaces(),
+                methods,
+                indexedClass.annotations(),
+                indexedClass.imports(),
+                indexedClass.fields());
+    }
+
     // extractFields removed — fields now come from ClassInfo.fields() via HybridJavaParser
 
     /**
@@ -664,6 +682,11 @@ public class CodebaseIndex {
         map.put("line", edge.line());
         if (edge.argCount() >= 0) {
             map.put("argCount", edge.argCount());
+        }
+        map.put("invocationKind", edge.invocationKind().name());
+        map.put("resolutionLevel", edge.resolutionLevel().name());
+        if (!edge.evidence().isEmpty()) {
+            map.put("evidence", edge.evidence());
         }
         return map;
     }

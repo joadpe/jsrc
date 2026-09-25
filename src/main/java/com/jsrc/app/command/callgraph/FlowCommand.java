@@ -75,7 +75,7 @@ public class FlowCommand implements Command {
         List<String> boundaries = new ArrayList<>();
         int[] dbQueries = {0};
 
-        traceFlow(ci.name(), resolvedMethod, graph, ctx, allClasses, layerResolver,
+        traceFlow(ci.name(), resolvedMethod, null, graph, ctx, allClasses, layerResolver,
                 flowSteps, visited, layers, boundaries, dbQueries, 0);
 
         // Build result
@@ -101,7 +101,8 @@ public class FlowCommand implements Command {
         );
     }
 
-    private void traceFlow(String className, String methodName, CallGraph graph,
+    private void traceFlow(String className, String methodName, MethodCall incomingCall,
+                            CallGraph graph,
                             CommandContext ctx, List<ClassInfo> allClasses,
                             LayerResolver layerResolver,
                             List<Map<String, Object>> flowSteps, Set<String> visited,
@@ -116,6 +117,13 @@ public class FlowCommand implements Command {
         Map<String, Object> step = new LinkedHashMap<>();
         step.put("step", flowSteps.size() + 1);
         step.put("method", key);
+        if (incomingCall != null) {
+            step.put("dispatch", incomingCall.invocationKind().name().toLowerCase(Locale.ROOT));
+            step.put("resolution", incomingCall.resolutionLevel().name().toLowerCase(Locale.ROOT));
+            if (!incomingCall.evidence().isEmpty()) {
+                step.put("evidence", incomingCall.evidence());
+            }
+        }
 
         // Resolve layer
         String layer = null;
@@ -165,7 +173,7 @@ public class FlowCommand implements Command {
                     String calleeMethod = call.callee().methodName();
                     // Skip self-calls and common framework methods
                     if (!calleeClass.equals(className) || !calleeMethod.equals(methodName)) {
-                        traceFlow(calleeClass, calleeMethod, graph, ctx, allClasses,
+                        traceFlow(calleeClass, calleeMethod, call, graph, ctx, allClasses,
                                 layerResolver, flowSteps, visited, layers, boundaries, dbQueries, depth + 1);
                     }
                 }

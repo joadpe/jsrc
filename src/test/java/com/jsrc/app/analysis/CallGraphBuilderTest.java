@@ -709,6 +709,47 @@ class CallGraphBuilderTest {
                 .anyMatch(method -> method.className().equals("app.State")));
     }
 
+    @Test
+    void loadFromIndexPreservesDispatchEvidence() {
+        var caller = new com.jsrc.app.index.IndexedMethod(
+                "run", "public void run(Service service)", 2, 4,
+                "void", List.of());
+        var target = new com.jsrc.app.index.IndexedMethod(
+                "execute", "public void execute()", 2, 2,
+                "void", List.of());
+        var entries = List.of(
+                new com.jsrc.app.index.IndexEntry(
+                        "Client.java", "h1", 0,
+                        List.of(new com.jsrc.app.index.IndexedClass(
+                                "Client", "app", 1, 5,
+                                false, false, List.of(), List.of(),
+                                List.of(caller), List.of(), List.of())),
+                        List.of(new com.jsrc.app.index.CallEdge(
+                                "app.Client", "run", List.of("Service"), 1,
+                                "app.Service", "execute", List.of(), 3, 0,
+                                com.jsrc.app.model.InvocationKind.INTERFACE,
+                                com.jsrc.app.model.ResolutionLevel.INFERRED,
+                                List.of("CHA_IMPLEMENTATION")))),
+                new com.jsrc.app.index.IndexEntry(
+                        "Service.java", "h2", 0,
+                        List.of(new com.jsrc.app.index.IndexedClass(
+                                "Service", "app", 1, 3,
+                                false, false, List.of(), List.of(),
+                                List.of(target), List.of(), List.of())),
+                        List.of()));
+
+        var loaded = new CallGraphBuilder();
+        loaded.loadFromIndex(entries);
+
+        MethodCall call = loaded.findMethodsByName("run").stream()
+                .flatMap(method -> loaded.getCalleesOf(method).stream())
+                .findFirst()
+                .orElseThrow();
+        assertEquals(com.jsrc.app.model.InvocationKind.INTERFACE, call.invocationKind());
+        assertEquals(com.jsrc.app.model.ResolutionLevel.INFERRED, call.resolutionLevel());
+        assertEquals(List.of("CHA_IMPLEMENTATION"), call.evidence());
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);

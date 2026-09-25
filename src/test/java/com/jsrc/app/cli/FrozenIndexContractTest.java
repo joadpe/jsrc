@@ -230,7 +230,7 @@ class FrozenIndexContractTest {
         assertNotNull(IndexedCodebase.tryLoad(tempDir, List.of(sourceFile), false));
 
         byte[] bytes = Files.readAllBytes(indexFile);
-        assertEquals(4, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
+        assertEquals(5, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
     }
 
     private void setIndexVersion(Path indexFile, int version) throws Exception {

@@ -128,7 +128,165 @@ class EdgeResolverTest {
                         && edge.callerMethod().equals("run")));
     }
 
+    @Test
+    void extractsMethodReferenceEdge() throws IOException {
+        Path file = writeFile("Client.java", """
+                package com.example;
+                import java.util.function.Function;
+                class Client {
+                    Function<String, String> adapter(Mapper mapper) {
+                        return mapper::map;
+                    }
+                }
+                interface Mapper {
+                    String map(String value);
+                }
+                """);
+
+        List<CallEdge> edges = new EdgeResolver()
+                .extractCallEdges(file, new JavaParser());
+
+        assertTrue(edges.stream().anyMatch(edge ->
+                edge.callerClass().equals("com.example.Client")
+                        && edge.callerMethod().equals("adapter")
+                        && edge.calleeClass().equals("Mapper")
+                        && edge.calleeMethod().equals("map")
+                        && edge.invocationKind() == com.jsrc.app.model.InvocationKind.METHOD_REFERENCE),
+                () -> "Expected method reference edge but got " + edges);
+    }
+
+    @Test
+    void resolveSymbolsExpandsInterfaceDispatchWithEvidence() {
+        IndexedMethod interfaceMethod = new IndexedMethod(
+                "pay", "public abstract void pay()", 2, 2, "void", List.of());
+        IndexedMethod implementationMethod = new IndexedMethod(
+                "pay", "public void pay()", 2, 2, "void", List.of());
+        IndexedMethod callerMethod = new IndexedMethod(
+                "run", "public void run(Payment payment)", 2, 4, "void", List.of());
+
+        var entries = new java.util.ArrayList<>(List.of(
+                new IndexEntry("Payment.java", "h1", 0,
+                        List.of(new IndexedClass(
+                                "Payment", "app", 1, 3,
+                                true, true, List.of(), List.of(),
+                                List.of(interfaceMethod), List.of(), List.of())),
+                        List.of()),
+                new IndexEntry("CardPayment.java", "h2", 0,
+                        List.of(new IndexedClass(
+                                "CardPayment", "app", 1, 3,
+                                false, false, List.of(), List.of("Payment"),
+                                List.of(implementationMethod), List.of(), List.of())),
+                        List.of()),
+                new IndexEntry("Checkout.java", "h3", 0,
+                        List.of(new IndexedClass(
+                                "Checkout", "app", 1, 5,
+                                false, false, List.of(), List.of(),
+                                List.of(callerMethod), List.of(), List.of())),
+                        List.of(new CallEdge(
+                                "app.Checkout", "run", List.of("Payment"), 1,
+                                "Payment", "pay", List.of(), 3, 0)))
+        ));
+
+        new EdgeResolver().resolveSymbols(entries);
+
+        List<CallEdge> resolved = entries.stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .toList();
+        assertTrue(resolved.stream().anyMatch(edge ->
+                        edge.calleeClass().equals("app.CardPayment")
+                                && edge.invocationKind() == com.jsrc.app.model.InvocationKind.INTERFACE
+                                && edge.resolutionLevel() == com.jsrc.app.model.ResolutionLevel.INFERRED
+                                && edge.evidence().contains("CHA_IMPLEMENTATION")),
+                () -> "Expected inferred interface target but got " + resolved);
+        assertFalse(resolved.stream().anyMatch(edge ->
+                        edge.calleeClass().equals("app.Payment")),
+                () -> "Abstract interface declaration is not a runtime target: " + resolved);
+    }
+
+    @Test
+    void resolveSymbolsExpandsVirtualOverrides() {
+        IndexedMethod baseMethod = new IndexedMethod(
+                "work", "public void work()", 2, 2, "void", List.of());
+        IndexedMethod childMethod = new IndexedMethod(
+                "work", "public void work()", 2, 2, "void", List.of());
+        IndexedMethod callerMethod = new IndexedMethod(
+                "run", "public void run(Base service)", 2, 4, "void", List.of());
+
+        var entries = new java.util.ArrayList<>(List.of(
+                new IndexEntry("Base.java", "h1", 0,
+                        List.of(new IndexedClass(
+                                "Base", "app", 1, 3,
+                                false, false, List.of(), List.of(),
+                                List.of(baseMethod), List.of(), List.of())),
+                        List.of()),
+                new IndexEntry("Child.java", "h2", 0,
+                        List.of(new IndexedClass(
+                                "Child", "app", 1, 3,
+                                false, false, List.of("Base"), List.of(),
+                                List.of(childMethod), List.of(), List.of())),
+                        List.of()),
+                new IndexEntry("Client.java", "h3", 0,
+                        List.of(new IndexedClass(
+                                "Client", "app", 1, 5,
+                                false, false, List.of(), List.of(),
+                                List.of(callerMethod), List.of(), List.of())),
+                        List.of(new CallEdge(
+                                "app.Client", "run", List.of("Base"), 1,
+                                "Base", "work", List.of(), 3, 0)))
+        ));
+
+        new EdgeResolver().resolveSymbols(entries);
+
+        List<CallEdge> resolved = entries.stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .toList();
+        assertEquals(java.util.Set.of("app.Base", "app.Child"), resolved.stream()
+                .map(CallEdge::calleeClass)
+                .collect(java.util.stream.Collectors.toSet()));
+        assertTrue(resolved.stream().allMatch(edge ->
+                edge.invocationKind() == com.jsrc.app.model.InvocationKind.VIRTUAL
+                        && edge.resolutionLevel() == com.jsrc.app.model.ResolutionLevel.INFERRED));
+        assertTrue(resolved.stream().anyMatch(edge ->
+                edge.calleeClass().equals("app.Base")
+                        && edge.evidence().contains("DECLARED_TARGET")));
+        assertTrue(resolved.stream().anyMatch(edge ->
+                edge.calleeClass().equals("app.Child")
+                        && edge.evidence().contains("CHA_IMPLEMENTATION")));
+    }
+
     // ---- resolveMarkers ----
+
+    @Test
+    void resolveSymbolsClassifiesTheResolvedOverloadModifiers() {
+        IndexedMethod instanceOverload = new IndexedMethod(
+                "run", "public void run(Integer value)", 2, 2, "void", List.of());
+        IndexedMethod staticOverload = new IndexedMethod(
+                "run", "public static void run(String value)", 3, 3, "void", List.of());
+        IndexedMethod callerMethod = new IndexedMethod(
+                "call", "public void call()", 2, 4, "void", List.of());
+        var entries = new java.util.ArrayList<>(List.of(
+                new IndexEntry("Service.java", "h1", 0,
+                        List.of(new IndexedClass(
+                                "Service", "app", 1, 4,
+                                false, false, List.of(), List.of(),
+                                List.of(instanceOverload, staticOverload), List.of(), List.of())),
+                        List.of()),
+                new IndexEntry("Client.java", "h2", 0,
+                        List.of(new IndexedClass(
+                                "Client", "app", 1, 5,
+                                false, false, List.of(), List.of(),
+                                List.of(callerMethod), List.of(), List.of())),
+                        List.of(new CallEdge(
+                                "app.Client", "call", List.of(), 0,
+                                "Service", "run", List.of("String"), 3, 1)))
+        ));
+
+        new EdgeResolver().resolveSymbols(entries);
+
+        CallEdge resolved = entries.get(1).callEdges().getFirst();
+        assertEquals(com.jsrc.app.model.InvocationKind.STATIC, resolved.invocationKind());
+        assertEquals(com.jsrc.app.model.ResolutionLevel.EXACT, resolved.resolutionLevel());
+    }
 
     @Test
     @DisplayName("resolveMarkers resolves ?field: markers in entries")
@@ -142,17 +300,24 @@ class EdgeResolverTest {
                 new IndexEntry("Processor.java", "h2", 0,
                         List.of(new IndexedClass("Processor", "com.app", 1, 10,
                                 false, false, List.of(), List.of(), List.of(), List.of(), List.of(), List.of())),
-                        List.of(new CallEdge("com.app.Processor", "process", 1,
-                                "?field:com.app.Order.customer", "getAddress", 3, 0)))
+                        List.of(new CallEdge("com.app.Processor", "process", List.of(), 1,
+                                "?field:com.app.Order.customer", "getAddress", List.of(), 3, 0,
+                                com.jsrc.app.model.InvocationKind.VIRTUAL,
+                                com.jsrc.app.model.ResolutionLevel.INFERRED,
+                                List.of("FIELD_MARKER"))))
         ));
 
         var resolver = new EdgeResolver();
         resolver.resolveMarkers(entries);
 
-        boolean resolved = entries.stream()
+        CallEdge resolved = entries.stream()
                 .flatMap(e -> e.callEdges().stream())
-                .anyMatch(e -> e.calleeClass().equals("Customer") && e.calleeMethod().equals("getAddress"));
-        assertTrue(resolved, "FQCN field marker should resolve to Customer");
+                .filter(e -> e.calleeClass().equals("Customer") && e.calleeMethod().equals("getAddress"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("FQCN field marker should resolve to Customer"));
+        assertEquals(com.jsrc.app.model.InvocationKind.VIRTUAL, resolved.invocationKind());
+        assertEquals(com.jsrc.app.model.ResolutionLevel.INFERRED, resolved.resolutionLevel());
+        assertEquals(List.of("FIELD_MARKER"), resolved.evidence());
     }
 
     @Test

@@ -155,13 +155,22 @@ public class BinaryIndexV2Reader {
             for (int i = 0; i < edgeCount; i++) {
                 String callerClass = str(in.readInt(), strings);
                 String callerMethod = str(in.readInt(), strings);
+                List<String> callerParameterTypes = readStringRefs(in, strings);
                 int callerParamCount = in.readInt();
                 String calleeClass = str(in.readInt(), strings);
                 String calleeMethod = str(in.readInt(), strings);
+                List<String> calleeParameterTypes = readStringRefs(in, strings);
                 int argCount = in.readInt();
                 int line = in.readInt();
-                edges.add(new CallEdge(callerClass, callerMethod, callerParamCount,
-                        calleeClass, calleeMethod, argCount, line));
+                var invocationKind = com.jsrc.app.model.InvocationKind.values()[
+                        in.readUnsignedByte()];
+                var resolutionLevel = com.jsrc.app.model.ResolutionLevel.values()[
+                        in.readUnsignedByte()];
+                List<String> evidence = readStringRefs(in, strings);
+                edges.add(new CallEdge(
+                        callerClass, callerMethod, callerParameterTypes, callerParamCount,
+                        calleeClass, calleeMethod, calleeParameterTypes, line, argCount,
+                        invocationKind, resolutionLevel, evidence));
             }
             edgesByPath.put(path, edges);
         }
@@ -314,13 +323,22 @@ public class BinaryIndexV2Reader {
             for (int i = 0; i < edgeCount; i++) {
                 String callerClass = str(in.readInt(), strings);
                 String callerMethod = str(in.readInt(), strings);
+                List<String> callerParameterTypes = readStringRefs(in, strings);
                 int callerParamCount = in.readInt();
                 String calleeClass = str(in.readInt(), strings);
                 String calleeMethod = str(in.readInt(), strings);
+                List<String> calleeParameterTypes = readStringRefs(in, strings);
                 int argCount = in.readInt();
                 int line = in.readInt();
-                edges.add(new CallEdge(callerClass, callerMethod, callerParamCount,
-                        calleeClass, calleeMethod, argCount, line));
+                var invocationKind = com.jsrc.app.model.InvocationKind.values()[
+                        in.readUnsignedByte()];
+                var resolutionLevel = com.jsrc.app.model.ResolutionLevel.values()[
+                        in.readUnsignedByte()];
+                List<String> evidence = readStringRefs(in, strings);
+                edges.add(new CallEdge(
+                        callerClass, callerMethod, callerParameterTypes, callerParamCount,
+                        calleeClass, calleeMethod, calleeParameterTypes, line, argCount,
+                        invocationKind, resolutionLevel, evidence));
             }
             edgesByPath.put(path, edges);
         }
@@ -429,6 +447,7 @@ public class BinaryIndexV2Reader {
         for (int i = 0; i < methodCount; i++) {
             in.readInt(); // className
             in.readInt(); // methodName
+            skipStringRefs(in); // parameterTypes
             in.readInt(); // paramCount
         }
 
@@ -440,6 +459,9 @@ public class BinaryIndexV2Reader {
             for (int j = 0; j < callerCount; j++) {
                 in.readInt(); // callerId
                 in.readInt(); // line
+                in.readByte(); // invocationKind
+                in.readByte(); // resolutionLevel
+                skipStringRefs(in); // evidence
             }
         }
 
@@ -451,6 +473,9 @@ public class BinaryIndexV2Reader {
             for (int j = 0; j < calleeCount; j++) {
                 in.readInt(); // calleeId
                 in.readInt(); // line
+                in.readByte(); // invocationKind
+                in.readByte(); // resolutionLevel
+                skipStringRefs(in); // evidence
             }
         }
     }
@@ -462,8 +487,11 @@ public class BinaryIndexV2Reader {
         for (int i = 0; i < methodCount; i++) {
             String className = str(in.readInt(), strings);
             String methodName = str(in.readInt(), strings);
+            List<String> parameterTypes = readStringRefs(in, strings);
             int paramCount = in.readInt();
-            methods[i] = new MethodReference(className, methodName, paramCount, null);
+            methods[i] = parameterTypes.size() == paramCount
+                    ? new MethodReference(className, methodName, parameterTypes, null)
+                    : new MethodReference(className, methodName, paramCount, null);
         }
 
         // CallerIndex
@@ -477,9 +505,16 @@ public class BinaryIndexV2Reader {
             for (int j = 0; j < callerCount; j++) {
                 int callerId = in.readInt();
                 int line = in.readInt();
+                var invocationKind = com.jsrc.app.model.InvocationKind.values()[
+                        in.readUnsignedByte()];
+                var resolutionLevel = com.jsrc.app.model.ResolutionLevel.values()[
+                        in.readUnsignedByte()];
+                List<String> evidence = readStringRefs(in, strings);
                 MethodReference caller = callerId >= 0 && callerId < methodCount ? methods[callerId] : null;
                 if (caller != null && callee != null) {
-                    callers.add(new MethodCall(caller, callee, line));
+                    callers.add(new MethodCall(
+                            caller, callee, line,
+                            invocationKind, resolutionLevel, evidence));
                 }
             }
             if (callee != null && !callers.isEmpty()) {
@@ -498,9 +533,16 @@ public class BinaryIndexV2Reader {
             for (int j = 0; j < calleeCount; j++) {
                 int cId = in.readInt();
                 int line = in.readInt();
+                var invocationKind = com.jsrc.app.model.InvocationKind.values()[
+                        in.readUnsignedByte()];
+                var resolutionLevel = com.jsrc.app.model.ResolutionLevel.values()[
+                        in.readUnsignedByte()];
+                List<String> evidence = readStringRefs(in, strings);
                 MethodReference callee = cId >= 0 && cId < methodCount ? methods[cId] : null;
                 if (caller != null && callee != null) {
-                    callees.add(new MethodCall(caller, callee, line));
+                    callees.add(new MethodCall(
+                            caller, callee, line,
+                            invocationKind, resolutionLevel, evidence));
                 }
             }
             if (caller != null && !callees.isEmpty()) {
@@ -577,6 +619,11 @@ public class BinaryIndexV2Reader {
     private static String str(int ref, String[] table) {
         if (ref < 0 || ref >= table.length) return "";
         return table[ref];
+    }
+
+    private static void skipStringRefs(DataInputStream in) throws IOException {
+        int count = in.readUnsignedShort();
+        for (int i = 0; i < count; i++) in.readInt();
     }
 
     private static List<String> readStringRefs(DataInputStream in, String[] table) throws IOException {

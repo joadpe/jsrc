@@ -41,17 +41,36 @@ public class EdgeResolver {
 
     private static final Logger logger = LoggerFactory.getLogger(EdgeResolver.class);
 
+    public record Extraction(
+            List<CallEdge> edges,
+            Map<String, List<IndexedMethod>> syntheticMethods) {
+        public Extraction {
+            edges = List.copyOf(edges);
+            syntheticMethods = syntheticMethods.entrySet().stream()
+                    .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                            Map.Entry::getKey,
+                            entry -> List.copyOf(entry.getValue())));
+        }
+    }
+
     /**
      * Extracts call edges from a Java file using JavaParser.
      * Resolves callee class names using field types, parameter types,
      * and local variable types for accurate call graph edges.
      */
     public List<CallEdge> extractCallEdges(Path file, JavaParser jp) {
+        return extract(file, jp).edges();
+    }
+
+    public Extraction extract(Path file, JavaParser jp) {
         List<CallEdge> edges = new ArrayList<>();
+        Map<String, List<IndexedMethod>> syntheticMethods = new HashMap<>();
         try {
             String source = Files.readString(file);
             var result = jp.parse(source);
-            if (!result.getResult().isPresent()) return edges;
+            if (!result.getResult().isPresent()) {
+                return new Extraction(edges, syntheticMethods);
+            }
 
             CompilationUnit cu = result.getResult().get();
             for (com.github.javaparser.ast.body.TypeDeclaration<?> declaration
@@ -70,7 +89,7 @@ public class EdgeResolver {
 
                 for (MethodDeclaration md : declaration.getMethods()) {
                     extractEdgesFromCallable(edges, md, className, md.getNameAsString(),
-                            fieldTypes);
+                            fieldTypes, syntheticMethods);
                 }
                 for (ConstructorDeclaration cd : declaration.getMembers().stream()
                         .filter(ConstructorDeclaration.class::isInstance)
@@ -78,13 +97,13 @@ public class EdgeResolver {
                         .toList()) {
                     extractEdgesFromCallable(edges, cd, className,
                             declaration.getNameAsString(),
-                            fieldTypes);
+                            fieldTypes, syntheticMethods);
                 }
             }
         } catch (IOException ex) {
             logger.debug("Error extracting call edges from {}: {}", file, ex.getMessage());
         }
-        return edges;
+        return new Extraction(edges, syntheticMethods);
     }
 
     /**
@@ -135,7 +154,10 @@ public class EdgeResolver {
                         int line = call.getBegin().map(p -> p.line).orElse(-1);
                         edges.add(new CallEdge(callerClass, md.getNameAsString(),
                                 callerParameterTypes, callerParameterTypes.size(),
-                                targetClass, targetMethod, List.of(), line, -1));
+                                targetClass, targetMethod, List.of(), line, -1,
+                                com.jsrc.app.model.InvocationKind.REFLECTIVE,
+                                com.jsrc.app.model.ResolutionLevel.INFERRED,
+                                List.of("CONFIGURED_INVOKER")));
                     }
                 }
             }
@@ -190,7 +212,8 @@ public class EdgeResolver {
                             newEdges.add(new CallEdge(edge.callerClass(), edge.callerMethod(),
                                     edge.callerParameterTypes(), edge.callerParamCount(),
                                     resolved, edge.calleeMethod(),
-                                    edge.calleeParameterTypes(), edge.line(), edge.argCount()));
+                                    edge.calleeParameterTypes(), edge.line(), edge.argCount(),
+                                    edge.invocationKind(), edge.resolutionLevel(), edge.evidence()));
                             entryChanged = true;
                             changed = true;
                             continue;
@@ -214,7 +237,8 @@ public class EdgeResolver {
     private static void extractEdgesFromCallable(List<CallEdge> edges,
                                                   com.github.javaparser.ast.body.CallableDeclaration<?> callable,
                                                   String className, String callerMethod,
-                                                  Map<String, String> fieldTypes) {
+                                                  Map<String, String> fieldTypes,
+                                                  Map<String, List<IndexedMethod>> syntheticMethods) {
         List<String> callerParameterTypes = callable.getParameters().stream()
                 .map(parameter -> parameter.getTypeAsString()
                         + (parameter.isVarArgs() ? "..." : ""))
@@ -222,8 +246,10 @@ public class EdgeResolver {
                 .toList();
         int callerParamCount = callerParameterTypes.size();
         Map<String, String> localTypes = new HashMap<>();
+        Map<String, String> declaredTypes = new HashMap<>();
         for (Parameter param : callable.getParameters()) {
             String pType = param.getTypeAsString();
+            declaredTypes.put(param.getNameAsString(), pType);
             int gi = pType.indexOf('<');
             if (gi > 0) pType = pType.substring(0, gi);
             localTypes.put(param.getNameAsString(), pType);
@@ -232,12 +258,16 @@ public class EdgeResolver {
             var parent = var.getParentNode().orElse(null);
             if (parent != null && !(parent instanceof FieldDeclaration)) {
                 String vType = var.getTypeAsString();
+                declaredTypes.put(var.getNameAsString(), vType);
                 int gi = vType.indexOf('<');
                 if (gi > 0) vType = vType.substring(0, gi);
                 localTypes.put(var.getNameAsString(), vType);
             }
         }
         for (MethodCallExpr call : callable.findAll(MethodCallExpr.class)) {
+            if (call.findAncestor(com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
+                continue;
+            }
             String calleeMethod = call.getNameAsString();
             String calleeClass = resolveCalleeClass(call, className, fieldTypes, localTypes);
             int line = call.getBegin().map(p -> p.line).orElse(-1);
@@ -247,6 +277,10 @@ public class EdgeResolver {
             edges.add(new CallEdge(className, callerMethod, callerParameterTypes, callerParamCount,
                     calleeClass, calleeMethod, calleeParameterTypes, line, argCount));
         }
+        extractLambdaEdges(edges, callable, className, callerMethod, fieldTypes,
+                localTypes, declaredTypes, syntheticMethods);
+        extractMethodReferenceEdges(edges, callable, className, callerMethod,
+                callerParameterTypes, fieldTypes, localTypes);
         for (ObjectCreationExpr newExpr : callable.findAll(ObjectCreationExpr.class)) {
             String targetClass = newExpr.getType().getNameAsString();
             int line = newExpr.getBegin().map(p -> p.line).orElse(-1);
@@ -254,7 +288,132 @@ public class EdgeResolver {
             List<String> calleeParameterTypes = argumentTypes(
                     newExpr.getArguments(), fieldTypes, localTypes);
             edges.add(new CallEdge(className, callerMethod, callerParameterTypes, callerParamCount,
-                    targetClass, targetClass, calleeParameterTypes, line, argCount));
+                    targetClass, targetClass, calleeParameterTypes, line, argCount,
+                    com.jsrc.app.model.InvocationKind.CONSTRUCTOR,
+                    com.jsrc.app.model.ResolutionLevel.UNRESOLVED,
+                    List.of("OBJECT_CREATION")));
+        }
+    }
+
+    private static void extractLambdaEdges(
+            List<CallEdge> edges,
+            com.github.javaparser.ast.body.CallableDeclaration<?> callable,
+            String className,
+            String callerMethod,
+            Map<String, String> fieldTypes,
+            Map<String, String> enclosingLocalTypes,
+            Map<String, String> declaredTypes,
+            Map<String, List<IndexedMethod>> syntheticMethods) {
+        int ordinal = 0;
+        for (com.github.javaparser.ast.expr.LambdaExpr lambda
+                : callable.findAll(com.github.javaparser.ast.expr.LambdaExpr.class)) {
+            ordinal++;
+            String syntheticName = callerMethod + "$lambda$" + ordinal;
+            List<String> parameterTypes = lambdaParameterTypes(lambda, declaredTypes);
+            int startLine = lambda.getBegin().map(position -> position.line).orElse(-1);
+            int endLine = lambda.getEnd().map(position -> position.line).orElse(startLine);
+            String signature = "void " + syntheticName + "("
+                    + String.join(", ", parameterTypes) + ")";
+            syntheticMethods.computeIfAbsent(className, ignored -> new ArrayList<>())
+                    .add(new IndexedMethod(
+                            syntheticName, signature, startLine, endLine, "void", List.of()));
+
+            Map<String, String> lambdaTypes = new HashMap<>(enclosingLocalTypes);
+            for (int index = 0; index < lambda.getParameters().size(); index++) {
+                String parameterName = lambda.getParameter(index).getNameAsString();
+                String parameterType = parameterTypes.get(index);
+                lambdaTypes.put(parameterName, parameterType);
+            }
+
+            for (MethodCallExpr call : lambda.findAll(MethodCallExpr.class)) {
+                var nearestLambda = call.findAncestor(
+                        com.github.javaparser.ast.expr.LambdaExpr.class);
+                if (nearestLambda.isEmpty() || nearestLambda.get() != lambda) continue;
+
+                String calleeClass = resolveCalleeClass(
+                        call, className, fieldTypes, lambdaTypes);
+                int line = call.getBegin().map(position -> position.line).orElse(-1);
+                List<String> calleeParameterTypes = argumentTypes(
+                        call.getArguments(), fieldTypes, lambdaTypes);
+                edges.add(new CallEdge(
+                        className,
+                        syntheticName,
+                        parameterTypes,
+                        parameterTypes.size(),
+                        calleeClass,
+                        call.getNameAsString(),
+                        calleeParameterTypes,
+                        line,
+                        call.getArguments().size()));
+            }
+        }
+    }
+
+    private static List<String> lambdaParameterTypes(
+            com.github.javaparser.ast.expr.LambdaExpr lambda,
+            Map<String, String> declaredTypes) {
+        String inferred = inferFunctionalParameterType(lambda, declaredTypes);
+        return lambda.getParameters().stream()
+                .map(parameter -> parameter.getType().isUnknownType()
+                        ? inferred
+                        : parameter.getTypeAsString())
+                .map(type -> type == null || type.isBlank()
+                        ? CallEdge.UNKNOWN_PARAMETER_TYPE
+                        : com.jsrc.app.util.SignatureUtils.normalizeType(type))
+                .toList();
+    }
+
+    private static String inferFunctionalParameterType(
+            com.github.javaparser.ast.expr.LambdaExpr lambda,
+            Map<String, String> declaredTypes) {
+        var parent = lambda.getParentNode().orElse(null);
+        if (!(parent instanceof MethodCallExpr call) || call.getScope().isEmpty()) {
+            return CallEdge.UNKNOWN_PARAMETER_TYPE;
+        }
+        var scope = call.getScope().get();
+        if (!(scope instanceof NameExpr name)) {
+            return CallEdge.UNKNOWN_PARAMETER_TYPE;
+        }
+        String declaredType = declaredTypes.get(name.getNameAsString());
+        if (declaredType == null) return CallEdge.UNKNOWN_PARAMETER_TYPE;
+        int start = declaredType.indexOf('<');
+        int end = declaredType.lastIndexOf('>');
+        if (start < 0 || end <= start + 1) return CallEdge.UNKNOWN_PARAMETER_TYPE;
+        return declaredType.substring(start + 1, end).split(",", 2)[0].trim();
+    }
+
+    private static void extractMethodReferenceEdges(
+            List<CallEdge> edges,
+            com.github.javaparser.ast.body.CallableDeclaration<?> callable,
+            String className,
+            String callerMethod,
+            List<String> callerParameterTypes,
+            Map<String, String> fieldTypes,
+            Map<String, String> localTypes) {
+        for (com.github.javaparser.ast.expr.MethodReferenceExpr reference
+                : callable.findAll(com.github.javaparser.ast.expr.MethodReferenceExpr.class)) {
+            String scopeName = reference.getScope().toString();
+            String calleeClass = localTypes.getOrDefault(
+                    scopeName, fieldTypes.get(scopeName));
+            if (calleeClass == null) {
+                calleeClass = resolveExpressionType(
+                        reference.getScope(), className, fieldTypes, localTypes);
+            }
+            if (calleeClass == null) calleeClass = reference.getScope().toString();
+            int line = reference.getBegin().map(position -> position.line).orElse(-1);
+            edges.add(new CallEdge(
+                    className,
+                    callerMethod,
+                    callerParameterTypes,
+                    callerParameterTypes.size(),
+                    calleeClass,
+                    reference.getIdentifier(),
+                    List.of(CallEdge.UNKNOWN_PARAMETER_TYPE),
+                    line,
+                    -1,
+                    com.jsrc.app.model.InvocationKind.METHOD_REFERENCE,
+                    com.jsrc.app.model.ResolutionLevel.UNRESOLVED,
+                    List.of("METHOD_REFERENCE_EXPRESSION")));
         }
     }
 
@@ -382,56 +541,12 @@ public class EdgeResolver {
      */
     /** Resolves caller and callee type names using the common project symbol resolver. */
     public void resolveSymbols(List<IndexEntry> entries) {
-        var resolver = IndexSymbolAdapter.create(entries);
+        var resolver = new SemanticCallResolver(entries);
         List<IndexEntry> resolvedEntries = new ArrayList<>(entries.size());
         for (IndexEntry entry : entries) {
-            List<CallEdge> resolvedEdges = new ArrayList<>(entry.callEdges().size());
+            List<CallEdge> resolvedEdges = new ArrayList<>();
             for (CallEdge edge : entry.callEdges()) {
-                String callerClass = edge.callerClass();
-                var callerResolution = resolver.resolveType(
-                        callerClass,
-                        com.jsrc.app.symbol.SymbolResolver.Context.empty());
-                com.jsrc.app.symbol.SymbolResolver.Context context =
-                        com.jsrc.app.symbol.SymbolResolver.Context.empty();
-                if (callerResolution instanceof com.jsrc.app.symbol.SymbolResolver.Resolution.Found<
-                        com.jsrc.app.symbol.SymbolResolver.TypeSymbol> caller) {
-                    callerClass = caller.value().id().canonicalName();
-                    context = new com.jsrc.app.symbol.SymbolResolver.Context(
-                            caller.value().id().packageName(),
-                            caller.value().imports(),
-                            caller.value().id());
-                }
-
-                String calleeClass = edge.calleeClass();
-                var calleeResolution = resolver.resolveType(calleeClass, context);
-                if (calleeResolution instanceof com.jsrc.app.symbol.SymbolResolver.Resolution.Found<
-                        com.jsrc.app.symbol.SymbolResolver.TypeSymbol> callee) {
-                    calleeClass = callee.value().id().canonicalName();
-                    List<String> argumentTypes = edge.calleeParameterTypes().stream()
-                            .anyMatch(CallEdge.UNKNOWN_PARAMETER_TYPE::equals)
-                            ? null
-                            : edge.calleeParameterTypes();
-                    var methodResolution = resolver.resolveMethod(
-                            calleeClass,
-                            edge.calleeMethod(),
-                            argumentTypes,
-                            context);
-                    if (methodResolution instanceof com.jsrc.app.symbol.SymbolResolver.Resolution.Found<
-                            com.jsrc.app.symbol.SymbolResolver.MethodSymbol> method) {
-                        calleeClass = method.value().owner().canonicalName();
-                    }
-                }
-
-                resolvedEdges.add(new CallEdge(
-                        callerClass,
-                        edge.callerMethod(),
-                        edge.callerParameterTypes(),
-                        edge.callerParamCount(),
-                        calleeClass,
-                        edge.calleeMethod(),
-                        edge.calleeParameterTypes(),
-                        edge.line(),
-                        edge.argCount()));
+                resolvedEdges.addAll(resolver.resolve(edge));
             }
             resolvedEntries.add(entry.withEdges(resolvedEdges));
         }

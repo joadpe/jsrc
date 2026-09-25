@@ -27,7 +27,7 @@ import com.jsrc.app.parser.model.MethodReference;
 public class BinaryIndexV2Writer {
 
     static final byte[] MAGIC = {'J', 'S', 'R', '2'};
-    static final int VERSION = 4;
+    static final int VERSION = 5;
 
     /**
      * Writes the unified index to disk.
@@ -57,8 +57,17 @@ public class BinaryIndexV2Writer {
             for (var edge : entry.callEdges()) {
                 intern(edge.callerClass(), stringTable, strings);
                 intern(edge.callerMethod(), stringTable, strings);
+                for (String type : edge.callerParameterTypes()) {
+                    intern(type, stringTable, strings);
+                }
                 intern(edge.calleeClass(), stringTable, strings);
                 intern(edge.calleeMethod(), stringTable, strings);
+                for (String type : edge.calleeParameterTypes()) {
+                    intern(type, stringTable, strings);
+                }
+                for (String evidence : edge.evidence()) {
+                    intern(evidence, stringTable, strings);
+                }
             }
             for (var smell : entry.smells()) {
                 intern(smell.ruleId(), stringTable, strings);
@@ -81,6 +90,16 @@ public class BinaryIndexV2Writer {
             for (MethodReference ref : callGraph.getAllMethods()) {
                 intern(ref.className(), stringTable, strings);
                 intern(ref.methodName(), stringTable, strings);
+                for (String type : ref.parameterTypes()) {
+                    intern(type, stringTable, strings);
+                }
+            }
+            for (MethodReference caller : callGraph.getAllMethods()) {
+                for (MethodCall call : callGraph.getCalleesOf(caller)) {
+                    for (String evidence : call.evidence()) {
+                        intern(evidence, stringTable, strings);
+                    }
+                }
             }
         }
 
@@ -112,11 +131,16 @@ public class BinaryIndexV2Writer {
             for (var edge : entry.callEdges()) {
                 out.writeInt(ref(edge.callerClass(), stringTable));
                 out.writeInt(ref(edge.callerMethod(), stringTable));
+                writeStringRefs(out, edge.callerParameterTypes(), stringTable);
                 out.writeInt(edge.callerParamCount());
                 out.writeInt(ref(edge.calleeClass(), stringTable));
                 out.writeInt(ref(edge.calleeMethod(), stringTable));
+                writeStringRefs(out, edge.calleeParameterTypes(), stringTable);
                 out.writeInt(edge.argCount());
                 out.writeInt(edge.line());
+                out.writeByte(edge.invocationKind().ordinal());
+                out.writeByte(edge.resolutionLevel().ordinal());
+                writeStringRefs(out, edge.evidence(), stringTable);
             }
         }
 
@@ -192,6 +216,7 @@ public class BinaryIndexV2Writer {
             methodIds.put(ref, id);
             out.writeInt(ref(ref.className(), stringTable));
             out.writeInt(ref(ref.methodName(), stringTable));
+            writeStringRefs(out, ref.parameterTypes(), stringTable);
             out.writeInt(ref.parameterCount());
             id++;
         }
@@ -212,6 +237,9 @@ public class BinaryIndexV2Writer {
                 int callerId = methodIds.getOrDefault(call.caller(), -1);
                 out.writeInt(callerId);
                 out.writeInt(call.line());
+                out.writeByte(call.invocationKind().ordinal());
+                out.writeByte(call.resolutionLevel().ordinal());
+                writeStringRefs(out, call.evidence(), stringTable);
             }
         }
 
@@ -229,6 +257,9 @@ public class BinaryIndexV2Writer {
                 int calleeId = methodIds.getOrDefault(call.callee(), -1);
                 out.writeInt(calleeId);
                 out.writeInt(call.line());
+                out.writeByte(call.invocationKind().ordinal());
+                out.writeByte(call.resolutionLevel().ordinal());
+                writeStringRefs(out, call.evidence(), stringTable);
             }
         }
     }

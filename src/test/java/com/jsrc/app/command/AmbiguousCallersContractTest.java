@@ -214,6 +214,47 @@ class AmbiguousCallersContractTest {
         assertEquals(expected, candidates(output));
     }
 
+    @Test
+    void calleesFullOutputIncludesResolutionEvidence(@TempDir Path tempDir) throws Exception {
+        Path service = tempDir.resolve("Service.java");
+        Path client = tempDir.resolve("Client.java");
+        Files.writeString(service, """
+                package demo;
+                public class Service {
+                    public void execute() {}
+                }
+                """);
+        Files.writeString(client, """
+                package demo;
+                public class Client {
+                    public void run(Service service) { service.execute(); }
+                }
+                """);
+
+        var files = List.of(service, client);
+        var parser = new com.jsrc.app.parser.HybridJavaParser();
+        var index = new com.jsrc.app.index.CodebaseIndex();
+        index.build(parser, files, tempDir, List.of());
+        index.save(tempDir);
+        var indexed = com.jsrc.app.index.IndexedCodebase.tryLoad(tempDir, files);
+        var output = new ByteArrayOutputStream();
+        var formatter = OutputFormatter.create(true, false, null, new PrintStream(output));
+        var ctx = new CommandContext(
+                files, tempDir.toString(), null, formatter, indexed, parser,
+                false, null, true);
+
+        new CalleesCommand("demo.Client.run(Service)").execute(ctx);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> json = (List<Map<String, Object>>)
+                JsonReader.parse(output.toString());
+        assertEquals(1, json.size());
+        assertEquals("virtual", json.getFirst().get("dispatch"));
+        assertEquals("exact", json.getFirst().get("resolution"));
+        assertEquals(List.of("SYMBOL_RESOLVER", "EXACT_SIGNATURE"),
+                json.getFirst().get("evidence"));
+    }
+
     @SuppressWarnings("unchecked")
     private static List<String> candidates(ByteArrayOutputStream output) {
         Map<String, Object> json = (Map<String, Object>) JsonReader.parse(output.toString());

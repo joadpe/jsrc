@@ -151,6 +151,44 @@ class CallGraphParityTest {
                 edge -> edge.contains("foreign.Service.execute")));
     }
 
+    @Test
+    void directAndIndexedGraphsPreserveSemanticMetadata() throws IOException {
+        Path service = writeFile("parity/Service.java", """
+                package parity;
+                public class Service {
+                    public void execute() {}
+                }
+                """);
+        Path client = writeFile("parity/Client.java", """
+                package parity;
+                public class Client {
+                    public void run(Service service) { service.execute(); }
+                }
+                """);
+        List<Path> files = List.of(service, client);
+
+        var directBuilder = new CallGraphBuilder();
+        directBuilder.build(files);
+
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), files, tempDir, List.of());
+        var indexedBuilder = new CallGraphBuilder();
+        indexedBuilder.loadFromIndex(index.getEntries());
+
+        MethodCall direct = directBuilder.findMethodsByName("run").stream()
+                .flatMap(method -> directBuilder.getCalleesOf(method).stream())
+                .findFirst()
+                .orElseThrow();
+        MethodCall indexed = indexedBuilder.findMethodsByName("run").stream()
+                .flatMap(method -> indexedBuilder.getCalleesOf(method).stream())
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(indexed.invocationKind(), direct.invocationKind());
+        assertEquals(indexed.resolutionLevel(), direct.resolutionLevel());
+        assertEquals(indexed.evidence(), direct.evidence());
+    }
+
     private Set<String> canonicalEdges(CallGraph graph) {
         return graph.getAllMethods().stream()
                 .flatMap(method -> graph.getCalleesOf(method).stream())

@@ -279,7 +279,17 @@ class CodebaseIndexTest {
 
         var index = new CodebaseIndex();
         index.build(new HybridJavaParser(), List.of(file), tempDir, List.of());
+        CallEdge builtEdge = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerMethod().equals("a")
+                        && edge.calleeMethod().equals("b"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(com.jsrc.app.model.InvocationKind.VIRTUAL,
+                builtEdge.invocationKind(), () -> index.getEntries().toString());
         index.save(tempDir);
+        String edgeJson = Files.readString(tempDir.resolve(".jsrc/edges.json"));
+        assertTrue(edgeJson.contains("\"invocationKind\":\"VIRTUAL\""), edgeJson);
 
         // Load from disk
         List<IndexEntry> loaded = CodebaseIndex.load(tempDir);
@@ -292,6 +302,12 @@ class CodebaseIndexTest {
                     hasEdge = true;
                     assertEquals(List.of("String"), edge.callerParameterTypes());
                     assertEquals(List.of("String"), edge.calleeParameterTypes());
+                    assertEquals(com.jsrc.app.model.InvocationKind.VIRTUAL,
+                            edge.invocationKind());
+                    assertEquals(com.jsrc.app.model.ResolutionLevel.EXACT,
+                            edge.resolutionLevel());
+                    assertEquals(List.of("SYMBOL_RESOLVER", "EXACT_SIGNATURE"),
+                            edge.evidence());
                 }
             }
         }

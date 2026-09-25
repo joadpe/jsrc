@@ -116,9 +116,18 @@ public final class CommandContext {
      */
     public CommandContext withRuntimeState(
             List<Path> files, OutputFormatter outputFormatter, IndexedCodebase codebase) {
+        return withRuntimeState(files, outputFormatter, codebase, projectModel);
+    }
+
+    public CommandContext withRuntimeState(
+            List<Path> files,
+            OutputFormatter outputFormatter,
+            IndexedCodebase codebase,
+            com.jsrc.app.project.ProjectModel refreshedProjectModel) {
         return new CommandContext(
                 files, rootPath, config, outputFormatter, codebase, parser,
-                mdOutput, outDir, fullOutput, noTest, budgetContext, frozenIndex, projectModel);
+                mdOutput, outDir, fullOutput, noTest, budgetContext, frozenIndex,
+                refreshedProjectModel);
     }
 
     private java.util.Map<String, String> qualifiedNameCache;

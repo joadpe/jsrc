@@ -19,8 +19,8 @@ import com.jsrc.app.index.IndexedCodebase;
 import com.jsrc.app.output.JsonReader;
 import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.output.OutputFormatter;
-import com.jsrc.app.project.ProjectFileDiscovery;
-import com.jsrc.app.project.ProjectModelDetector;
+import com.jsrc.app.project.ProjectModel;
+import com.jsrc.app.project.ProjectSourceDiscovery;
 
 /**
  * Daemon mode: watches filesystem for changes and serves queries via stdin.
@@ -93,7 +93,8 @@ public class WatchCommand implements Command {
                     // Refresh index only if needed (session cache)
                     // If frozenIndex is set, never refresh (skip stamp-driven rebuild)
                     var refreshResult = loadOrRefreshIndex(
-                            Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex, ctx.frozenIndex());
+                            Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex, ctx.frozenIndex(),
+                            ctx.config(), ctx.projectModel());
                     cachedIndex = refreshResult.index();
                     List<Path> freshFiles = refreshResult.files();
 
@@ -102,7 +103,7 @@ public class WatchCommand implements Command {
                     var captureStream = new PrintStream(baos);
                     var captureFormatter = OutputFormatter.create(true, false, null, captureStream, budgetContext);
                     var freshCtx = ctx.withRuntimeState(
-                            freshFiles, captureFormatter, cachedIndex);
+                            freshFiles, captureFormatter, cachedIndex, refreshResult.projectModel());
 
                     // Execute command
                     // Extract budget profile from budgetContext if available
@@ -181,33 +182,45 @@ public class WatchCommand implements Command {
      * @return RefreshResult with fresh or cached IndexedCodebase and file list, or null index if no index exists
      */
     protected RefreshResult loadOrRefreshIndex(Path root, List<Path> files, IndexedCodebase cached, boolean frozenIndex) {
+        return loadOrRefreshIndex(root, files, cached, frozenIndex, null, null);
+    }
+
+    private RefreshResult loadOrRefreshIndex(
+            Path root,
+            List<Path> files,
+            IndexedCodebase cached,
+            boolean frozenIndex,
+            com.jsrc.app.config.ProjectConfig config,
+            ProjectModel existingModel) {
         // Frozen mode: never refresh, load once and cache forever
         if (frozenIndex) {
             if (cached != null) {
-                return new RefreshResult(cached, files);
+                return new RefreshResult(cached, files, existingModel);
             }
-            return new RefreshResult(callTryLoad(root, files, frozenIndex), files);
+            return new RefreshResult(callTryLoad(root, files, frozenIndex), files, existingModel);
         }
         
         // Normal mode: rediscover files on each stamp check (detect create/delete/rename)
-        List<Path> freshFiles = discoverJavaFiles(root);
+        var projectSources = discoverJavaFiles(root, config);
+        List<Path> freshFiles = projectSources.files();
         
         IndexStamp currentStamp = computeStamp(root, freshFiles);
 
         if (lastStamp != null && lastStamp.equals(currentStamp)) {
-            return new RefreshResult(cached, freshFiles);
+            return new RefreshResult(cached, freshFiles, projectSources.model());
         }
 
         lastStamp = currentStamp;
-        return new RefreshResult(callTryLoad(root, freshFiles, frozenIndex), freshFiles);
+        return new RefreshResult(
+                callTryLoad(root, freshFiles, frozenIndex), freshFiles, projectSources.model());
     }
     
     /**
      * Discover all .java files under root (rediscovery for watch refresh).
      */
-    private List<Path> discoverJavaFiles(Path root) {
-        var model = new ProjectModelDetector().detect(root);
-        return new ProjectFileDiscovery().discover(model);
+    private ProjectSourceDiscovery.Result discoverJavaFiles(
+            Path root, com.jsrc.app.config.ProjectConfig config) {
+        return new ProjectSourceDiscovery().discover(root, config);
     }
 
     /**
@@ -255,5 +268,6 @@ public class WatchCommand implements Command {
     /**
      * Result of index refresh containing both index and discovered files.
      */
-    protected record RefreshResult(IndexedCodebase index, List<Path> files) {}
+    protected record RefreshResult(
+            IndexedCodebase index, List<Path> files, ProjectModel projectModel) {}
 }

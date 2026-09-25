@@ -1,13 +1,11 @@
 package com.jsrc.app.cli;
 
-import com.jsrc.app.codebase.CodeBaseLoader;
 import com.jsrc.app.codebase.JavaCodeBase;
 import com.jsrc.app.command.CommandContext;
 import com.jsrc.app.config.ProjectConfig;
 import com.jsrc.app.index.IndexedCodebase;
 import com.jsrc.app.output.OutputFormatter;
 import com.jsrc.app.parser.HybridJavaParser;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -113,28 +111,10 @@ public class JsrcCommand implements Runnable {
         boolean effectiveJson = OutputModeResolver.effectiveJson(
                 globalOptions.jsonOutput(), globalOptions.mdOutput(), profile);
 
-        var loader = new CodeBaseLoader();
-        var projectModel = new com.jsrc.app.project.ProjectModelDetector()
-                .detect(Path.of(rootPath));
-        var javaFiles = new ArrayList<Path>(
-                new com.jsrc.app.project.ProjectFileDiscovery().discover(projectModel));
-        if (config != null && !config.sourceRoots().isEmpty()) {
-            for (String root : config.sourceRoots()) {
-                Path rootDir = Path.of(root);
-                if (!rootDir.isAbsolute()) {
-                    rootDir = Path.of(rootPath).resolve(root);
-                }
-                if (Files.isDirectory(rootDir)) {
-                    javaFiles.addAll(loader.loadFilesFrom(rootDir.toString(), "java"));
-                }
-            }
-        }
-
-        javaFiles = new ArrayList<>(javaFiles.stream().distinct().sorted().toList());
-
-        if (config != null && !config.excludes().isEmpty()) {
-            javaFiles = new ArrayList<>(filterExcludes(javaFiles, config.excludes()));
-        }
+        var projectSources = new com.jsrc.app.project.ProjectSourceDiscovery()
+                .discover(Path.of(rootPath), config);
+        var projectModel = projectSources.model();
+        var javaFiles = new ArrayList<>(projectSources.files());
 
         var parser = new HybridJavaParser();
         OutputFormatter formatter = OutputFormatter.create(
@@ -164,14 +144,5 @@ public class JsrcCommand implements Runnable {
                 budgetContext,
                 globalOptions.frozenIndex(),
                 projectModel);
-    }
-
-    private static List<Path> filterExcludes(List<Path> files, List<String> excludes) {
-        return files.stream()
-                .filter(file -> excludes.stream().noneMatch(exclude -> {
-                    String pattern = exclude.replace("**", ".*").replace("*", "[^/]*");
-                    return file.toString().matches(".*" + pattern + ".*");
-                }))
-                .toList();
     }
 }

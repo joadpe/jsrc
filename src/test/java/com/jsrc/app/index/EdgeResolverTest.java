@@ -156,6 +156,46 @@ class EdgeResolverTest {
     }
 
     @Test
+    void constructorReferenceUsesCanonicalConstructorMethodName() throws IOException {
+        Path file = writeFile("Client.java", """
+                package com.example;
+                import java.util.function.Supplier;
+                class Client {
+                    Supplier<Widget> factory() {
+                        return Widget::new;
+                    }
+                }
+                class Widget {
+                    Widget() {}
+                }
+                """);
+
+        List<CallEdge> edges = new EdgeResolver()
+                .extractCallEdges(file, new JavaParser());
+
+        assertTrue(edges.stream().anyMatch(edge ->
+                edge.callerClass().equals("com.example.Client")
+                        && edge.callerMethod().equals("factory")
+                        && edge.calleeClass().equals("Widget")
+                        && edge.calleeMethod().equals("Widget")
+                        && edge.invocationKind() == com.jsrc.app.model.InvocationKind.METHOD_REFERENCE),
+                () -> "Expected canonical constructor reference edge but got " + edges);
+
+        var index = new CodebaseIndex();
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+        List<CallEdge> resolvedEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .toList();
+        assertTrue(resolvedEdges.stream().anyMatch(edge ->
+                edge.calleeClass().equals("com.example.Widget")
+                        && edge.calleeMethod().equals("Widget")
+                        && edge.invocationKind() == com.jsrc.app.model.InvocationKind.METHOD_REFERENCE
+                        && edge.resolutionLevel() == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Expected resolved constructor reference edge but got " + resolvedEdges);
+    }
+
+    @Test
     void resolveSymbolsExpandsInterfaceDispatchWithEvidence() {
         IndexedMethod interfaceMethod = new IndexedMethod(
                 "pay", "public abstract void pay()", 2, 2, "void", List.of());

@@ -400,6 +400,9 @@ public class EdgeResolver {
                         reference.getScope(), className, fieldTypes, localTypes);
             }
             if (calleeClass == null) calleeClass = reference.getScope().toString();
+            String calleeMethod = "new".equals(reference.getIdentifier())
+                    ? constructorName(calleeClass)
+                    : reference.getIdentifier();
             int line = reference.getBegin().map(position -> position.line).orElse(-1);
             edges.add(new CallEdge(
                     className,
@@ -407,7 +410,7 @@ public class EdgeResolver {
                     callerParameterTypes,
                     callerParameterTypes.size(),
                     calleeClass,
-                    reference.getIdentifier(),
+                    calleeMethod,
                     List.of(CallEdge.UNKNOWN_PARAMETER_TYPE),
                     line,
                     -1,
@@ -415,6 +418,14 @@ public class EdgeResolver {
                     com.jsrc.app.model.ResolutionLevel.UNRESOLVED,
                     List.of("METHOD_REFERENCE_EXPRESSION")));
         }
+    }
+
+    private static String constructorName(String typeName) {
+        String erased = typeName;
+        int genericStart = erased.indexOf('<');
+        if (genericStart >= 0) erased = erased.substring(0, genericStart);
+        int separator = Math.max(erased.lastIndexOf('.'), erased.lastIndexOf('$'));
+        return separator >= 0 ? erased.substring(separator + 1) : erased;
     }
 
     private static List<String> argumentTypes(

@@ -104,6 +104,28 @@ class MethodTargetResolverTest {
     }
 
     @Test
+    @DisplayName("Class.method(params) matches parameterized types by erasure")
+    void classMethodParamsWithGenericErasure() throws Exception {
+        Path service = writeFile("GenericService.java", """
+                import java.util.List;
+                public class GenericService {
+                    public void process(List<String> values) {}
+                }
+                """);
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), List.of(service), tempDir, List.of());
+        var genericGraph = new CallGraphBuilder();
+        genericGraph.loadFromIndex(index.getEntries());
+
+        var result = MethodTargetResolver.resolve(
+                MethodResolver.parse("GenericService.process(List<Integer>)"),
+                genericGraph);
+
+        assertTrue(result.isResolved());
+        assertEquals(1, result.targets().size());
+    }
+
+    @Test
     @DisplayName("Qualified class name distinguishes homonymous classes")
     void qualifiedClassNameDistinguishesHomonyms() throws Exception {
         Path sales = writeFile("sales/Service.java", """

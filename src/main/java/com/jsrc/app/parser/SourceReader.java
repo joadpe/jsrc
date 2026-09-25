@@ -90,9 +90,8 @@ public class SourceReader {
     }
 
     private boolean matchesClass(String actual, String expected) {
-        return actual.equals(expected)
-                || actual.endsWith("." + expected)
-                || expected.endsWith("." + actual);
+        return com.jsrc.app.model.TypeId.namesMatch(actual, expected)
+                || com.jsrc.app.model.TypeId.namesMatch(expected, actual);
     }
 
     private String extractLines(Path file, int startLine, int endLine) {

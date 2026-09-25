@@ -158,7 +158,7 @@ public class HybridJavaParser implements CodeParser {
 
     private ClassInfo recordToClassInfo(com.github.javaparser.ast.body.RecordDeclaration rd,
                                          String packageName) {
-        String name = rd.getNameAsString();
+        String name = binaryTypeName(rd);
         int startLine = rd.getBegin().map(p -> p.line).orElse(0);
         int endLine = rd.getEnd().map(p -> p.line).orElse(0);
         List<String> modifiers = rd.getModifiers().stream()
@@ -179,7 +179,7 @@ public class HybridJavaParser implements CodeParser {
 
     private ClassInfo enumToClassInfo(com.github.javaparser.ast.body.EnumDeclaration ed,
                                        String packageName) {
-        String name = ed.getNameAsString();
+        String name = binaryTypeName(ed);
         int startLine = ed.getBegin().map(p -> p.line).orElse(0);
         int endLine = ed.getEnd().map(p -> p.line).orElse(0);
         List<String> modifiers = ed.getModifiers().stream()
@@ -192,7 +192,7 @@ public class HybridJavaParser implements CodeParser {
             String ctorSig = cd.getDeclarationAsString(true, true, true);
             List<MethodInfo.ParameterInfo> ctorParams = cd.getParameters().stream()
                     .map(this::toParameterInfo).toList();
-            methods.add(new MethodInfo(name, name, ctorStart, ctorEnd, "",
+            methods.add(new MethodInfo(ed.getNameAsString(), name, ctorStart, ctorEnd, "",
                     List.of(), ctorParams, cd.toString(), List.of(), List.of(), List.of(), null));
         });
         List<AnnotationInfo> annotations = ed.getAnnotations().stream()
@@ -288,7 +288,7 @@ public class HybridJavaParser implements CodeParser {
     }
 
     private ClassInfo toClassInfo(ClassOrInterfaceDeclaration cid, String packageName) {
-        String name = cid.getNameAsString();
+        String name = binaryTypeName(cid);
         int startLine = cid.getBegin().map(p -> p.line).orElse(-1);
         int endLine = cid.getEnd().map(p -> p.line).orElse(-1);
 
@@ -307,7 +307,7 @@ public class HybridJavaParser implements CodeParser {
             String ctorSig = cd.getDeclarationAsString(true, true, true);
             List<MethodInfo.ParameterInfo> ctorParams = cd.getParameters().stream()
                     .map(this::toParameterInfo).toList();
-            methods.add(new MethodInfo(cid.getNameAsString(), cid.getNameAsString(),
+            methods.add(new MethodInfo(cid.getNameAsString(), name,
                     ctorStart, ctorEnd, "", List.of("public"), ctorParams,
                     cd.toString(), List.of(), List.of(), List.of(), null));
         });
@@ -419,26 +419,39 @@ public class HybridJavaParser implements CodeParser {
         int jpLine = md.getBegin().map(p -> p.line).orElse(-1);
         return tsLocations.stream()
                 .filter(ts -> Math.abs(ts.startLine() - jpLine) <= 2)
+                .min(java.util.Comparator.comparingInt(
+                        ts -> Math.abs(ts.startLine() - jpLine)))
                 .map(MethodInfo::content)
-                .findFirst()
                 .orElse(null);
     }
 
     private String findEnclosingClassName(MethodDeclaration md) {
         Node current = md.getParentNode().orElse(null);
         while (current != null) {
-            if (current instanceof ClassOrInterfaceDeclaration cid) {
-                return cid.getNameAsString();
-            }
-            if (current instanceof com.github.javaparser.ast.body.RecordDeclaration rd) {
-                return rd.getNameAsString();
-            }
-            if (current instanceof com.github.javaparser.ast.body.EnumDeclaration ed) {
-                return ed.getNameAsString();
+            if (current instanceof ClassOrInterfaceDeclaration
+                    || current instanceof com.github.javaparser.ast.body.RecordDeclaration
+                    || current instanceof com.github.javaparser.ast.body.EnumDeclaration) {
+                return binaryTypeName(current);
             }
             current = current.getParentNode().orElse(null);
         }
         return "";
+    }
+
+    private String binaryTypeName(Node declaration) {
+        var names = new java.util.ArrayDeque<String>();
+        Node current = declaration;
+        while (current != null) {
+            if (current instanceof ClassOrInterfaceDeclaration cid) {
+                names.addFirst(cid.getNameAsString());
+            } else if (current instanceof com.github.javaparser.ast.body.RecordDeclaration rd) {
+                names.addFirst(rd.getNameAsString());
+            } else if (current instanceof com.github.javaparser.ast.body.EnumDeclaration ed) {
+                names.addFirst(ed.getNameAsString());
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        return String.join("$", names);
     }
 
     private boolean isValidPath(Path path) {

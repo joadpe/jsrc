@@ -80,6 +80,54 @@ class EdgeResolverTest {
                 "Should extract edge from constructor to init()");
     }
 
+    @Test
+    void extractCallEdgesIncludesRecordAndEnumMethods() throws IOException {
+        Path file = writeFile("Types.java", """
+                package app;
+                record Result(String value) {
+                    void run() { validate(); }
+                    void validate() {}
+                }
+                enum State {
+                    READY;
+                    void run() { validate(); }
+                    void validate() {}
+                }
+                """);
+
+        List<CallEdge> edges = new EdgeResolver()
+                .extractCallEdges(file, new JavaParser());
+
+        assertTrue(edges.stream().anyMatch(edge ->
+                edge.callerClass().equals("app.Result")
+                        && edge.callerMethod().equals("run")
+                        && edge.calleeMethod().equals("validate")));
+        assertTrue(edges.stream().anyMatch(edge ->
+                edge.callerClass().equals("app.State")
+                        && edge.callerMethod().equals("run")
+                        && edge.calleeMethod().equals("validate")));
+    }
+
+    @Test
+    void nestedTypeInsideRecordUsesBinaryOwner() throws IOException {
+        Path file = writeFile("Result.java", """
+                package app;
+                record Result(String value) {
+                    static class Validator {
+                        void run() { validate(); }
+                        void validate() {}
+                    }
+                }
+                """);
+
+        List<CallEdge> edges = new EdgeResolver()
+                .extractCallEdges(file, new JavaParser());
+
+        assertTrue(edges.stream().anyMatch(edge ->
+                edge.callerClass().equals("app.Result$Validator")
+                        && edge.callerMethod().equals("run")));
+    }
+
     // ---- resolveMarkers ----
 
     @Test

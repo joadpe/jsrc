@@ -209,6 +209,36 @@ class FrozenIndexContractTest {
                 "Error should suggest rebuilding index");
     }
 
+    @Test
+    void frozenIndexRejectsPreCanonicalIdentitySchema() throws Exception {
+        buildValidIndex();
+        Path indexFile = tempDir.resolve(".jsrc/index.bin");
+        setIndexVersion(indexFile, 3);
+
+        JsrcIOException error = assertThrows(JsrcIOException.class,
+                () -> IndexedCodebase.tryLoad(tempDir, List.of(sourceFile), true));
+
+        assertTrue(error.getMessage().contains("Unsupported V2 index version: 3"));
+    }
+
+    @Test
+    void normalLoadRebuildsPreCanonicalIdentitySchema() throws Exception {
+        buildValidIndex();
+        Path indexFile = tempDir.resolve(".jsrc/index.bin");
+        setIndexVersion(indexFile, 3);
+
+        assertNotNull(IndexedCodebase.tryLoad(tempDir, List.of(sourceFile), false));
+
+        byte[] bytes = Files.readAllBytes(indexFile);
+        assertEquals(4, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
+    }
+
+    private void setIndexVersion(Path indexFile, int version) throws Exception {
+        byte[] bytes = Files.readAllBytes(indexFile);
+        java.nio.ByteBuffer.wrap(bytes, 4, 4).putInt(version);
+        Files.write(indexFile, bytes);
+    }
+
     /**
      * A5: Watch + frozen + mutate tracked .java → still serves stale index.
      * (This will be tested in WatchCommandTest - here we document the contract)

@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Set;
 
 import com.jsrc.app.index.IndexedCodebase;
+import com.jsrc.app.index.IndexSymbolAdapter;
+import com.jsrc.app.symbol.SymbolResolver;
 
 /**
  * Resolves a user-provided target string (class name, method ref, file path)
@@ -71,6 +73,24 @@ public final class TargetResolver {
         return matches;
     }
 
+    public static List<Path> resolveClassesToFiles(
+            List<Path> javaFiles,
+            Set<String> classNames,
+            IndexedCodebase indexed) {
+        Set<String> indexedPaths = classNames.stream()
+                .map(indexed::findFileForClass)
+                .flatMap(java.util.Optional::stream)
+                .map(path -> Path.of(path).normalize().toString())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        if (indexedPaths.isEmpty()) {
+            return resolveClassesToFiles(javaFiles, classNames);
+        }
+        return javaFiles.stream()
+                .filter(file -> indexedPaths.stream().anyMatch(path ->
+                        file.normalize().endsWith(Path.of(path))))
+                .toList();
+    }
+
     /**
      * Resolves a parsed method reference against the index to find matching
      * methods with their line ranges.
@@ -81,23 +101,33 @@ public final class TargetResolver {
                                                      IndexedCodebase indexed) {
         List<MethodMatch> matches = new ArrayList<>();
         Set<String> matchingClasses = new LinkedHashSet<>();
-
-        for (var entry : indexed.getEntries()) {
-            for (var ic : entry.classes()) {
-                for (var im : ic.methods()) {
-                    if (!im.name().equals(ref.methodName())) continue;
-                    if (ref.hasClassName() && !ic.name().equals(ref.className())) continue;
-                    if (ref.hasParamTypes()) {
-                        int paramCount = SignatureUtils.countParams(im.signature());
-                        if (paramCount >= 0 && paramCount != ref.paramTypes().size()) continue;
-                    }
-                    matches.add(new MethodMatch(ic.name(), im.name(), im.startLine(), im.endLine()));
-                    matchingClasses.add(ic.name());
-                }
+        SymbolResolver resolver = IndexSymbolAdapter.create(indexed.getEntries());
+        List<SymbolResolver.MethodSymbol> resolvedMethods;
+        boolean ambiguous = false;
+        if (ref.hasClassName()) {
+            var resolution = resolver.resolveMethod(
+                    ref.className(), ref.methodName(), ref.paramTypes(),
+                    SymbolResolver.Context.empty());
+            if (resolution instanceof SymbolResolver.Resolution.Found<SymbolResolver.MethodSymbol> found) {
+                resolvedMethods = List.of(found.value());
+            } else if (resolution instanceof SymbolResolver.Resolution.Ambiguous<SymbolResolver.MethodSymbol> multiple) {
+                resolvedMethods = multiple.candidates();
+                ambiguous = true;
+            } else {
+                resolvedMethods = List.of();
             }
+        } else {
+            resolvedMethods = resolver.findMethods(ref.methodName(), ref.paramTypes());
         }
 
-        boolean ambiguous = matchingClasses.size() > 1 && !ref.hasClassName();
+        for (var method : resolvedMethods) {
+            String className = method.owner().canonicalName();
+            matches.add(new MethodMatch(
+                    className, method.name(), method.startLine(), method.endLine()));
+            matchingClasses.add(className);
+        }
+
+        ambiguous = ambiguous || (matchingClasses.size() > 1 && !ref.hasClassName());
         return new TargetResult(List.of(), matches, matchingClasses, ambiguous);
     }
 }

@@ -51,6 +51,111 @@ public final class SignatureUtils {
     }
 
     /**
+     * Normalizes a type and removes generic arguments for method identity matching.
+     */
+    public static String eraseType(String type) {
+        String normalized = normalizeType(type);
+        StringBuilder erased = new StringBuilder(normalized.length());
+        int genericDepth = 0;
+        for (int i = 0; i < normalized.length(); i++) {
+            char current = normalized.charAt(i);
+            if (current == '<') {
+                genericDepth++;
+            } else if (current == '>') {
+                genericDepth--;
+            } else if (genericDepth == 0) {
+                erased.append(current);
+            }
+        }
+        return erased.toString();
+    }
+
+    /** Erases a method parameter type, mapping unbounded type variables to Object. */
+    public static String eraseParameterType(String type) {
+        String erasedType = eraseType(type);
+        return erasedType.matches("[A-Z]") ? "Object" : erasedType;
+    }
+
+    /** Compares parameter types after erasure, qualification, and boxing normalization. */
+    public static boolean sameErasedType(String left, String right) {
+        return invocationMatchScore(left, right) >= 0
+                || invocationMatchScore(right, left) >= 0;
+    }
+
+    /**
+     * Scores assignment of an argument type to a declared parameter type.
+     * Lower scores are more specific: exact, boxing, primitive widening, fallback reference.
+     */
+    public static int invocationMatchScore(String parameterType, String argumentType) {
+        String parameter = eraseType(parameterType);
+        String argument = eraseType(argumentType);
+        if (sameQualifiedType(parameter, argument)) return 0;
+        if (boxedType(parameter).equals(boxedType(argument))) return 1;
+        if (isPrimitiveWidening(argument, parameter)) return 2;
+        if ((parameter.matches("[A-Z]") || "Object".equals(simpleType(parameter)))
+                && !isPrimitive(argument)) {
+            return 3;
+        }
+        return -1;
+    }
+
+    private static boolean sameQualifiedType(String left, String right) {
+        return left.equals(right)
+                || left.endsWith("." + right)
+                || right.endsWith("." + left);
+    }
+
+    private static boolean isPrimitiveWidening(String argument, String parameter) {
+        String from = simpleType(argument);
+        String to = simpleType(parameter);
+        return switch (from) {
+            case "byte" -> switch (to) {
+                case "short", "int", "long", "float", "double" -> true;
+                default -> false;
+            };
+            case "short", "char" -> switch (to) {
+                case "int", "long", "float", "double" -> true;
+                default -> false;
+            };
+            case "int" -> switch (to) {
+                case "long", "float", "double" -> true;
+                default -> false;
+            };
+            case "long" -> "float".equals(to) || "double".equals(to);
+            case "float" -> "double".equals(to);
+            default -> false;
+        };
+    }
+
+    private static String boxedType(String type) {
+        String simpleType = simpleType(type);
+        return switch (simpleType) {
+            case "boolean" -> "Boolean";
+            case "byte" -> "Byte";
+            case "char" -> "Character";
+            case "short" -> "Short";
+            case "int" -> "Integer";
+            case "long" -> "Long";
+            case "float" -> "Float";
+            case "double" -> "Double";
+            default -> simpleType;
+        };
+    }
+
+    private static String simpleType(String type) {
+        return type.startsWith("java.lang.")
+                ? type.substring("java.lang.".length())
+                : type;
+    }
+
+    private static boolean isPrimitive(String type) {
+        return switch (simpleType(type)) {
+            case "boolean", "byte", "char", "short", "int", "long", "float", "double" -> true;
+            default -> false;
+        };
+    }
+
+    /**
      * Parses and normalizes a comma-separated parameter type list.
      */
     public static List<String> parseParameterTypes(String parameterTypes) {

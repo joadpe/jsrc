@@ -130,6 +130,7 @@ class SmellsCommandTest {
         assertEquals(true, map.get("ambiguous"));
         var candidates = (List<String>) map.get("candidates");
         assertTrue(candidates.size() >= 2, "Should have at least 2 candidates");
+        assertEquals(candidates, map.get("suggestions"));
     }
 
     @Test
@@ -215,6 +216,42 @@ class SmellsCommandTest {
         });
         assertTrue(output8.contains("TOO_MANY_PARAMETERS"),
                 "Should detect too many params in 8-param overload");
+    }
+
+    @Test
+    void qualifiedPackagedMethodResolvesToItsSourceFile() throws Exception {
+        writeFile("Service.java", """
+                package app;
+                public class Service {
+                    public void process(int a, int b, int c, int d, int e,
+                                        int f, int g, int h) {}
+                }
+                """);
+
+        var ctx = buildIndexedContext();
+        String output = captureStdout(() ->
+                assertTrue(new SmellsCommand("app.Service.process").execute(ctx) >= 1));
+
+        assertTrue(output.contains("TOO_MANY_PARAMETERS"));
+    }
+
+    @Test
+    void qualifiedNestedMethodResolvesToItsEnclosingSourceFile() throws Exception {
+        writeFile("Outer.java", """
+                package app;
+                public class Outer {
+                    static class Inner {
+                        void process(int a, int b, int c, int d, int e,
+                                     int f, int g, int h) {}
+                    }
+                }
+                """);
+
+        var ctx = buildIndexedContext();
+        String output = captureStdout(() ->
+                assertTrue(new SmellsCommand("app.Outer.Inner.process").execute(ctx) >= 1));
+
+        assertTrue(output.contains("TOO_MANY_PARAMETERS"));
     }
 
     @Test

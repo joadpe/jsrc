@@ -87,8 +87,7 @@ public final class MethodTargetResolver {
     }
 
     private static boolean classMatches(String actual, String expected) {
-        return actual.equals(expected)
-                || (!expected.contains(".") && actual.endsWith("." + expected));
+        return com.jsrc.app.model.TypeId.namesMatch(actual, expected);
     }
 
     private static boolean parametersMatch(MethodReference target, List<String> expected) {
@@ -99,9 +98,7 @@ public final class MethodTargetResolver {
         for (int i = 0; i < expected.size(); i++) {
             String actualType = target.parameterTypes().get(i);
             String expectedType = expected.get(i);
-            if (!actualType.equals(expectedType)
-                    && !actualType.endsWith("." + expectedType)
-                    && !expectedType.endsWith("." + actualType)) {
+            if (!SignatureUtils.sameErasedType(actualType, expectedType)) {
                 return false;
             }
         }

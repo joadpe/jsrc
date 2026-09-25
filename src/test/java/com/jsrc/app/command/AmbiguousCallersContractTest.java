@@ -70,6 +70,8 @@ class AmbiguousCallersContractTest {
         Map<String, Object> json = (Map<String, Object>) JsonReader.parse(output);
         assertNotNull(json, "Should produce valid JSON");
         assertEquals(Boolean.TRUE, json.get("ambiguous"), "JSON should contain ambiguous:true");
+        assertEquals(json.get("candidates"), json.get("suggestions"),
+                "Ambiguity should include directly usable qualified suggestions");
     }
 
     /**

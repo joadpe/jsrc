@@ -54,11 +54,12 @@ public class EdgeResolver {
             if (!result.getResult().isPresent()) return edges;
 
             CompilationUnit cu = result.getResult().get();
-            for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
-                String className = qualifiedClassName(cid);
+            for (com.github.javaparser.ast.body.TypeDeclaration<?> declaration
+                    : cu.findAll(com.github.javaparser.ast.body.TypeDeclaration.class)) {
+                String className = qualifiedClassName(declaration);
 
                 Map<String, String> fieldTypes = new HashMap<>();
-                for (FieldDeclaration field : cid.getFields()) {
+                for (FieldDeclaration field : declaration.getFields()) {
                     String fieldType = field.getCommonType().asString();
                     int genIdx = fieldType.indexOf('<');
                     if (genIdx > 0) fieldType = fieldType.substring(0, genIdx);
@@ -67,12 +68,16 @@ public class EdgeResolver {
                     }
                 }
 
-                for (MethodDeclaration md : cid.getMethods()) {
+                for (MethodDeclaration md : declaration.getMethods()) {
                     extractEdgesFromCallable(edges, md, className, md.getNameAsString(),
                             fieldTypes);
                 }
-                for (ConstructorDeclaration cd : cid.getConstructors()) {
-                    extractEdgesFromCallable(edges, cd, className, cid.getNameAsString(),
+                for (ConstructorDeclaration cd : declaration.getMembers().stream()
+                        .filter(ConstructorDeclaration.class::isInstance)
+                        .map(ConstructorDeclaration.class::cast)
+                        .toList()) {
+                    extractEdgesFromCallable(edges, cd, className,
+                            declaration.getNameAsString(),
                             fieldTypes);
                 }
             }
@@ -289,11 +294,12 @@ public class EdgeResolver {
         return null;
     }
 
-    private static String qualifiedClassName(ClassOrInterfaceDeclaration declaration) {
+    private static String qualifiedClassName(
+            com.github.javaparser.ast.body.TypeDeclaration<?> declaration) {
         StringBuilder result = new StringBuilder(declaration.getNameAsString());
         var parent = declaration.getParentNode().orElse(null);
-        while (parent instanceof ClassOrInterfaceDeclaration outer) {
-            result.insert(0, outer.getNameAsString() + ".");
+        while (parent instanceof com.github.javaparser.ast.body.TypeDeclaration<?> outer) {
+            result.insert(0, outer.getNameAsString() + "$");
             parent = outer.getParentNode().orElse(null);
         }
         declaration.findCompilationUnit()
@@ -374,6 +380,65 @@ public class EdgeResolver {
      * Resolves a marker string to a concrete type.
      * Supports nested {@code ?field:OwnerType.fieldName} and {@code ?ret:ClassName.methodName}.
      */
+    /** Resolves caller and callee type names using the common project symbol resolver. */
+    public void resolveSymbols(List<IndexEntry> entries) {
+        var resolver = IndexSymbolAdapter.create(entries);
+        List<IndexEntry> resolvedEntries = new ArrayList<>(entries.size());
+        for (IndexEntry entry : entries) {
+            List<CallEdge> resolvedEdges = new ArrayList<>(entry.callEdges().size());
+            for (CallEdge edge : entry.callEdges()) {
+                String callerClass = edge.callerClass();
+                var callerResolution = resolver.resolveType(
+                        callerClass,
+                        com.jsrc.app.symbol.SymbolResolver.Context.empty());
+                com.jsrc.app.symbol.SymbolResolver.Context context =
+                        com.jsrc.app.symbol.SymbolResolver.Context.empty();
+                if (callerResolution instanceof com.jsrc.app.symbol.SymbolResolver.Resolution.Found<
+                        com.jsrc.app.symbol.SymbolResolver.TypeSymbol> caller) {
+                    callerClass = caller.value().id().canonicalName();
+                    context = new com.jsrc.app.symbol.SymbolResolver.Context(
+                            caller.value().id().packageName(),
+                            caller.value().imports(),
+                            caller.value().id());
+                }
+
+                String calleeClass = edge.calleeClass();
+                var calleeResolution = resolver.resolveType(calleeClass, context);
+                if (calleeResolution instanceof com.jsrc.app.symbol.SymbolResolver.Resolution.Found<
+                        com.jsrc.app.symbol.SymbolResolver.TypeSymbol> callee) {
+                    calleeClass = callee.value().id().canonicalName();
+                    List<String> argumentTypes = edge.calleeParameterTypes().stream()
+                            .anyMatch(CallEdge.UNKNOWN_PARAMETER_TYPE::equals)
+                            ? null
+                            : edge.calleeParameterTypes();
+                    var methodResolution = resolver.resolveMethod(
+                            calleeClass,
+                            edge.calleeMethod(),
+                            argumentTypes,
+                            context);
+                    if (methodResolution instanceof com.jsrc.app.symbol.SymbolResolver.Resolution.Found<
+                            com.jsrc.app.symbol.SymbolResolver.MethodSymbol> method) {
+                        calleeClass = method.value().owner().canonicalName();
+                    }
+                }
+
+                resolvedEdges.add(new CallEdge(
+                        callerClass,
+                        edge.callerMethod(),
+                        edge.callerParameterTypes(),
+                        edge.callerParamCount(),
+                        calleeClass,
+                        edge.calleeMethod(),
+                        edge.calleeParameterTypes(),
+                        edge.line(),
+                        edge.argCount()));
+            }
+            resolvedEntries.add(entry.withEdges(resolvedEdges));
+        }
+        entries.clear();
+        entries.addAll(resolvedEntries);
+    }
+
     public static String resolveMarker(String marker,
                                        Map<String, String> fieldTypeMap,
                                        Map<String, String> returnTypeMap) {

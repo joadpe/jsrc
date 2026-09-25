@@ -187,6 +187,29 @@ class HybridJavaParserTest {
     }
 
     @Test
+    @DisplayName("Should preserve enclosing type in nested class identities")
+    void shouldPreserveNestedClassIdentity() throws IOException {
+        Path file = writeFile("Outer.java", """
+                package com.app;
+                public class Outer {
+                    public static class Inner {
+                        public void run() {}
+                    }
+                }
+                """);
+
+        List<ClassInfo> classes = parser.parseClasses(file);
+        ClassInfo inner = classes.stream()
+                .filter(candidate -> candidate.name().endsWith("Inner"))
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals("Outer$Inner", inner.name());
+        assertEquals("com.app.Outer$Inner", inner.qualifiedName());
+        assertEquals("Outer$Inner", inner.methods().getFirst().className());
+    }
+
+    @Test
     @DisplayName("Should parse interfaces")
     void shouldParseInterfaces() throws IOException {
         Path file = writeFile("Iface.java", """

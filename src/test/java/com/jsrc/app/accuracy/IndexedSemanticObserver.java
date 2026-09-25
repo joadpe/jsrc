@@ -34,7 +34,11 @@ final class IndexedSemanticObserver {
                     String identity = methodIdentity(indexedClass, method);
                     symbols.add(identity);
                     methods.computeIfAbsent(
-                                    new MethodKey(indexedClass.qualifiedName(), method.name(), method.paramCount()),
+                                    new MethodKey(
+                                            indexedClass.qualifiedName(),
+                                            method.name(),
+                                            method.paramCount(),
+                                            SignatureUtils.extractParameterTypes(method.signature())),
                                     ignored -> new ArrayList<>())
                             .add(identity);
                 }
@@ -45,9 +49,11 @@ final class IndexedSemanticObserver {
         for (var entry : index.getEntries()) {
             for (var edge : entry.callEdges()) {
                 Optional<String> caller = resolve(
-                        methods, edge.callerClass(), edge.callerMethod(), edge.callerParamCount());
+                        methods, edge.callerClass(), edge.callerMethod(),
+                        edge.callerParamCount(), edge.callerParameterTypes());
                 Optional<String> callee = resolve(
-                        methods, edge.calleeClass(), edge.calleeMethod(), edge.argCount());
+                        methods, edge.calleeClass(), edge.calleeMethod(),
+                        edge.argCount(), edge.calleeParameterTypes());
                 if (caller.isPresent() && callee.isPresent()) {
                     edges.add(caller.get() + "->" + callee.get());
                 }
@@ -65,12 +71,15 @@ final class IndexedSemanticObserver {
             Map<MethodKey, List<String>> methods,
             String className,
             String methodName,
-            int parameterCount) {
+            int parameterCount,
+            List<String> parameterTypes) {
         if (parameterCount >= 0) {
             List<String> candidates = methods.entrySet().stream()
                     .filter(entry -> classMatches(entry.getKey().className(), className))
                     .filter(entry -> entry.getKey().methodName().equals(methodName))
                     .filter(entry -> entry.getKey().parameterCount() == parameterCount)
+                    .filter(entry -> parameterTypesMatch(
+                            entry.getKey().parameterTypes(), parameterTypes))
                     .flatMap(entry -> entry.getValue().stream())
                     .distinct()
                     .toList();
@@ -85,6 +94,22 @@ final class IndexedSemanticObserver {
         return unique(candidates);
     }
 
+    private static boolean parameterTypesMatch(
+            List<String> declaredTypes, List<String> observedTypes) {
+        if (observedTypes.size() != declaredTypes.size()
+                || observedTypes.stream().anyMatch("?"::equals)) {
+            return true;
+        }
+        for (int i = 0; i < declaredTypes.size(); i++) {
+            String declared = declaredTypes.get(i);
+            String observed = observedTypes.get(i);
+            if (!SignatureUtils.sameErasedType(declared, observed)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static boolean classMatches(String canonicalClassName, String requestedClassName) {
         return canonicalClassName.equals(requestedClassName)
                 || canonicalClassName.endsWith("." + requestedClassName);
@@ -94,5 +119,9 @@ final class IndexedSemanticObserver {
         return candidates.size() == 1 ? Optional.of(candidates.getFirst()) : Optional.empty();
     }
 
-    private record MethodKey(String className, String methodName, int parameterCount) {}
+    private record MethodKey(
+            String className,
+            String methodName,
+            int parameterCount,
+            List<String> parameterTypes) {}
 }

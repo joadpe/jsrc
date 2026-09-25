@@ -52,6 +52,9 @@ class ClassResolverTest {
         assertEquals(2, ambiguous.candidates().size());
         assertTrue(ambiguous.candidates().contains("com.app.service.OrderService"));
         assertTrue(ambiguous.candidates().contains("com.legacy.OrderService"));
+        assertEquals(ambiguous.candidates(),
+                ClassResolver.ambiguousResult(
+                        ambiguous.candidates(), "OrderService").get("suggestions"));
     }
 
     @Test
@@ -75,6 +78,19 @@ class ClassResolverTest {
         var result = ClassResolver.resolve(classes, "com.legacy.OrderService");
         assertInstanceOf(Resolution.Found.class, result);
         assertEquals("com.legacy", ((Resolution.Found) result).classInfo().packageName());
+    }
+
+    @Test
+    @DisplayName("Should resolve nested type by source and binary names")
+    void shouldResolveNestedTypeAliases() {
+        var nested = classInfo("Outer$Inner", "com.app");
+        var classes = List.of(nested);
+
+        var sourceName = ClassResolver.resolve(classes, "com.app.Outer.Inner");
+        var binaryName = ClassResolver.resolve(classes, "Outer$Inner");
+
+        assertEquals(nested, assertInstanceOf(Resolution.Found.class, sourceName).classInfo());
+        assertEquals(nested, assertInstanceOf(Resolution.Found.class, binaryName).classInfo());
     }
 
     private ClassInfo classInfo(String name, String pkg) {

@@ -136,6 +136,7 @@ public class IndexedCodebase {
         com.jsrc.app.analysis.CallGraph preBuiltGraph = null;
         BinaryIndexV2Reader.LazyIndexData lazyData = null;
         java.util.Map<String, List<CachedMigration>> loadedMigrations = null;
+        boolean forceRefresh = false;
         List<IndexEntry> existing;
 
         if (Files.exists(v2File)) {
@@ -148,11 +149,13 @@ public class IndexedCodebase {
             } catch (IOException e) {
                 logger.warn("V2 binary index corrupt, falling back to JSON: {}", e.getMessage());
                 existing = CodebaseIndex.loadClassesOnly(sourceRoot);
+                forceRefresh = e.getMessage() != null
+                        && e.getMessage().startsWith("Unsupported V2 index version:");
             }
         } else {
             existing = CodebaseIndex.loadClassesOnly(sourceRoot);
         }
-        if (existing.isEmpty()) {
+        if (existing.isEmpty() && !forceRefresh) {
             return null;
         }
 
@@ -176,7 +179,7 @@ public class IndexedCodebase {
                     prev == null
                             ? com.jsrc.app.project.SourceSet.UNKNOWN
                             : prev.sourceSet());
-            if (prev != null) {
+            if (prev != null && !forceRefresh) {
                 try {
                     long currentModified = Files.getLastModifiedTime(file).toMillis();
                     if (currentModified <= prev.lastModified()
@@ -358,12 +361,32 @@ public class IndexedCodebase {
         if (classLookup == null) {
             classLookup = new java.util.HashMap<>();
             classToPath = new java.util.HashMap<>();
+            java.util.Map<String, java.util.List<IndexedClass>> simpleClasses =
+                    new java.util.HashMap<>();
+            java.util.Map<String, java.util.List<String>> simplePaths =
+                    new java.util.HashMap<>();
             for (IndexEntry entry : entries) {
                 for (IndexedClass ic : entry.classes()) {
-                    classLookup.putIfAbsent(ic.name(), ic);
-                    classLookup.putIfAbsent(ic.qualifiedName(), ic);
-                    classToPath.putIfAbsent(ic.name(), entry.path());
-                    classToPath.putIfAbsent(ic.qualifiedName(), entry.path());
+                    classLookup.put(ic.qualifiedName(), ic);
+                    classToPath.put(ic.qualifiedName(), entry.path());
+                    var typeId = com.jsrc.app.model.TypeId.from(ic.packageName(), ic.name());
+                    classLookup.put(typeId.sourceName(), ic);
+                    classToPath.put(typeId.sourceName(), entry.path());
+                    var aliases = new java.util.LinkedHashSet<>(
+                            java.util.List.of(ic.name(), typeId.simpleName()));
+                    for (String alias : aliases) {
+                        simpleClasses.computeIfAbsent(alias, ignored -> new java.util.ArrayList<>())
+                                .add(ic);
+                        simplePaths.computeIfAbsent(alias, ignored -> new java.util.ArrayList<>())
+                                .add(entry.path());
+                    }
+                }
+            }
+            for (var entry : simpleClasses.entrySet()) {
+                if (entry.getValue().size() == 1) {
+                    classLookup.putIfAbsent(entry.getKey(), entry.getValue().getFirst());
+                    classToPath.putIfAbsent(
+                            entry.getKey(), simplePaths.get(entry.getKey()).getFirst());
                 }
             }
         }

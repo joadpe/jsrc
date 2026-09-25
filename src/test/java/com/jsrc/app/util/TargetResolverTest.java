@@ -110,4 +110,113 @@ class TargetResolverTest {
         assertEquals(1, result.methodMatches().size());
         assertEquals("A", result.methodMatches().getFirst().className());
     }
+
+    @Test
+    void resolveMethodInIndex_usesCanonicalOwnerAndGenericErasure() throws Exception {
+        Path sales = tempDir.resolve("sales/Service.java");
+        Files.createDirectories(sales.getParent());
+        Files.writeString(sales, """
+                package sales;
+                import java.util.List;
+                public class Service {
+                    public void process(List<String> values) {}
+                }
+                """);
+        Path support = tempDir.resolve("support/Service.java");
+        Files.createDirectories(support.getParent());
+        Files.writeString(support, """
+                package support;
+                import java.util.Set;
+                public class Service {
+                    public void process(Set<String> values) {}
+                }
+                """);
+        var index = new CodebaseIndex();
+        var files = List.of(sales, support);
+        index.build(new HybridJavaParser(), files, tempDir, List.of());
+        index.save(tempDir);
+        var indexed = IndexedCodebase.tryLoad(tempDir, files);
+
+        var result = TargetResolver.resolveMethodInIndex(
+                MethodResolver.parse("sales.Service.process(List<Integer>)"), indexed);
+
+        assertFalse(result.ambiguous());
+        assertEquals(1, result.methodMatches().size());
+        assertEquals("sales.Service", result.methodMatches().getFirst().className());
+    }
+
+    @Test
+    void resolveMethodInIndex_substitutesInheritedGenericParameter() throws Exception {
+        Path base = tempDir.resolve("app/Base.java");
+        Files.createDirectories(base.getParent());
+        Files.writeString(base, """
+                package app;
+                public class Base<T> {
+                    public void process(T value) {}
+                }
+                """);
+        Path child = tempDir.resolve("app/Child.java");
+        Files.writeString(child, """
+                package app;
+                public class Child extends Base<String> {}
+                """);
+        var files = List.of(base, child);
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), files, tempDir, List.of());
+        index.save(tempDir);
+        var indexed = IndexedCodebase.tryLoad(tempDir, files);
+
+        var result = TargetResolver.resolveMethodInIndex(
+                MethodResolver.parse("app.Child.process(String)"), indexed);
+
+        assertFalse(result.ambiguous());
+        assertEquals(1, result.methodMatches().size());
+        assertEquals("app.Base", result.methodMatches().getFirst().className());
+    }
+
+    @Test
+    void resolveMethodInIndex_doesNotInheritPrivateMethod() throws Exception {
+        Path base = tempDir.resolve("app/Base.java");
+        Files.createDirectories(base.getParent());
+        Files.writeString(base, """
+                package app;
+                public class Base {
+                    private void process(String value) {}
+                }
+                """);
+        Path child = tempDir.resolve("app/Child.java");
+        Files.writeString(child, """
+                package app;
+                public class Child extends Base {}
+                """);
+        var files = List.of(base, child);
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), files, tempDir, List.of());
+        index.save(tempDir);
+        var indexed = IndexedCodebase.tryLoad(tempDir, files);
+
+        var result = TargetResolver.resolveMethodInIndex(
+                MethodResolver.parse("app.Child.process(String)"), indexed);
+
+        assertTrue(result.methodMatches().isEmpty());
+    }
+
+    @Test
+    void indexedLookupDoesNotChooseAPathForHomonymousSimpleName() throws Exception {
+        Path sales = tempDir.resolve("sales/Service.java");
+        Files.createDirectories(sales.getParent());
+        Files.writeString(sales, "package sales; public class Service {}");
+        Path support = tempDir.resolve("support/Service.java");
+        Files.createDirectories(support.getParent());
+        Files.writeString(support, "package support; public class Service {}");
+        var files = List.of(sales, support);
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), files, tempDir, List.of());
+        index.save(tempDir);
+        var indexed = IndexedCodebase.tryLoad(tempDir, files);
+
+        assertTrue(indexed.findFileForClass("Service").isEmpty());
+        assertTrue(indexed.findFileForClass("sales.Service").isPresent());
+        assertTrue(indexed.findFileForClass("support.Service").isPresent());
+    }
 }

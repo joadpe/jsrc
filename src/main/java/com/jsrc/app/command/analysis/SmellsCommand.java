@@ -256,7 +256,7 @@ public class SmellsCommand implements Command {
 
             if (!result.methodMatches().isEmpty()) {
                 List<Path> fileMatches = TargetResolver.resolveClassesToFiles(
-                        ctx.javaFiles(), result.matchingClasses());
+                        ctx.javaFiles(), result.matchingClasses(), ctx.indexed());
                 if (!fileMatches.isEmpty()) {
                     int scanResult = scanFilesWithLineFilter(ctx, fileMatches, result.methodMatches());
                     return scanResult;
@@ -304,7 +304,8 @@ public class SmellsCommand implements Command {
         List<String> candidates = new ArrayList<>();
         for (var entry : ctx.indexed().getEntries()) {
             for (var ic : entry.classes()) {
-                if (!matchingClasses.contains(ic.name())) continue;
+                if (!matchingClasses.contains(ic.name())
+                        && !matchingClasses.contains(ic.qualifiedName())) continue;
                 for (var im : ic.methods()) {
                     if (!im.name().equals(ref.methodName())) continue;
                     String pkg = ic.packageName();
@@ -316,9 +317,12 @@ public class SmellsCommand implements Command {
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
+        List<String> qualifiedCandidates = candidates.stream()
+                .sorted().distinct().toList();
         result.put("ambiguous", true);
         result.put("target", target);
-        result.put("candidates", candidates.stream().sorted().distinct().toList());
+        result.put("candidates", qualifiedCandidates);
+        result.put("suggestions", qualifiedCandidates);
         result.put("message",
                 "Multiple classes contain this method. Use Class.method to disambiguate.");
         ctx.formatter().printResult(result);
@@ -397,13 +401,18 @@ public class SmellsCommand implements Command {
             String fileNameNoExt = file.getFileName().toString().replace(".java", "");
 
             List<MethodMatch> fileMatches = matches.stream()
-                    .filter(m -> m.className().equals(fileNameNoExt))
+                    .filter(m -> ctx.indexed().findFileForClass(m.className())
+                            .map(path -> file.normalize().endsWith(Path.of(path)))
+                            .orElseGet(() -> com.jsrc.app.model.TypeId.namesMatch(
+                                    m.className(), fileNameNoExt)))
                     .toList();
 
             if (!fileMatches.isEmpty()) {
                 smells = smells.stream()
                         .filter(s -> fileMatches.stream().anyMatch(m ->
-                                m.methodName().equals(s.methodName())
+                                com.jsrc.app.model.TypeId.namesMatch(
+                                        m.className(), s.className())
+                                && m.methodName().equals(s.methodName())
                                 && s.line() >= m.startLine()
                                 && s.line() <= m.endLine()))
                         .toList();

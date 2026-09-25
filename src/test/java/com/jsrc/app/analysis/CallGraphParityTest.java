@@ -112,6 +112,45 @@ class CallGraphParityTest {
         assertEquals(freshIndexEdges, directEdges);
     }
 
+    @Test
+    void directGraphPrefersSamePackageTypeOverWildcardImport() throws IOException {
+        Path caller = writeFile("same/Caller.java", """
+                package same;
+                import foreign.*;
+                public class Caller {
+                    public void run() { Service.execute(); }
+                }
+                """);
+        Path sameService = writeFile("same/Service.java", """
+                package same;
+                public class Service {
+                    public static void execute() {}
+                }
+                """);
+        Path foreignService = writeFile("foreign/Service.java", """
+                package foreign;
+                public class Service {
+                    public static void execute() {}
+                }
+                """);
+        List<Path> files = List.of(caller, foreignService, sameService);
+
+        var directBuilder = new CallGraphBuilder();
+        directBuilder.build(files);
+
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), files, tempDir, List.of());
+        var indexBuilder = new CallGraphBuilder();
+        indexBuilder.loadFromIndex(index.getEntries());
+
+        Set<String> directEdges = canonicalEdges(directBuilder.toCallGraph());
+        Set<String> indexEdges = canonicalEdges(indexBuilder.toCallGraph());
+        assertEquals(indexEdges, directEdges);
+        assertTrue(directEdges.stream().anyMatch(edge -> edge.contains("same.Service.execute")));
+        assertTrue(directEdges.stream().noneMatch(
+                edge -> edge.contains("foreign.Service.execute")));
+    }
+
     private Set<String> canonicalEdges(CallGraph graph) {
         return graph.getAllMethods().stream()
                 .flatMap(method -> graph.getCalleesOf(method).stream())

@@ -73,6 +73,25 @@ class CodebaseIndexTest {
     }
 
     @Test
+    void shouldPreserveSourceSetAcrossJsonRoundtrip() throws IOException {
+        Path javaFile = writeFile("Fixture.java", "class Fixture {}");
+        var index = new CodebaseIndex();
+
+        index.build(
+                new HybridJavaParser(),
+                List.of(javaFile),
+                tempDir,
+                List.of(),
+                List.of(),
+                java.util.Map.of(javaFile, com.jsrc.app.project.SourceSet.TEST_FIXTURES));
+        index.save(tempDir);
+
+        assertEquals(
+                com.jsrc.app.project.SourceSet.TEST_FIXTURES,
+                CodebaseIndex.load(tempDir).getFirst().sourceSet());
+    }
+
+    @Test
     @DisplayName("Incremental: should skip unchanged files")
     void shouldSkipUnchanged() throws IOException {
         Path javaFile = writeFile("Stable.java", """

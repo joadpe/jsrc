@@ -35,4 +35,13 @@ public record ProjectModel(
                 .distinct()
                 .toList();
     }
+
+    /** Returns the modeled source set for a file, or {@link SourceSet#UNKNOWN}. */
+    public SourceSet sourceSet(Path file) {
+        return modules.stream()
+                .map(module -> module.sourceSet(file))
+                .filter(sourceSet -> sourceSet != SourceSet.UNKNOWN)
+                .findFirst()
+                .orElse(SourceSet.UNKNOWN);
+    }
 }

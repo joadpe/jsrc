@@ -27,7 +27,11 @@ public class IndexCommand implements Command {
         var invokers = (ctx.config() != null)
                 ? ctx.config().architecture().invokers()
                 : java.util.List.<com.jsrc.app.config.ArchitectureConfig.InvokerDef>of();
-        int reindexed = index.build(ctx.parser(), ctx.javaFiles(), root, existing, invokers);
+        var sourceSets = ctx.javaFiles().stream().collect(java.util.stream.Collectors.toMap(
+                java.util.function.Function.identity(),
+                ctx::sourceSet));
+        int reindexed = index.build(
+                ctx.parser(), ctx.javaFiles(), root, existing, invokers, sourceSets);
 
         try {
             // Build call graph and save V2 binary with pre-resolved graph

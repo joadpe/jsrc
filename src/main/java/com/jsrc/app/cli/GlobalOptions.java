@@ -44,6 +44,11 @@ public class GlobalOptions {
             scope = ScopeType.INHERIT)
     boolean noTest;
 
+    @Option(names = "--source-set",
+            description = "Include source sets: main,test,testFixtures,generated,unknown",
+            split = ",", converter = SourceSetConverter.class, scope = ScopeType.INHERIT)
+    Set<com.jsrc.app.project.SourceSet> sourceSets;
+
     @Option(names = "--fields", description = "Limit JSON to specific fields (comma-separated)",
             split = ",", scope = ScopeType.INHERIT)
     Set<String> fields;
@@ -90,6 +95,9 @@ public class GlobalOptions {
     public boolean showMetrics() { return showMetrics; }
     public boolean signatureOnly() { return signatureOnly; }
     public boolean noTest() { return noTest; }
+    public Set<com.jsrc.app.project.SourceSet> sourceSets() {
+        return sourceSets == null ? Set.of() : Set.copyOf(sourceSets);
+    }
     public Set<String> fields() { return fields; }
     public String configPath() { return configPath; }
     public String outDir() { return outDir; }

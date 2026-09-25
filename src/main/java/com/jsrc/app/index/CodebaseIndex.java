@@ -72,6 +72,13 @@ public class CodebaseIndex {
     public int build(CodeParser parser, List<Path> files, Path sourceRoot,
                      List<IndexEntry> existing,
                      List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {
+        return build(parser, files, sourceRoot, existing, invokers, java.util.Map.of());
+    }
+
+    public int build(CodeParser parser, List<Path> files, Path sourceRoot,
+                     List<IndexEntry> existing,
+                     List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers,
+                     Map<Path, com.jsrc.app.project.SourceSet> sourceSets) {
         Map<String, IndexEntry> existingByPath = new LinkedHashMap<>();
         for (IndexEntry e : existing) {
             existingByPath.put(e.path(), e);
@@ -83,6 +90,8 @@ public class CodebaseIndex {
 
         for (Path file : files) {
             String relativePath = sourceRoot.relativize(file).toString();
+            var sourceSet = sourceSets.getOrDefault(
+                    file, com.jsrc.app.project.SourceSet.UNKNOWN);
             try {
                 byte[] content = Files.readAllBytes(file);
                 String hash = com.jsrc.app.util.Hashing.sha256(content);
@@ -90,6 +99,7 @@ public class CodebaseIndex {
 
                 IndexEntry prev = existingByPath.get(relativePath);
                 if (prev != null && prev.contentHash().equals(hash)
+                        && prev.sourceSet() == sourceSet
                         && hasCanonicalCallEdgeSchema(prev)) {
                     entries.add(prev);
                     continue;
@@ -111,7 +121,9 @@ public class CodebaseIndex {
                     edges.addAll(edgeResolver.extractReflectiveEdges(file, edgeParser, invokers));
                 }
 
-                entries.add(new IndexEntry(relativePath, hash, lastModified, indexed, edges));
+                entries.add(new IndexEntry(
+                        relativePath, hash, lastModified, sourceSet,
+                        indexed, edges, List.of()));
                 reindexed++;
             } catch (IOException ex) {
                 logger.error("Error indexing {}: {}", file, ex.getMessage());
@@ -433,6 +445,9 @@ public class CodebaseIndex {
         String path = (String) map.getOrDefault("path", "");
         String hash = (String) map.getOrDefault("contentHash", "");
         long lastModified = map.get("lastModified") instanceof Number n ? n.longValue() : 0;
+        com.jsrc.app.project.SourceSet sourceSet = map.get("sourceSet") instanceof String value
+                ? com.jsrc.app.project.SourceSet.fromExternalName(value)
+                : com.jsrc.app.project.SourceSet.UNKNOWN;
 
         List<IndexedClass> classes = new ArrayList<>();
         Object classesRaw = map.get("classes");
@@ -479,7 +494,8 @@ public class CodebaseIndex {
                 }
             }
         }
-        return new IndexEntry(path, hash, lastModified, classes, callEdges, smells);
+        return new IndexEntry(
+                path, hash, lastModified, sourceSet, classes, callEdges, smells);
     }
 
     @SuppressWarnings("unchecked")
@@ -607,6 +623,7 @@ public class CodebaseIndex {
         map.put("path", entry.path());
         map.put("contentHash", entry.contentHash());
         map.put("lastModified", entry.lastModified());
+        map.put("sourceSet", entry.sourceSet().externalName());
         map.put("classes", entry.classes().stream().map(this::classToMap).toList());
         if (!entry.callEdges().isEmpty()) {
             map.put("callEdges", entry.callEdges().stream().map(this::edgeToMap).toList());

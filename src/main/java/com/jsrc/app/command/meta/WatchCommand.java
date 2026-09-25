@@ -36,6 +36,7 @@ public class WatchCommand implements Command {
 
     private IndexedCodebase cachedIndex = null;
     private IndexStamp lastStamp = null;
+    private java.util.Map<Path, com.jsrc.app.project.SourceSet> pendingSourceSets = java.util.Map.of();
 
     @Override
     public int execute(CommandContext ctx) {
@@ -94,7 +95,7 @@ public class WatchCommand implements Command {
                     // If frozenIndex is set, never refresh (skip stamp-driven rebuild)
                     var refreshResult = loadOrRefreshIndex(
                             Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex, ctx.frozenIndex(),
-                            ctx.config(), ctx.projectModel());
+                            ctx.config(), ctx.projectModel(), ctx.sourceSets(), ctx.noTest());
                     cachedIndex = refreshResult.index();
                     List<Path> freshFiles = refreshResult.files();
 
@@ -103,7 +104,11 @@ public class WatchCommand implements Command {
                     var captureStream = new PrintStream(baos);
                     var captureFormatter = OutputFormatter.create(true, false, null, captureStream, budgetContext);
                     var freshCtx = ctx.withRuntimeState(
-                            freshFiles, captureFormatter, cachedIndex, refreshResult.projectModel());
+                            freshFiles,
+                            captureFormatter,
+                            cachedIndex,
+                            refreshResult.projectModel(),
+                            refreshResult.sourceSets());
 
                     // Execute command
                     // Extract budget profile from budgetContext if available
@@ -182,7 +187,8 @@ public class WatchCommand implements Command {
      * @return RefreshResult with fresh or cached IndexedCodebase and file list, or null index if no index exists
      */
     protected RefreshResult loadOrRefreshIndex(Path root, List<Path> files, IndexedCodebase cached, boolean frozenIndex) {
-        return loadOrRefreshIndex(root, files, cached, frozenIndex, null, null);
+        return loadOrRefreshIndex(
+                root, files, cached, frozenIndex, null, null, java.util.Set.of(), false);
     }
 
     private RefreshResult loadOrRefreshIndex(
@@ -191,7 +197,9 @@ public class WatchCommand implements Command {
             IndexedCodebase cached,
             boolean frozenIndex,
             com.jsrc.app.config.ProjectConfig config,
-            ProjectModel existingModel) {
+            ProjectModel existingModel,
+            java.util.Set<com.jsrc.app.project.SourceSet> sourceSets,
+            boolean excludeTests) {
         // Frozen mode: never refresh, load once and cache forever
         if (frozenIndex) {
             if (cached != null) {
@@ -201,33 +209,57 @@ public class WatchCommand implements Command {
         }
         
         // Normal mode: rediscover files on each stamp check (detect create/delete/rename)
-        var projectSources = discoverJavaFiles(root, config);
+        var projectSources = discoverJavaFiles(root, config, sourceSets, excludeTests);
         List<Path> freshFiles = projectSources.files();
         
         IndexStamp currentStamp = computeStamp(root, freshFiles);
 
         if (lastStamp != null && lastStamp.equals(currentStamp)) {
-            return new RefreshResult(cached, freshFiles, projectSources.model());
+            return new RefreshResult(
+                    cached,
+                    freshFiles,
+                    projectSources.model(),
+                    projectSources.sourceSets());
         }
 
         lastStamp = currentStamp;
+        var fileSourceSets = projectSources.sourceSets();
         return new RefreshResult(
-                callTryLoad(root, freshFiles, frozenIndex), freshFiles, projectSources.model());
+                callTryLoad(root, freshFiles, frozenIndex, fileSourceSets),
+                freshFiles,
+                projectSources.model(),
+                fileSourceSets);
     }
     
     /**
      * Discover all .java files under root (rediscovery for watch refresh).
      */
     private ProjectSourceDiscovery.Result discoverJavaFiles(
-            Path root, com.jsrc.app.config.ProjectConfig config) {
-        return new ProjectSourceDiscovery().discover(root, config);
+            Path root,
+            com.jsrc.app.config.ProjectConfig config,
+            java.util.Set<com.jsrc.app.project.SourceSet> sourceSets,
+            boolean excludeTests) {
+        return new ProjectSourceDiscovery().discover(root, config, sourceSets, excludeTests);
     }
 
     /**
      * Wrapper for IndexedCodebase.tryLoad to allow test instrumentation.
      */
     protected IndexedCodebase callTryLoad(Path root, List<Path> files, boolean frozenIndex) {
-        return IndexedCodebase.tryLoad(root, files, frozenIndex);
+        return IndexedCodebase.tryLoad(root, files, frozenIndex, pendingSourceSets);
+    }
+
+    protected IndexedCodebase callTryLoad(
+            Path root,
+            List<Path> files,
+            boolean frozenIndex,
+            java.util.Map<Path, com.jsrc.app.project.SourceSet> sourceSets) {
+        pendingSourceSets = java.util.Map.copyOf(sourceSets);
+        try {
+            return callTryLoad(root, files, frozenIndex);
+        } finally {
+            pendingSourceSets = java.util.Map.of();
+        }
     }
 
     /**
@@ -269,5 +301,22 @@ public class WatchCommand implements Command {
      * Result of index refresh containing both index and discovered files.
      */
     protected record RefreshResult(
-            IndexedCodebase index, List<Path> files, ProjectModel projectModel) {}
+            IndexedCodebase index,
+            List<Path> files,
+            ProjectModel projectModel,
+            java.util.Map<Path, com.jsrc.app.project.SourceSet> sourceSets) {
+        protected RefreshResult(
+                IndexedCodebase index, List<Path> files, ProjectModel projectModel) {
+            this(index, files, projectModel, classify(files, projectModel));
+        }
+    }
+
+    private static java.util.Map<Path, com.jsrc.app.project.SourceSet> classify(
+            List<Path> files, ProjectModel model) {
+        if (model == null) {
+            return java.util.Map.of();
+        }
+        return files.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                Path::normalize, model::sourceSet));
+    }
 }

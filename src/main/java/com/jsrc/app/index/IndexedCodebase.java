@@ -89,6 +89,15 @@ public class IndexedCodebase {
      * @throws com.jsrc.app.exception.JsrcIOException if frozenIndex is true and index is missing or corrupt
      */
     public static IndexedCodebase tryLoad(Path sourceRoot, List<Path> currentFiles, boolean frozenIndex) {
+        return tryLoad(sourceRoot, currentFiles, frozenIndex, java.util.Map.of());
+    }
+
+    /** Loads or refreshes an index while preserving source-set origin for every file. */
+    public static IndexedCodebase tryLoad(
+            Path sourceRoot,
+            List<Path> currentFiles,
+            boolean frozenIndex,
+            Map<Path, com.jsrc.app.project.SourceSet> sourceSets) {
         Path v2File = sourceRoot.resolve(".jsrc/index.bin");
         
         // Frozen mode: load existing index without filesystem walk
@@ -160,10 +169,16 @@ public class IndexedCodebase {
             currentPaths.add(relativePath);
 
             IndexEntry prev = byPath.get(relativePath);
+            var sourceSet = sourceSets.getOrDefault(
+                    file,
+                    prev == null
+                            ? com.jsrc.app.project.SourceSet.UNKNOWN
+                            : prev.sourceSet());
             if (prev != null) {
                 try {
                     long currentModified = Files.getLastModifiedTime(file).toMillis();
-                    if (currentModified <= prev.lastModified()) {
+                    if (currentModified <= prev.lastModified()
+                            && prev.sourceSet() == sourceSet) {
                         refreshed.add(prev);
                         continue;
                     }
@@ -188,7 +203,9 @@ public class IndexedCodebase {
                         .map(s -> new CachedSmell(s.ruleId(), s.severity().name(),
                                 s.line(), s.methodName(), s.className(), s.message()))
                         .toList();
-                refreshed.add(new IndexEntry(relativePath, hash, lastModified, indexed, edges, smells));
+                refreshed.add(new IndexEntry(
+                        relativePath, hash, lastModified, sourceSet,
+                        indexed, edges, smells));
             } catch (IOException e) {
                 logger.error("Error refreshing {}: {}", file, e.getMessage());
                 if (prev != null) refreshed.add(prev);
@@ -262,6 +279,14 @@ public class IndexedCodebase {
         classLookup(); // ensure maps are built
         String path = classToPath.get(className);
         return path != null ? Optional.of(path) : Optional.empty();
+    }
+
+    /** Returns the persisted source-set origin for a class. */
+    public Optional<com.jsrc.app.project.SourceSet> findSourceSetForClass(String className) {
+        return findFileForClass(className).flatMap(path -> entries.stream()
+                .filter(entry -> entry.path().equals(path))
+                .map(IndexEntry::sourceSet)
+                .findFirst());
     }
 
     /**

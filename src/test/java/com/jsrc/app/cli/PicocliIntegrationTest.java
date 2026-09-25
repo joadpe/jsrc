@@ -79,6 +79,69 @@ class PicocliIntegrationTest {
     }
 
     @Test
+    void sourceSetOptionFiltersFilesBeforeAnalysis(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <artifactId>source-sets</artifactId>
+                </project>
+                """);
+        writeJava(tempDir.resolve("src/main/java/Main.java"), "class Main {}");
+        writeJava(tempDir.resolve("src/test/java/MainTest.java"), "class MainTest {}");
+        writeJava(
+                tempDir.resolve("src/testFixtures/java/Fixture.java"),
+                "class Fixture {}");
+
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            int exitCode = JsrcCliFactory.create().execute(
+                    "--dir", tempDir.toString(), "--json",
+                    "--source-set", "main", "overview");
+
+            assertEquals(0, exitCode);
+            java.util.Map<?, ?> output = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class,
+                    com.jsrc.app.output.JsonReader.parse(captured.toString().trim()));
+            assertEquals(1L, output.get("totalFiles"));
+            java.util.Map<?, ?> sourceSets = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class, output.get("sourceSets"));
+            assertEquals(1L, sourceSets.get("main"));
+            assertEquals(0L, sourceSets.get("test"));
+            assertEquals(0L, sourceSets.get("testFixtures"));
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    void configuredSourceRootsAreClassifiedAsMain(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve(".jsrc.yaml"), "sourceRoots:\n  - custom/java\n");
+        writeJava(tempDir.resolve("custom/java/Custom.java"), "class Custom {}");
+
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            int exitCode = JsrcCliFactory.create().execute(
+                    "--dir", tempDir.toString(), "--json",
+                    "--source-set", "main", "overview");
+
+            assertEquals(0, exitCode, captured.toString());
+            java.util.Map<?, ?> output = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class,
+                    com.jsrc.app.output.JsonReader.parse(captured.toString().trim()));
+            assertEquals(1L, output.get("totalFiles"));
+            java.util.Map<?, ?> sourceSets = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class, output.get("sourceSets"));
+            assertEquals(1L, sourceSets.get("main"));
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
     void versionOneProtocolWrapsCommandOutput(@TempDir Path tempDir) throws Exception {
         Files.writeString(tempDir.resolve("Hello.java"), "public class Hello {}");
 
@@ -285,6 +348,11 @@ class PicocliIntegrationTest {
         } finally {
             System.setErr(originalErr);
         }
+    }
+
+    private static void writeJava(Path path, String content) throws Exception {
+        Files.createDirectories(path.getParent());
+        Files.writeString(path, content);
     }
 
     private void assertParameterError(CapturedError result) {

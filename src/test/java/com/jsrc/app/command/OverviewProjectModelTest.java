@@ -55,4 +55,41 @@ class OverviewProjectModelTest {
         assertEquals(List.of("application/target"), application.get("excludedRoots"));
         assertEquals(List.of("domain"), application.get("internalDependencies"));
     }
+
+    @Test
+    void overviewReportsCountedSourceSets() {
+        Path moduleRoot = root.resolve("application");
+        Path main = moduleRoot.resolve("src/main/java/App.java");
+        Path test = moduleRoot.resolve("src/test/java/AppTest.java");
+        Path fixtures = moduleRoot.resolve("src/testFixtures/java/Fixture.java");
+        Path generated = moduleRoot.resolve("target/generated-sources/annotations/Generated.java");
+        ProjectModule module = new ProjectModule(
+                "application",
+                moduleRoot,
+                List.of(moduleRoot.resolve("src/main/java")),
+                List.of(
+                        moduleRoot.resolve("src/test/java"),
+                        moduleRoot.resolve("src/testFixtures/java")),
+                List.of(moduleRoot.resolve("target/generated-sources/annotations")),
+                List.of(moduleRoot.resolve("target")),
+                List.of());
+        ProjectModel model = new ProjectModel(
+                root, BuildSystem.MAVEN, "21", List.of(module), List.of());
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        CommandContext context = new CommandContext(
+                List.of(main, test, fixtures, generated), root.toString(), null,
+                new JsonFormatter(false, null, new PrintStream(bytes)),
+                null, new HybridJavaParser(), false, null, false, false, null, false,
+                model);
+
+        new OverviewCommand().execute(context);
+
+        Map<?, ?> output = assertInstanceOf(
+                Map.class, JsonReader.parse(bytes.toString().trim()));
+        Map<?, ?> sourceSets = assertInstanceOf(Map.class, output.get("sourceSets"));
+        assertEquals(1L, sourceSets.get("main"));
+        assertEquals(1L, sourceSets.get("test"));
+        assertEquals(1L, sourceSets.get("testFixtures"));
+        assertEquals(1L, sourceSets.get("generated"));
+    }
 }

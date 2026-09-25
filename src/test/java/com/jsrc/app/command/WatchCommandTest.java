@@ -524,6 +524,62 @@ class WatchCommandTest {
         }
     }
 
+    @Test
+    void frozenWatchPreservesConfiguredRootSourceSet(@TempDir Path tempDir) throws Exception {
+        Path custom = tempDir.resolve("custom/java/Custom.java");
+        Files.createDirectories(custom.getParent());
+        Files.writeString(custom, "class Custom {}");
+        Files.writeString(tempDir.resolve(".jsrc.yaml"), "sourceRoots:\n  - custom/java\n");
+        var config = com.jsrc.app.config.ProjectConfig.load(tempDir).orElseThrow();
+        var discovery = new com.jsrc.app.project.ProjectSourceDiscovery()
+                .discover(tempDir, config);
+        var index = new com.jsrc.app.index.CodebaseIndex();
+        index.build(
+                new com.jsrc.app.parser.HybridJavaParser(),
+                discovery.files(),
+                tempDir,
+                java.util.List.of(),
+                java.util.List.of(),
+                discovery.sourceSets());
+        var graphBuilder = new com.jsrc.app.analysis.CallGraphBuilder();
+        graphBuilder.loadFromIndex(index.getEntries());
+        index.saveWithGraph(tempDir, graphBuilder.toCallGraph());
+
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setIn(new ByteArrayInputStream(
+                "{\"command\":\"overview\"}\n{\"command\":\"quit\"}\n".getBytes()));
+        System.setOut(new PrintStream(captured, true));
+        try {
+            var formatter = OutputFormatter.create(true, false, null);
+            var context = new CommandContext(
+                    discovery.files(), tempDir.toString(), config, formatter,
+                    null, new com.jsrc.app.parser.HybridJavaParser(),
+                    false, null, false, false, null, true,
+                    discovery.model(), java.util.Set.of(), discovery.sourceSets());
+
+            assertEquals(0, new WatchCommand().execute(context));
+
+            java.util.Map<?, ?> envelope = java.util.Arrays.stream(
+                            captured.toString().split("\\R"))
+                    .filter(line -> line.startsWith("{"))
+                    .map(com.jsrc.app.output.JsonReader::parse)
+                    .map(java.util.Map.class::cast)
+                    .findFirst()
+                    .orElseThrow();
+            java.util.Map<?, ?> result = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class, envelope.get("result"));
+            java.util.Map<?, ?> sourceSets = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class, result.get("sourceSets"));
+            assertEquals(1L, sourceSets.get("main"));
+            assertEquals(0L, sourceSets.get("unknown"));
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
+
     /**
      * A3: Watch callers ambiguous → envelope exit 0 (post-B sentinel), result/body has ambiguous:true.
      * Validates that watch command with ambiguous callers returns exit 0 and result contains ambiguous:true,

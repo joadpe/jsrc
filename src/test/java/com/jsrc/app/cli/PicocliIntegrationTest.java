@@ -116,6 +116,52 @@ class PicocliIntegrationTest {
     }
 
     @Test
+    void frozenIndexHonorsSourceSetSelection(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <artifactId>frozen-source-sets</artifactId>
+                </project>
+                """);
+        writeJava(tempDir.resolve("src/main/java/Main.java"), "class Main {}");
+        writeJava(tempDir.resolve("src/test/java/MainTest.java"), "class MainTest {}");
+        writeJava(
+                tempDir.resolve("src/testFixtures/java/Fixture.java"),
+                "class Fixture {}");
+        assertEquals(0, JsrcCliFactory.create().execute(
+                "--dir", tempDir.toString(), "index"));
+
+        java.util.Map<?, ?> output = executeOverview(
+                tempDir, "--frozen-index", "--source-set", "main");
+
+        assertEquals(1L, output.get("totalFiles"));
+        assertEquals(1L, output.get("totalClasses"));
+    }
+
+    @Test
+    void frozenIndexHonorsNoTestSelection(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <artifactId>frozen-no-test</artifactId>
+                </project>
+                """);
+        writeJava(tempDir.resolve("src/main/java/Main.java"), "class Main {}");
+        writeJava(tempDir.resolve("src/test/java/MainTest.java"), "class MainTest {}");
+        writeJava(
+                tempDir.resolve("src/testFixtures/java/Fixture.java"),
+                "class Fixture {}");
+        assertEquals(0, JsrcCliFactory.create().execute(
+                "--dir", tempDir.toString(), "index"));
+
+        java.util.Map<?, ?> output = executeOverview(
+                tempDir, "--frozen-index", "--no-test");
+
+        assertEquals(1L, output.get("totalFiles"));
+        assertEquals(1L, output.get("totalClasses"));
+    }
+
+    @Test
     void configuredSourceRootsAreClassifiedAsMain(@TempDir Path tempDir) throws Exception {
         Files.writeString(tempDir.resolve(".jsrc.yaml"), "sourceRoots:\n  - custom/java\n");
         writeJava(tempDir.resolve("custom/java/Custom.java"), "class Custom {}");
@@ -353,6 +399,27 @@ class PicocliIntegrationTest {
     private static void writeJava(Path path, String content) throws Exception {
         Files.createDirectories(path.getParent());
         Files.writeString(path, content);
+    }
+
+    private java.util.Map<?, ?> executeOverview(Path root, String... options) {
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            var arguments = new java.util.ArrayList<String>();
+            arguments.add("--dir");
+            arguments.add(root.toString());
+            arguments.add("--json");
+            arguments.addAll(java.util.List.of(options));
+            arguments.add("overview");
+            int exitCode = JsrcCliFactory.create().execute(arguments.toArray(String[]::new));
+            assertEquals(0, exitCode, captured.toString());
+            return org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class,
+                    com.jsrc.app.output.JsonReader.parse(captured.toString().trim()));
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     private void assertParameterError(CapturedError result) {

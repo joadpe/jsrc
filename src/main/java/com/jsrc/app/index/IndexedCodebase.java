@@ -110,7 +110,9 @@ public class IndexedCodebase {
             
             try {
                 BinaryIndexV2Reader.LazyIndexData lazyData = BinaryIndexV2Reader.readLazy(v2File);
-                List<IndexEntry> entries = lazyData.getData().entries();
+                List<IndexEntry> persistedEntries = lazyData.getData().entries();
+                List<IndexEntry> entries = selectEntries(
+                        sourceRoot, currentFiles, persistedEntries);
                 java.util.Map<String, List<CachedMigration>> loadedMigrations = lazyData.getData().migrations();
                 
                 logger.info("Loaded V2 binary index in FROZEN mode (LAZY): {} entries", entries.size());
@@ -120,7 +122,7 @@ public class IndexedCodebase {
                 indexed.edgesLoaded = entries.stream().anyMatch(e -> !e.callEdges().isEmpty());
                 indexed.smellsLoaded = entries.stream().anyMatch(e -> !e.smells().isEmpty());
                 indexed.preBuiltCallGraph = null; // Keep lazy until ensureGraph
-                indexed.lazyIndexData = lazyData;
+                indexed.lazyIndexData = sameEntries(persistedEntries, entries) ? lazyData : null;
                 indexed.migrationCache = loadedMigrations;
                 return indexed;
             } catch (IOException e) {
@@ -250,9 +252,39 @@ public class IndexedCodebase {
         indexed.edgesLoaded = refreshed.stream().anyMatch(e -> !e.callEdges().isEmpty());
         indexed.smellsLoaded = refreshed.stream().anyMatch(e -> !e.smells().isEmpty());
         indexed.preBuiltCallGraph = preBuiltGraph;
-        indexed.lazyIndexData = lazyData;
+        indexed.lazyIndexData = sameEntries(existing, refreshed) ? lazyData : null;
         indexed.migrationCache = loadedMigrations;
         return indexed;
+    }
+
+    private static List<IndexEntry> selectEntries(
+            Path sourceRoot, List<Path> currentFiles, List<IndexEntry> entries) {
+        Path normalizedRoot = sourceRoot.toAbsolutePath().normalize();
+        Set<String> selectedPaths = currentFiles.stream()
+                .map(Path::toAbsolutePath)
+                .map(Path::normalize)
+                .filter(path -> path.startsWith(normalizedRoot))
+                .map(normalizedRoot::relativize)
+                .map(Path::toString)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return entries.stream()
+                .filter(entry -> selectedPaths.contains(
+                        Path.of(entry.path()).normalize().toString()))
+                .toList();
+    }
+
+    private static boolean sameEntries(
+            List<IndexEntry> left, List<IndexEntry> right) {
+        if (left.size() != right.size()) {
+            return false;
+        }
+        Set<String> leftPaths = left.stream()
+                .map(IndexEntry::path)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        Set<String> rightPaths = right.stream()
+                .map(IndexEntry::path)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return leftPaths.equals(rightPaths);
     }
 
     // tryLoad(Path) without refresh removed — use tryLoad(Path, List<Path>) which auto-refreshes

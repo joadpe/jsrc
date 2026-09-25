@@ -95,7 +95,8 @@ public class WatchCommand implements Command {
                     // If frozenIndex is set, never refresh (skip stamp-driven rebuild)
                     var refreshResult = loadOrRefreshIndex(
                             Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex, ctx.frozenIndex(),
-                            ctx.config(), ctx.projectModel(), ctx.sourceSets(), ctx.noTest());
+                            ctx.config(), ctx.projectModel(), ctx.sourceSets(), ctx.noTest(),
+                            ctx.fileSourceSets());
                     cachedIndex = refreshResult.index();
                     List<Path> freshFiles = refreshResult.files();
 
@@ -188,7 +189,8 @@ public class WatchCommand implements Command {
      */
     protected RefreshResult loadOrRefreshIndex(Path root, List<Path> files, IndexedCodebase cached, boolean frozenIndex) {
         return loadOrRefreshIndex(
-                root, files, cached, frozenIndex, null, null, java.util.Set.of(), false);
+                root, files, cached, frozenIndex, null, null, java.util.Set.of(), false,
+                java.util.Map.of());
     }
 
     private RefreshResult loadOrRefreshIndex(
@@ -199,13 +201,18 @@ public class WatchCommand implements Command {
             com.jsrc.app.config.ProjectConfig config,
             ProjectModel existingModel,
             java.util.Set<com.jsrc.app.project.SourceSet> sourceSets,
-            boolean excludeTests) {
+            boolean excludeTests,
+            java.util.Map<Path, com.jsrc.app.project.SourceSet> existingSourceSets) {
         // Frozen mode: never refresh, load once and cache forever
         if (frozenIndex) {
             if (cached != null) {
-                return new RefreshResult(cached, files, existingModel);
+                return new RefreshResult(cached, files, existingModel, existingSourceSets);
             }
-            return new RefreshResult(callTryLoad(root, files, frozenIndex), files, existingModel);
+            return new RefreshResult(
+                    callTryLoad(root, files, frozenIndex, existingSourceSets),
+                    files,
+                    existingModel,
+                    existingSourceSets);
         }
         
         // Normal mode: rediscover files on each stamp check (detect create/delete/rename)

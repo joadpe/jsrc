@@ -65,6 +65,64 @@ class MethodResolverTest {
     }
 
     @Test
+    @DisplayName("Should match parameterized types by generic erasure")
+    void shouldFilterByGenericErasure() {
+        var methods = List.of(
+                method("process", List.of(new ParameterInfo("List<String>", "values"))),
+                method("process", List.of(new ParameterInfo("Set<String>", "values")))
+        );
+
+        var ref = MethodResolver.parse("process(List<Integer>)");
+        var filtered = MethodResolver.filter(methods, ref);
+
+        assertEquals(1, filtered.size());
+        assertEquals("List<String>", filtered.getFirst().parameters().getFirst().type());
+    }
+
+    @Test
+    @DisplayName("Should match primitive arguments with boxed parameters")
+    void shouldFilterByBoxingConversion() {
+        var methods = List.of(
+                method("process", List.of(new ParameterInfo("Integer", "value"))),
+                method("process", List.of(new ParameterInfo("String", "value")))
+        );
+
+        var filtered = MethodResolver.filter(
+                methods, MethodResolver.parse("process(int)"));
+
+        assertEquals(1, filtered.size());
+        assertEquals("Integer", filtered.getFirst().parameters().getFirst().type());
+    }
+
+    @Test
+    void shouldPreferExactPrimitiveOverBoxingConversion() {
+        var methods = List.of(
+                method("process", List.of(new ParameterInfo("Integer", "value"))),
+                method("process", List.of(new ParameterInfo("int", "value")))
+        );
+
+        var filtered = MethodResolver.filter(
+                methods, MethodResolver.parse("process(int)"));
+
+        assertEquals(1, filtered.size());
+        assertEquals("int", filtered.getFirst().parameters().getFirst().type());
+    }
+
+    @Test
+    void shouldPreferExactReferenceOverObjectFallback() {
+        var methods = List.of(
+                method("process", List.of(new ParameterInfo("Object", "value"))),
+                method("process", List.of(new ParameterInfo("String", "value")))
+        );
+
+        var filtered = MethodResolver.filter(
+                methods, MethodResolver.parse("process(String)"));
+
+        assertEquals(1, filtered.size());
+        assertEquals("String", filtered.getFirst().parameters().getFirst().type());
+    }
+
+    @Test
     @DisplayName("Should return all overloads when no params specified")
     void shouldReturnAllWhenNoParams() {
         var methods = List.of(
@@ -156,6 +214,18 @@ class MethodResolverTest {
         assertEquals("com.foo.Svc", ref.className());
         assertEquals("run", ref.methodName());
         assertEquals(List.of("HashMap<String,List<Integer>>", "Double"), ref.paramTypes());
+    }
+
+    @Test
+    @DisplayName("Filter accepts source notation for nested class owner")
+    void nestedClassSourceName() {
+        MethodInfo nested = MethodInfo.basic(
+                "run", "Outer$Inner", 1, 5, "void", List.of(), List.of(), "");
+
+        var filtered = MethodResolver.filter(
+                List.of(nested), MethodResolver.parse("Outer.Inner.run"));
+
+        assertEquals(List.of(nested), filtered);
     }
 
     private MethodInfo method(String name, List<ParameterInfo> params) {

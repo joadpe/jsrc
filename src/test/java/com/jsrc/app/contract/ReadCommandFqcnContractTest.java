@@ -65,6 +65,23 @@ class ReadCommandFqcnContractTest {
     }
 
     @Test
+    @DisplayName("Simple homonymous class reports candidates and suggestions")
+    void readSimpleHomonymReportsAmbiguity() throws Exception {
+        Path sales = tempDir.resolve("sales/Service.java");
+        Files.createDirectories(sales.getParent());
+        Files.writeString(sales, "package sales; public class Service {}");
+        Path support = tempDir.resolve("support/Service.java");
+        Files.createDirectories(support.getParent());
+        Files.writeString(support, "package support; public class Service {}");
+
+        var result = executeRead("Service", List.of(sales, support), true);
+
+        assertEquals(Boolean.TRUE, result.get("ambiguous"));
+        assertEquals(List.of("sales.Service", "support.Service"), result.get("candidates"));
+        assertEquals(result.get("candidates"), result.get("suggestions"));
+    }
+
+    @Test
     @DisplayName("B2: read FQCN for indexed class succeeds")
     void readFqcnIndexedClassSucceeds() throws Exception {
         Path file = tempDir.resolve("MyClass.java");
@@ -81,6 +98,26 @@ class ReadCommandFqcnContractTest {
         assertEquals("MyClass", result.get("class"), 
             "Should return class name (simple name per SourceReader contract)");
         assertNotNull(result.get("content"), "Should include content");
+    }
+
+    @Test
+    @DisplayName("Nested class resolves by source canonical name")
+    void readNestedClassBySourceName() throws Exception {
+        Path file = tempDir.resolve("Outer.java");
+        Files.writeString(file, """
+                package com.example;
+                public class Outer {
+                    public static class Inner {
+                        public void run() {}
+                    }
+                }
+                """);
+
+        var result = executeRead("com.example.Outer.Inner", List.of(file), true);
+
+        assertNotNull(result);
+        assertEquals("Outer$Inner", result.get("class"));
+        assertTrue(result.toString().contains("void run()"));
     }
     
     @Test
@@ -136,6 +173,26 @@ class ReadCommandFqcnContractTest {
         assertNotNull(result, "Should find method");
         assertEquals("run", result.get("method"), "Should be method read");
         assertEquals("MyClass", result.get("class"), "Method's class is MyClass");
+    }
+
+    @Test
+    void readSelectsExactOverloadRegardlessOfDeclarationOrder() throws Exception {
+        Path file = tempDir.resolve("Service.java");
+        Files.writeString(file, """
+                package com.example;
+                public class Service {
+                    public String m(Integer value) { return "boxed"; }
+                    public String m(int value) { return "primitive"; }
+                    public String n(Object value) { return "object"; }
+                    public String n(String value) { return "string"; }
+                }
+                """);
+
+        var primitive = executeRead("com.example.Service.m(int)", List.of(file), true);
+        var string = executeRead("com.example.Service.n(String)", List.of(file), true);
+
+        assertTrue(primitive.get("content").toString().contains("primitive"));
+        assertTrue(string.get("content").toString().contains("string"));
     }
 
     @Test

@@ -81,26 +81,38 @@ public final class MethodResolver {
      * Filters methods by the parsed reference.
      */
     public static List<MethodInfo> filter(List<MethodInfo> methods, MethodRef ref) {
-        return methods.stream()
+        List<MethodInfo> candidates = methods.stream()
                 .filter(m -> m.name().equals(ref.methodName()))
                 .filter(m -> {
                     if (!ref.hasClassName()) return true;
-                    return m.className().equals(ref.className())
-                            || m.className().endsWith("." + ref.className());
-                })
-                .filter(m -> {
-                    if (!ref.hasParamTypes()) return true;
-                    if (m.parameters().size() != ref.paramTypes().size()) return false;
-                    for (int i = 0; i < ref.paramTypes().size(); i++) {
-                        String expected = ref.paramTypes().get(i);
-                        String actual = m.parameters().get(i).type();
-                        if (!actual.equals(expected) && !actual.endsWith("." + expected)) {
-                            return false;
-                        }
-                    }
-                    return true;
+                    return com.jsrc.app.model.TypeId.namesMatch(
+                            m.className(), ref.className());
                 })
                 .toList();
+        if (!ref.hasParamTypes()) return candidates;
+
+        int bestScore = Integer.MAX_VALUE;
+        List<MethodInfo> matches = new java.util.ArrayList<>();
+        for (MethodInfo candidate : candidates) {
+            if (candidate.parameters().size() != ref.paramTypes().size()) continue;
+            int score = 0;
+            for (int i = 0; i < ref.paramTypes().size(); i++) {
+                int parameterScore = SignatureUtils.invocationMatchScore(
+                        candidate.parameters().get(i).type(), ref.paramTypes().get(i));
+                if (parameterScore < 0) {
+                    score = -1;
+                    break;
+                }
+                score += parameterScore;
+            }
+            if (score < 0 || score > bestScore) continue;
+            if (score < bestScore) {
+                matches.clear();
+                bestScore = score;
+            }
+            matches.add(candidate);
+        }
+        return List.copyOf(matches);
     }
 
     /**

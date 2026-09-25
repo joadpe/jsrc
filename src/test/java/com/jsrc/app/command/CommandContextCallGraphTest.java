@@ -87,4 +87,20 @@ class CommandContextCallGraphTest {
         assertNotNull(graph);
         assertFalse(graph.getAllMethods().isEmpty(), "Graph should have methods from file parsing");
     }
+
+    @Test
+    void qualifyDoesNotSilentlyChooseBetweenHomonymousClasses() throws Exception {
+        Path sales = tempDir.resolve("sales/Service.java");
+        Files.createDirectories(sales.getParent());
+        Files.writeString(sales, "package sales; public class Service {}");
+        Path support = tempDir.resolve("support/Service.java");
+        Files.createDirectories(support.getParent());
+        Files.writeString(support, "package support; public class Service {}");
+        var ctx = new CommandContext(
+                List.of(sales, support), tempDir.toString(), null,
+                new JsonFormatter(), null, new HybridJavaParser());
+
+        assertEquals("Service", ctx.qualify("Service"));
+        assertEquals("sales.Service", ctx.qualify("sales.Service"));
+    }
 }

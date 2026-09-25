@@ -40,6 +40,7 @@ public class CalleesCommand implements Command {
             result.put("method", ref.hasClassName()
                     ? ref.className() + "." + ref.methodName() : ref.methodName());
             result.put("candidates", candidates);
+            result.put("suggestions", candidates);
             result.put("message", "Multiple methods found. Use Class.method(Type1,Type2) to disambiguate.");
             ctx.formatter().printResult(result);
             return Math.max(1, candidates.size());

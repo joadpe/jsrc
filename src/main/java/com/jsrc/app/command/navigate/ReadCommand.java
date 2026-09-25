@@ -33,6 +33,16 @@ public class ReadCommand implements Command {
         boolean isFqcnClass = !target.contains("(") && target.contains(".") 
                 && Character.isUpperCase(target.charAt(target.lastIndexOf('.') + 1));
 
+        if (!target.contains(".") && !target.contains("(")) {
+            var classResolution = com.jsrc.app.util.ClassResolver.resolve(
+                    ctx.getAllClasses(), target);
+            if (classResolution instanceof com.jsrc.app.util.ClassResolver.Resolution.Ambiguous ambiguous) {
+                ctx.formatter().printResult(com.jsrc.app.util.ClassResolver.ambiguousResult(
+                        ambiguous.candidates(), target));
+                return Math.max(1, ambiguous.candidates().size());
+            }
+        }
+
         if (isFqcnClass) {
             // Treat as class FQCN regardless of MethodResolver parse
             Path classFile = findFileForClass(ctx, target);

@@ -199,8 +199,20 @@ public final class CommandContext {
         if (simpleName == null || simpleName.contains(".")) return simpleName;
         if (qualifiedNameCache == null) {
             qualifiedNameCache = new java.util.HashMap<>();
+            java.util.Map<String, java.util.Set<String>> candidates = new java.util.HashMap<>();
             for (var ci : getAllClasses()) {
-                qualifiedNameCache.putIfAbsent(ci.name(), ci.qualifiedName());
+                candidates.computeIfAbsent(ci.name(), ignored -> new java.util.HashSet<>())
+                        .add(ci.qualifiedName());
+                var typeId = com.jsrc.app.model.TypeId.from(ci.packageName(), ci.name());
+                candidates.computeIfAbsent(typeId.simpleName(),
+                                ignored -> new java.util.HashSet<>())
+                        .add(typeId.canonicalName());
+            }
+            for (var entry : candidates.entrySet()) {
+                if (entry.getValue().size() == 1) {
+                    qualifiedNameCache.put(
+                            entry.getKey(), entry.getValue().iterator().next());
+                }
             }
         }
         return qualifiedNameCache.getOrDefault(simpleName, simpleName);

@@ -661,6 +661,54 @@ class CallGraphBuilderTest {
         assertTrue(found, "loadFromIndex should resolve svc.resultado.toString() to StringBuilder.toString()");
     }
 
+    @Test
+    @DisplayName("Direct graph uses canonical binary identity for nested classes")
+    void directGraphPreservesNestedClassIdentity() throws IOException {
+        Path file = writeFile("Outer.java", """
+                package com.app;
+                public class Outer {
+                    public void call(Inner inner) { inner.value(); }
+                    public static class Inner {
+                        public String value() { return "value"; }
+                    }
+                }
+                """);
+
+        builder.build(List.of(file));
+
+        assertTrue(builder.findMethodsByName("value").stream()
+                .anyMatch(method -> method.className().equals("com.app.Outer$Inner")));
+        var caller = builder.findMethodsByName("call").stream()
+                .filter(method -> method.className().equals("com.app.Outer"))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(builder.getCalleesOf(caller).stream()
+                .anyMatch(call -> call.callee().className().equals("com.app.Outer$Inner")));
+    }
+
+    @Test
+    void directGraphIncludesRecordAndEnumMethods() throws IOException {
+        Path file = writeFile("Types.java", """
+                package app;
+                record Result(String value) {
+                    void run() { validate(); }
+                    void validate() {}
+                }
+                enum State {
+                    READY;
+                    void run() { validate(); }
+                    void validate() {}
+                }
+                """);
+
+        builder.build(List.of(file));
+
+        assertTrue(builder.findMethodsByName("run").stream()
+                .anyMatch(method -> method.className().equals("app.Result")));
+        assertTrue(builder.findMethodsByName("run").stream()
+                .anyMatch(method -> method.className().equals("app.State")));
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);

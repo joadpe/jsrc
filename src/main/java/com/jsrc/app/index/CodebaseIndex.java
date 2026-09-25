@@ -132,6 +132,7 @@ public class CodebaseIndex {
 
         // Post-build: resolve ?field:/?ret: markers using cross-class type info
         edgeResolver.resolveMarkers(entries);
+        edgeResolver.resolveSymbols(entries);
 
         return reindexed;
     }

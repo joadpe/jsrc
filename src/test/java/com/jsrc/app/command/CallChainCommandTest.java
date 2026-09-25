@@ -244,7 +244,7 @@ class CallChainCommandTest {
                     hasConstructorEdge = true;
                 }
                 if (edge.callerClass().equals("com.test.Main")
-                        && edge.calleeClass().equals("Factory")
+                            && edge.calleeClass().equals("com.test.Factory")
                         && edge.calleeMethod().equals("Factory")) {
                     hasNewFactoryEdge = true;
                 }

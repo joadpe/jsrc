@@ -6,6 +6,8 @@ import java.util.Map;
 
 import com.jsrc.app.output.JsonWriter;
 import com.jsrc.app.parser.model.ClassInfo;
+import com.jsrc.app.model.TypeId;
+import com.jsrc.app.symbol.SymbolResolver;
 
 /**
  * Resolves a class name to a unique ClassInfo.
@@ -33,31 +35,30 @@ public final class ClassResolver {
      * @return Found, Ambiguous, or NotFound
      */
     public static Resolution resolve(List<ClassInfo> allClasses, String className) {
-        // Try exact qualified match first
-        for (ClassInfo ci : allClasses) {
-            if (ci.qualifiedName().equals(className)) {
-                return new Resolution.Found(ci);
-            }
-        }
-
-        // Try simple name match
-        List<ClassInfo> matches = allClasses.stream()
-                .filter(ci -> ci.name().equals(className))
+        Map<String, ClassInfo> classesById = new LinkedHashMap<>();
+        List<SymbolResolver.TypeSymbol> symbols = allClasses.stream()
+                .map(classInfo -> {
+                    TypeId id = TypeId.from(classInfo.packageName(), classInfo.name());
+                    classesById.put(id.canonicalName(), classInfo);
+                    List<String> superTypes = new java.util.ArrayList<>();
+                    if (!classInfo.superClass().isEmpty()) {
+                        superTypes.add(classInfo.superClass());
+                    }
+                    superTypes.addAll(classInfo.interfaces());
+                    return new SymbolResolver.TypeSymbol(
+                            id, List.of(), superTypes, List.of());
+                })
                 .toList();
-
-        if (matches.isEmpty()) {
-            return new Resolution.NotFound(className);
-        }
-        if (matches.size() == 1) {
-            return new Resolution.Found(matches.getFirst());
-        }
-
-        // Ambiguous — return qualified names as candidates
-        List<String> candidates = matches.stream()
-                .map(ClassInfo::qualifiedName)
-                .sorted()
-                .toList();
-        return new Resolution.Ambiguous(candidates);
+        var resolved = new SymbolResolver(symbols)
+                .resolveType(className, SymbolResolver.Context.empty());
+        return switch (resolved) {
+            case SymbolResolver.Resolution.Found<SymbolResolver.TypeSymbol> found ->
+                    new Resolution.Found(classesById.get(found.value().id().canonicalName()));
+            case SymbolResolver.Resolution.Ambiguous<SymbolResolver.TypeSymbol> ambiguous ->
+                    new Resolution.Ambiguous(ambiguous.suggestions());
+            case SymbolResolver.Resolution.Unresolved<SymbolResolver.TypeSymbol> ignored ->
+                    new Resolution.NotFound(className);
+        };
     }
 
     /**
@@ -74,6 +75,7 @@ public final class ClassResolver {
         result.put("ambiguous", true);
         result.put("class", className);
         result.put("candidates", candidates);
+        result.put("suggestions", candidates);
         result.put("message", "Multiple classes named '" + className
                 + "'. Use qualified name to disambiguate.");
         return result;

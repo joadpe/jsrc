@@ -559,7 +559,8 @@ public class CallGraphBuilder {
 
     private void registerClasses(CompilationUnit cu, Path file,
                                  Map<String, ClassContext> classContexts) {
-        for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+        for (com.github.javaparser.ast.body.TypeDeclaration<?> cid
+                : cu.findAll(com.github.javaparser.ast.body.TypeDeclaration.class)) {
             String qualifiedKey = buildQualifiedKey(cid);
             String className = cid.getNameAsString();
             String packageName = cu.getPackageDeclaration()
@@ -589,7 +590,10 @@ public class CallGraphBuilder {
             }
 
             // Register constructors as methods named after the class
-            for (ConstructorDeclaration cd : cid.getConstructors()) {
+            for (ConstructorDeclaration cd : cid.getMembers().stream()
+                    .filter(ConstructorDeclaration.class::isInstance)
+                    .map(ConstructorDeclaration.class::cast)
+                    .toList()) {
                 MethodReference ref = new MethodReference(
                         qualifiedKey, className,
                         parameterTypes(cd), file);
@@ -602,11 +606,12 @@ public class CallGraphBuilder {
         }
     }
 
-    private String buildQualifiedKey(ClassOrInterfaceDeclaration cid) {
+    private String buildQualifiedKey(
+            com.github.javaparser.ast.body.TypeDeclaration<?> cid) {
         StringBuilder sb = new StringBuilder(cid.getNameAsString());
         Node parent = cid.getParentNode().orElse(null);
-        while (parent instanceof ClassOrInterfaceDeclaration outer) {
-            sb.insert(0, outer.getNameAsString() + ".");
+        while (parent instanceof com.github.javaparser.ast.body.TypeDeclaration<?> outer) {
+            sb.insert(0, outer.getNameAsString() + "$");
             parent = outer.getParentNode().orElse(null);
         }
         cid.findCompilationUnit()
@@ -620,7 +625,8 @@ public class CallGraphBuilder {
 
     private void analyzeMethodCalls(CompilationUnit cu, Path file,
                                     Map<String, ClassContext> classContexts) {
-        for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+        for (com.github.javaparser.ast.body.TypeDeclaration<?> cid
+                : cu.findAll(com.github.javaparser.ast.body.TypeDeclaration.class)) {
             String qualifiedKey = buildQualifiedKey(cid);
             String className = cid.getNameAsString();
             ClassContext classCtx = classContexts.getOrDefault(qualifiedKey,
@@ -637,7 +643,10 @@ public class CallGraphBuilder {
             }
 
             // Analyze constructor bodies
-            for (ConstructorDeclaration cd : cid.getConstructors()) {
+            for (ConstructorDeclaration cd : cid.getMembers().stream()
+                    .filter(ConstructorDeclaration.class::isInstance)
+                    .map(ConstructorDeclaration.class::cast)
+                    .toList()) {
                 MethodReference caller = new MethodReference(
                         qualifiedKey, className,
                         parameterTypes(cd), file);
@@ -719,26 +728,73 @@ public class CallGraphBuilder {
             String varName = nameExpr.getNameAsString();
             String resolvedType = resolveVariableType(varName, localTypes, classCtx, allClasses);
             if (resolvedType != null) {
-                Path targetFile = allClasses.containsKey(resolvedType)
-                        ? allClasses.get(resolvedType).filePath : null;
+                resolvedType = resolveDirectType(resolvedType, classCtx, allClasses);
+                ClassContext targetClass = findQualifiedClass(resolvedType, allClasses);
+                Path targetFile = targetClass != null ? targetClass.filePath : null;
                 return new MethodReference(resolvedType, methodName, argCount, targetFile);
             }
 
-            if (allClasses.containsKey(varName)) {
-                return new MethodReference(varName, methodName, argCount, allClasses.get(varName).filePath);
+            String staticType = resolveDirectType(varName, classCtx, allClasses);
+            ClassContext targetClass = findQualifiedClass(staticType, allClasses);
+            if (targetClass != null) {
+                return new MethodReference(
+                        staticType, methodName, argCount, targetClass.filePath);
             }
         }
 
         if (scope instanceof FieldAccessExpr fae) {
             String resolvedType = resolveFieldAccessType(fae, currentClass, localTypes, classCtx, allClasses);
             if (resolvedType != null) {
-                Path targetFile = allClasses.containsKey(resolvedType)
-                        ? allClasses.get(resolvedType).filePath : null;
+                resolvedType = resolveDirectType(resolvedType, classCtx, allClasses);
+                ClassContext targetClass = findQualifiedClass(resolvedType, allClasses);
+                Path targetFile = targetClass != null ? targetClass.filePath : null;
                 return new MethodReference(resolvedType, methodName, argCount, targetFile);
             }
         }
 
         return MethodReference.unresolved(methodName, argCount);
+    }
+
+    private String resolveDirectType(String type, ClassContext classCtx,
+                                     Map<String, ClassContext> allClasses) {
+        List<com.jsrc.app.symbol.SymbolResolver.TypeSymbol> symbols =
+                new HashSet<>(allClasses.values()).stream()
+                        .map(candidate -> {
+                            String binaryName = candidate.packageName.isEmpty()
+                                    ? candidate.qualifiedName
+                                    : candidate.qualifiedName.substring(
+                                            candidate.packageName.length() + 1);
+                            return new com.jsrc.app.symbol.SymbolResolver.TypeSymbol(
+                                    com.jsrc.app.model.TypeId.from(
+                                            candidate.packageName, binaryName),
+                                    candidate.imports,
+                                    List.of(),
+                                    List.of());
+                        })
+                        .toList();
+        var resolver = new com.jsrc.app.symbol.SymbolResolver(symbols);
+        String enclosingBinaryName = classCtx.packageName.isEmpty()
+                ? classCtx.qualifiedName
+                : classCtx.qualifiedName.substring(classCtx.packageName.length() + 1);
+        var context = new com.jsrc.app.symbol.SymbolResolver.Context(
+                classCtx.packageName,
+                classCtx.imports,
+                com.jsrc.app.model.TypeId.from(
+                        classCtx.packageName, enclosingBinaryName));
+        var resolution = resolver.resolveType(stripGenerics(type), context);
+        if (resolution instanceof com.jsrc.app.symbol.SymbolResolver.Resolution.Found<
+                com.jsrc.app.symbol.SymbolResolver.TypeSymbol> found) {
+            return found.value().id().canonicalName();
+        }
+        return stripGenerics(type);
+    }
+
+    private ClassContext findQualifiedClass(String qualifiedName,
+                                            Map<String, ClassContext> allClasses) {
+        return new HashSet<>(allClasses.values()).stream()
+                .filter(candidate -> candidate.qualifiedName.equals(qualifiedName))
+                .findFirst()
+                .orElse(null);
     }
 
     private List<String> argumentTypes(
@@ -906,10 +962,10 @@ public class CallGraphBuilder {
             Set<MethodReference> byName = methodsByName.get(reference.methodName());
             if (byName != null) {
                 List<MethodReference> candidates = byName.stream()
-                        .filter(candidate -> candidate.className().equals(reference.className())
-                                || candidate.className().endsWith("." + reference.className()))
-                        .filter(candidate -> candidate.parameterTypes()
-                                .equals(reference.parameterTypes()))
+                        .filter(candidate -> classMatches(
+                                candidate.className(), reference.className()))
+                        .filter(candidate -> parameterTypesMatch(
+                                candidate.parameterTypes(), reference.parameterTypes()))
                         .toList();
                 if (candidates.size() == 1) return candidates.getFirst();
             }
@@ -922,13 +978,28 @@ public class CallGraphBuilder {
         Set<MethodReference> byName = methodsByName.get(methodName);
         if (byName != null) {
             List<MethodReference> candidates = byName.stream()
-                    .filter(ref -> ref.className().equals(className)
-                            || ref.className().endsWith("." + className))
+                    .filter(ref -> classMatches(ref.className(), className))
                     .filter(ref -> parameterCount < 0 || ref.parameterCount() == parameterCount)
                     .toList();
             if (candidates.size() == 1) return candidates.getFirst();
         }
         return new MethodReference(className, methodName, parameterCount, null);
+    }
+
+    private static boolean classMatches(String actual, String expected) {
+        return com.jsrc.app.model.TypeId.namesMatch(actual, expected);
+    }
+
+    private static boolean parameterTypesMatch(
+            List<String> actual, List<String> expected) {
+        if (actual.size() != expected.size()) return false;
+        for (int i = 0; i < actual.size(); i++) {
+            if (!com.jsrc.app.util.SignatureUtils.sameErasedType(
+                    actual.get(i), expected.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static class ClassContext {

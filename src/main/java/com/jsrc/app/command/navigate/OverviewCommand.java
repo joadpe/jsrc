@@ -59,6 +59,7 @@ public class OverviewCommand implements Command {
             map.put("topClasses", topClassLabels);
         }
         if (ctx.projectModel() != null) {
+            map.put("sourceSets", sourceSetCounts(ctx));
             map.put("project", projectMap(ctx.projectModel()));
         }
 
@@ -76,6 +77,17 @@ public class OverviewCommand implements Command {
 
         ctx.formatter().printResultWithHints(map, hints);
         return totalClasses + totalInterfaces;
+    }
+
+    private static java.util.Map<String, Long> sourceSetCounts(CommandContext context) {
+        var counts = new LinkedHashMap<String, Long>();
+        for (var sourceSet : com.jsrc.app.project.SourceSet.values()) {
+            long count = context.javaFiles().stream()
+                    .filter(file -> context.sourceSet(file) == sourceSet)
+                    .count();
+            counts.put(sourceSet.externalName(), count);
+        }
+        return counts;
     }
 
     private static java.util.Map<String, Object> projectMap(

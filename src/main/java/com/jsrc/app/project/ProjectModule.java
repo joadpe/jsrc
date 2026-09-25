@@ -23,4 +23,38 @@ public record ProjectModule(
         excludedRoots = List.copyOf(excludedRoots);
         internalDependencies = List.copyOf(internalDependencies);
     }
+
+    /** Classifies a file using this module's modeled source roots. */
+    public SourceSet sourceSet(Path file) {
+        Path normalizedFile = file.toAbsolutePath().normalize();
+        if (contains(generatedSourceRoots, normalizedFile)) {
+            return SourceSet.GENERATED;
+        }
+        for (Path root : testSourceRoots) {
+            if (normalizedFile.startsWith(root.toAbsolutePath().normalize())) {
+                return isTestFixturesRoot(root)
+                        ? SourceSet.TEST_FIXTURES
+                        : SourceSet.TEST;
+            }
+        }
+        if (contains(mainSourceRoots, normalizedFile)) {
+            return SourceSet.MAIN;
+        }
+        return SourceSet.UNKNOWN;
+    }
+
+    private static boolean contains(List<Path> roots, Path file) {
+        return roots.stream()
+                .map(root -> root.toAbsolutePath().normalize())
+                .anyMatch(file::startsWith);
+    }
+
+    private static boolean isTestFixturesRoot(Path root) {
+        for (Path segment : root) {
+            if ("testFixtures".equals(segment.toString())) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

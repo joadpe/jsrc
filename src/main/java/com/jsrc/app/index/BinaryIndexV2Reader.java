@@ -522,6 +522,8 @@ public class BinaryIndexV2Reader {
         String path = str(in.readInt(), strings);
         String hash = str(in.readInt(), strings);
         long lastModified = in.readLong();
+        var sourceSet = com.jsrc.app.project.SourceSet.fromExternalName(
+                str(in.readInt(), strings));
 
         int classCount = in.readUnsignedShort();
         List<IndexedClass> classes = new ArrayList<>(classCount);
@@ -568,7 +570,8 @@ public class BinaryIndexV2Reader {
                     annotations, imports, fields));
         }
 
-        return new IndexEntry(path, hash, lastModified, classes);
+        return new IndexEntry(
+                path, hash, lastModified, sourceSet, classes, List.of(), List.of());
     }
 
     private static String str(int ref, String[] table) {

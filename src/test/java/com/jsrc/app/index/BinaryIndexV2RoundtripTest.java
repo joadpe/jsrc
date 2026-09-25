@@ -148,4 +148,23 @@ class BinaryIndexV2RoundtripTest {
         assertThrows(java.io.IOException.class, () -> BinaryIndexV2Reader.read(indexFile),
                 "Corrupted index should throw IOException");
     }
+
+    @Test
+    void roundtripPreservesSourceSet(@TempDir Path tempDir) throws Exception {
+        var entry = new IndexEntry(
+                "src/testFixtures/java/Fixture.java",
+                "hash",
+                1L,
+                com.jsrc.app.project.SourceSet.TEST_FIXTURES,
+                List.of(),
+                List.of(),
+                List.of());
+        Path indexFile = tempDir.resolve("index.bin");
+
+        BinaryIndexV2Writer.write(indexFile, List.of(entry), null);
+
+        assertEquals(
+                com.jsrc.app.project.SourceSet.TEST_FIXTURES,
+                BinaryIndexV2Reader.read(indexFile).entries().getFirst().sourceSet());
+    }
 }

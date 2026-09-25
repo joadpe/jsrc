@@ -73,10 +73,10 @@ public class JsrcCommand implements Runnable {
     }
 
     public ProjectConfig loadConfig() {
-        if (globalOptions.configPath() != null) {
+        if (globalOptions.configPath() != null && !globalOptions.configPath().isBlank()) {
             return ProjectConfig.loadFrom(Path.of(globalOptions.configPath())).orElse(null);
         }
-        return ProjectConfig.load(Path.of(".")).orElse(null);
+        return ProjectConfig.load(Path.of(resolvedRoot())).orElse(null);
     }
 
     public BudgetProfile resolveBudgetProfile() {
@@ -112,7 +112,11 @@ public class JsrcCommand implements Runnable {
                 globalOptions.jsonOutput(), globalOptions.mdOutput(), profile);
 
         var projectSources = new com.jsrc.app.project.ProjectSourceDiscovery()
-                .discover(Path.of(rootPath), config);
+                .discover(
+                        Path.of(rootPath),
+                        config,
+                        globalOptions.sourceSets(),
+                        globalOptions.noTest());
         var projectModel = projectSources.model();
         var javaFiles = new ArrayList<>(projectSources.files());
 
@@ -125,10 +129,11 @@ public class JsrcCommand implements Runnable {
                 budgetContext,
                 globalOptions.jsonProtocol(),
                 commandName);
+        var sourceSets = projectSources.sourceSets();
         IndexedCodebase indexed = skipIndex != null
                 ? null
                 : IndexedCodebase.tryLoad(
-                        projectModel.root(), javaFiles, globalOptions.frozenIndex());
+                        projectModel.root(), javaFiles, globalOptions.frozenIndex(), sourceSets);
 
         return new CommandContext(
                 javaFiles,
@@ -143,6 +148,8 @@ public class JsrcCommand implements Runnable {
                 globalOptions.noTest(),
                 budgetContext,
                 globalOptions.frozenIndex(),
-                projectModel);
+                projectModel,
+                globalOptions.sourceSets(),
+                sourceSets);
     }
 }

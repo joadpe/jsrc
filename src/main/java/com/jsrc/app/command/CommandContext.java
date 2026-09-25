@@ -34,6 +34,8 @@ public final class CommandContext {
     private final com.jsrc.app.cli.BudgetContext budgetContext;
     private final boolean frozenIndex;
     private final com.jsrc.app.project.ProjectModel projectModel;
+    private final java.util.Set<com.jsrc.app.project.SourceSet> sourceSets;
+    private final java.util.Map<Path, com.jsrc.app.project.SourceSet> fileSourceSets;
 
     private CallGraph callGraphCache;
     private DependencyAnalyzer dependencyAnalyzerCache;
@@ -82,6 +84,28 @@ public final class CommandContext {
                           boolean mdOutput, String outDir, boolean fullOutput, boolean noTest,
                           com.jsrc.app.cli.BudgetContext budgetContext, boolean frozenIndex,
                           com.jsrc.app.project.ProjectModel projectModel) {
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir,
+                fullOutput, noTest, budgetContext, frozenIndex, projectModel, java.util.Set.of());
+    }
+
+    public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
+                          OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
+                          boolean mdOutput, String outDir, boolean fullOutput, boolean noTest,
+                          com.jsrc.app.cli.BudgetContext budgetContext, boolean frozenIndex,
+                          com.jsrc.app.project.ProjectModel projectModel,
+                          java.util.Set<com.jsrc.app.project.SourceSet> sourceSets) {
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir,
+                fullOutput, noTest, budgetContext, frozenIndex, projectModel, sourceSets,
+                classify(javaFiles, projectModel));
+    }
+
+    public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
+                          OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
+                          boolean mdOutput, String outDir, boolean fullOutput, boolean noTest,
+                          com.jsrc.app.cli.BudgetContext budgetContext, boolean frozenIndex,
+                          com.jsrc.app.project.ProjectModel projectModel,
+                          java.util.Set<com.jsrc.app.project.SourceSet> sourceSets,
+                          java.util.Map<Path, com.jsrc.app.project.SourceSet> fileSourceSets) {
         this.javaFiles = javaFiles;
         this.rootPath = rootPath;
         this.config = config;
@@ -95,6 +119,8 @@ public final class CommandContext {
         this.budgetContext = budgetContext;
         this.frozenIndex = frozenIndex;
         this.projectModel = projectModel;
+        this.sourceSets = java.util.Set.copyOf(sourceSets);
+        this.fileSourceSets = java.util.Map.copyOf(fileSourceSets);
     }
 
     public List<Path> javaFiles() { return javaFiles; }
@@ -110,6 +136,18 @@ public final class CommandContext {
     public com.jsrc.app.cli.BudgetContext budgetContext() { return budgetContext; }
     public boolean frozenIndex() { return frozenIndex; }
     public com.jsrc.app.project.ProjectModel projectModel() { return projectModel; }
+    public java.util.Set<com.jsrc.app.project.SourceSet> sourceSets() { return sourceSets; }
+    public java.util.Map<Path, com.jsrc.app.project.SourceSet> fileSourceSets() {
+        return fileSourceSets;
+    }
+
+    public com.jsrc.app.project.SourceSet sourceSet(Path file) {
+        return fileSourceSets.getOrDefault(
+                file.normalize(),
+                projectModel == null
+                        ? com.jsrc.app.project.SourceSet.UNKNOWN
+                        : projectModel.sourceSet(file));
+    }
 
     /**
      * Creates a context for a refreshed execution while preserving command options and project metadata.
@@ -127,7 +165,28 @@ public final class CommandContext {
         return new CommandContext(
                 files, rootPath, config, outputFormatter, codebase, parser,
                 mdOutput, outDir, fullOutput, noTest, budgetContext, frozenIndex,
-                refreshedProjectModel);
+                refreshedProjectModel, sourceSets, classify(files, refreshedProjectModel));
+    }
+
+    public CommandContext withRuntimeState(
+            List<Path> files,
+            OutputFormatter outputFormatter,
+            IndexedCodebase codebase,
+            com.jsrc.app.project.ProjectModel refreshedProjectModel,
+            java.util.Map<Path, com.jsrc.app.project.SourceSet> refreshedSourceSets) {
+        return new CommandContext(
+                files, rootPath, config, outputFormatter, codebase, parser,
+                mdOutput, outDir, fullOutput, noTest, budgetContext, frozenIndex,
+                refreshedProjectModel, sourceSets, refreshedSourceSets);
+    }
+
+    private static java.util.Map<Path, com.jsrc.app.project.SourceSet> classify(
+            List<Path> files, com.jsrc.app.project.ProjectModel model) {
+        if (model == null) {
+            return java.util.Map.of();
+        }
+        return files.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                Path::normalize, model::sourceSet));
     }
 
     private java.util.Map<String, String> qualifiedNameCache;
@@ -171,6 +230,11 @@ public final class CommandContext {
     private boolean isTestClass(ClassInfo ci) {
         // Check by file path in index
         if (indexed != null) {
+            var sourceSet = indexed.findSourceSetForClass(ci.name());
+            if (sourceSet.isPresent()
+                    && sourceSet.get() != com.jsrc.app.project.SourceSet.UNKNOWN) {
+                return sourceSet.get().isTest();
+            }
             var filePath = indexed.findFileForClass(ci.name());
             if (filePath.isPresent()) {
                 return isTestPath(filePath.get());

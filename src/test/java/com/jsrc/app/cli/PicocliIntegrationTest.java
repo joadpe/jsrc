@@ -79,6 +79,164 @@ class PicocliIntegrationTest {
     }
 
     @Test
+    void sourceSetOptionFiltersFilesBeforeAnalysis(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <artifactId>source-sets</artifactId>
+                </project>
+                """);
+        writeJava(tempDir.resolve("src/main/java/Main.java"), "class Main {}");
+        writeJava(tempDir.resolve("src/test/java/MainTest.java"), "class MainTest {}");
+        writeJava(
+                tempDir.resolve("src/testFixtures/java/Fixture.java"),
+                "class Fixture {}");
+
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            int exitCode = JsrcCliFactory.create().execute(
+                    "--dir", tempDir.toString(), "--json",
+                    "--source-set", "main", "overview");
+
+            assertEquals(0, exitCode);
+            java.util.Map<?, ?> output = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class,
+                    com.jsrc.app.output.JsonReader.parse(captured.toString().trim()));
+            assertEquals(1L, output.get("totalFiles"));
+            java.util.Map<?, ?> sourceSets = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class, output.get("sourceSets"));
+            assertEquals(1L, sourceSets.get("main"));
+            assertEquals(0L, sourceSets.get("test"));
+            assertEquals(0L, sourceSets.get("testFixtures"));
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    void frozenIndexHonorsSourceSetSelection(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <artifactId>frozen-source-sets</artifactId>
+                </project>
+                """);
+        writeJava(tempDir.resolve("src/main/java/Main.java"), "class Main {}");
+        writeJava(tempDir.resolve("src/test/java/MainTest.java"), "class MainTest {}");
+        writeJava(
+                tempDir.resolve("src/testFixtures/java/Fixture.java"),
+                "class Fixture {}");
+        assertEquals(0, JsrcCliFactory.create().execute(
+                "--dir", tempDir.toString(), "index"));
+
+        java.util.Map<?, ?> output = executeOverview(
+                tempDir, "--frozen-index", "--source-set", "main");
+
+        assertEquals(1L, output.get("totalFiles"));
+        assertEquals(1L, output.get("totalClasses"));
+    }
+
+    @Test
+    void frozenIndexHonorsNoTestSelection(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <artifactId>frozen-no-test</artifactId>
+                </project>
+                """);
+        writeJava(tempDir.resolve("src/main/java/Main.java"), "class Main {}");
+        writeJava(tempDir.resolve("src/test/java/MainTest.java"), "class MainTest {}");
+        writeJava(
+                tempDir.resolve("src/testFixtures/java/Fixture.java"),
+                "class Fixture {}");
+        assertEquals(0, JsrcCliFactory.create().execute(
+                "--dir", tempDir.toString(), "index"));
+
+        java.util.Map<?, ?> output = executeOverview(
+                tempDir, "--frozen-index", "--no-test");
+
+        assertEquals(1L, output.get("totalFiles"));
+        assertEquals(1L, output.get("totalClasses"));
+    }
+
+    @Test
+    void frozenMigrateHonorsSourceSetSelection(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <artifactId>frozen-migrate-source-set</artifactId>
+                </project>
+                """);
+        writeJava(
+                tempDir.resolve("src/main/java/Main.java"),
+                "class Main { java.util.Vector<String> values = new java.util.Vector<>(); }");
+        writeJava(
+                tempDir.resolve("src/test/java/MainTest.java"),
+                "class MainTest { java.util.Hashtable<String, String> values = new java.util.Hashtable<>(); }");
+        assertEquals(0, JsrcCliFactory.create().execute(
+                "--dir", tempDir.toString(), "index"));
+
+        java.util.Map<?, ?> output = executeJson(
+                tempDir,
+                "--frozen-index", "--source-set", "main", "migrate", "--all");
+
+        assertEquals(1L, output.get("classesScanned"));
+        assertTrue(!output.toString().contains("MainTest"), output.toString());
+    }
+
+    @Test
+    void normalMigrateHonorsNoTestSelection(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <artifactId>migrate-no-test</artifactId>
+                </project>
+                """);
+        writeJava(
+                tempDir.resolve("src/main/java/Main.java"),
+                "class Main { java.util.Vector<String> values = new java.util.Vector<>(); }");
+        writeJava(
+                tempDir.resolve("src/test/java/MainTest.java"),
+                "class MainTest { java.util.Hashtable<String, String> values = new java.util.Hashtable<>(); }");
+        assertEquals(0, JsrcCliFactory.create().execute(
+                "--dir", tempDir.toString(), "index"));
+
+        java.util.Map<?, ?> output = executeJson(
+                tempDir, "--no-test", "migrate", "--all");
+
+        assertEquals(1L, output.get("classesScanned"));
+        assertTrue(!output.toString().contains("MainTest"), output.toString());
+    }
+
+    @Test
+    void configuredSourceRootsAreClassifiedAsMain(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve(".jsrc.yaml"), "sourceRoots:\n  - custom/java\n");
+        writeJava(tempDir.resolve("custom/java/Custom.java"), "class Custom {}");
+
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            int exitCode = JsrcCliFactory.create().execute(
+                    "--dir", tempDir.toString(), "--json",
+                    "--source-set", "main", "overview");
+
+            assertEquals(0, exitCode, captured.toString());
+            java.util.Map<?, ?> output = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class,
+                    com.jsrc.app.output.JsonReader.parse(captured.toString().trim()));
+            assertEquals(1L, output.get("totalFiles"));
+            java.util.Map<?, ?> sourceSets = org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class, output.get("sourceSets"));
+            assertEquals(1L, sourceSets.get("main"));
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
     void versionOneProtocolWrapsCommandOutput(@TempDir Path tempDir) throws Exception {
         Files.writeString(tempDir.resolve("Hello.java"), "public class Hello {}");
 
@@ -284,6 +442,44 @@ class PicocliIntegrationTest {
                     exitCode, captured.toString().trim(), captured.toByteArray().length);
         } finally {
             System.setErr(originalErr);
+        }
+    }
+
+    private static void writeJava(Path path, String content) throws Exception {
+        Files.createDirectories(path.getParent());
+        Files.writeString(path, content);
+    }
+
+    private java.util.Map<?, ?> executeOverview(Path root, String... options) {
+        var arguments = new java.util.ArrayList<String>(java.util.List.of(options));
+        arguments.add("overview");
+        return executeJson(root, true, arguments.toArray(String[]::new));
+    }
+
+    private java.util.Map<?, ?> executeJson(Path root, String... commandArguments) {
+        return executeJson(root, false, commandArguments);
+    }
+
+    private java.util.Map<?, ?> executeJson(
+            Path root, boolean requireSuccess, String... commandArguments) {
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(captured));
+        try {
+            var arguments = new java.util.ArrayList<String>();
+            arguments.add("--dir");
+            arguments.add(root.toString());
+            arguments.add("--json");
+            arguments.addAll(java.util.List.of(commandArguments));
+            int exitCode = JsrcCliFactory.create().execute(arguments.toArray(String[]::new));
+            if (requireSuccess) {
+                assertEquals(0, exitCode, captured.toString());
+            }
+            return org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    java.util.Map.class,
+                    com.jsrc.app.output.JsonReader.parse(captured.toString().trim()));
+        } finally {
+            System.setOut(originalOut);
         }
     }
 

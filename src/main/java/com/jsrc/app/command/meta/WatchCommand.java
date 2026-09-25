@@ -101,9 +101,8 @@ public class WatchCommand implements Command {
                     var baos = new ByteArrayOutputStream();
                     var captureStream = new PrintStream(baos);
                     var captureFormatter = OutputFormatter.create(true, false, null, captureStream, budgetContext);
-                    var freshCtx = new CommandContext(
-                            freshFiles, ctx.rootPath(), ctx.config(),
-                            captureFormatter, cachedIndex, ctx.parser());
+                    var freshCtx = ctx.withRuntimeState(
+                            freshFiles, captureFormatter, cachedIndex);
 
                     // Execute command
                     // Extract budget profile from budgetContext if available

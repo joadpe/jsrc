@@ -111,6 +111,16 @@ public final class CommandContext {
     public boolean frozenIndex() { return frozenIndex; }
     public com.jsrc.app.project.ProjectModel projectModel() { return projectModel; }
 
+    /**
+     * Creates a context for a refreshed execution while preserving command options and project metadata.
+     */
+    public CommandContext withRuntimeState(
+            List<Path> files, OutputFormatter outputFormatter, IndexedCodebase codebase) {
+        return new CommandContext(
+                files, rootPath, config, outputFormatter, codebase, parser,
+                mdOutput, outDir, fullOutput, noTest, budgetContext, frozenIndex, projectModel);
+    }
+
     private java.util.Map<String, String> qualifiedNameCache;
 
     /**

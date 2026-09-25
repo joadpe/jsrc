@@ -243,10 +243,21 @@ class WatchCommandRediscoverTest {
         Files.writeString(source, "package demo; public class Included {}");
         Files.writeString(excluded, "package demo; public class Excluded {}");
 
-        var result = new WatchCommand().loadOrRefreshIndex(
-                tempDir, List.of(source), null, false);
+        var watch = new WatchCommand();
+        var result = watch.loadOrRefreshIndex(tempDir, List.of(source), null, false);
 
         assertEquals(List.of(source), result.files());
+
+        Path added = tempDir.resolve("src/main/java/demo/Added.java");
+        Files.writeString(added, "package demo; public class Added {}");
+        var afterCreate = watch.loadOrRefreshIndex(
+                tempDir, result.files(), result.index(), false);
+        assertEquals(List.of(added, source), afterCreate.files());
+
+        Files.delete(source);
+        var afterDelete = watch.loadOrRefreshIndex(
+                tempDir, afterCreate.files(), afterCreate.index(), false);
+        assertEquals(List.of(added), afterDelete.files());
     }
 
     /**

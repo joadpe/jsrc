@@ -194,9 +194,9 @@ class WatchCommandTest {
     private WatchCommand createInstrumentedWatchCommand() {
         return new WatchCommand() {
             @Override
-            protected IndexedCodebase loadOrRefreshIndex(
+            protected RefreshResult loadOrRefreshIndex(
                     Path root, List<Path> files, IndexedCodebase cached, boolean frozenIndex) {
-                IndexedCodebase result = super.loadOrRefreshIndex(root, files, cached, frozenIndex);
+                RefreshResult result = super.loadOrRefreshIndex(root, files, cached, frozenIndex);
                 return result;
             }
 

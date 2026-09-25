@@ -274,24 +274,27 @@ public class EdgeResolver {
             int argCount = call.getArguments().size();
             List<String> calleeParameterTypes = argumentTypes(
                     call.getArguments(), fieldTypes, localTypes);
-            edges.add(new CallEdge(className, callerMethod, callerParameterTypes, callerParamCount,
-                    calleeClass, calleeMethod, calleeParameterTypes, line, argCount));
+            var invocationKind = extractedInvocationKind(call);
+            edges.add(new CallEdge(
+                    className, callerMethod, callerParameterTypes, callerParamCount,
+                    calleeClass, calleeMethod, calleeParameterTypes, line, argCount,
+                    invocationKind,
+                    com.jsrc.app.model.ResolutionLevel.UNRESOLVED,
+                    invocationKind == com.jsrc.app.model.InvocationKind.SPECIAL
+                            ? List.of("SUPER_INVOCATION")
+                            : List.of()));
         }
         extractLambdaEdges(edges, callable, className, callerMethod, fieldTypes,
                 localTypes, declaredTypes, syntheticMethods);
         extractMethodReferenceEdges(edges, callable, className, callerMethod,
-                callerParameterTypes, fieldTypes, localTypes);
+                callerParameterTypes, fieldTypes, localTypes, declaredTypes);
         for (ObjectCreationExpr newExpr : callable.findAll(ObjectCreationExpr.class)) {
-            String targetClass = newExpr.getType().getNameAsString();
-            int line = newExpr.getBegin().map(p -> p.line).orElse(-1);
-            int argCount = newExpr.getArguments().size();
-            List<String> calleeParameterTypes = argumentTypes(
-                    newExpr.getArguments(), fieldTypes, localTypes);
-            edges.add(new CallEdge(className, callerMethod, callerParameterTypes, callerParamCount,
-                    targetClass, targetClass, calleeParameterTypes, line, argCount,
-                    com.jsrc.app.model.InvocationKind.CONSTRUCTOR,
-                    com.jsrc.app.model.ResolutionLevel.UNRESOLVED,
-                    List.of("OBJECT_CREATION")));
+            if (newExpr.findAncestor(
+                    com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
+                continue;
+            }
+            addObjectCreationEdge(edges, newExpr, className, callerMethod,
+                    callerParameterTypes, fieldTypes, localTypes);
         }
     }
 
@@ -335,6 +338,7 @@ public class EdgeResolver {
                 int line = call.getBegin().map(position -> position.line).orElse(-1);
                 List<String> calleeParameterTypes = argumentTypes(
                         call.getArguments(), fieldTypes, lambdaTypes);
+                var invocationKind = extractedInvocationKind(call);
                 edges.add(new CallEdge(
                         className,
                         syntheticName,
@@ -344,9 +348,33 @@ public class EdgeResolver {
                         call.getNameAsString(),
                         calleeParameterTypes,
                         line,
-                        call.getArguments().size()));
+                        call.getArguments().size(),
+                        invocationKind,
+                        com.jsrc.app.model.ResolutionLevel.UNRESOLVED,
+                        invocationKind == com.jsrc.app.model.InvocationKind.SPECIAL
+                                ? List.of("SUPER_INVOCATION")
+                                : List.of()));
+            }
+            for (com.github.javaparser.ast.expr.MethodReferenceExpr reference
+                    : lambda.findAll(com.github.javaparser.ast.expr.MethodReferenceExpr.class)) {
+                if (!belongsToLambda(reference, lambda)) continue;
+                addMethodReferenceEdge(edges, reference, className, syntheticName,
+                        parameterTypes, fieldTypes, lambdaTypes, declaredTypes, callable);
+            }
+            for (ObjectCreationExpr newExpr : lambda.findAll(ObjectCreationExpr.class)) {
+                if (!belongsToLambda(newExpr, lambda)) continue;
+                addObjectCreationEdge(edges, newExpr, className, syntheticName,
+                        parameterTypes, fieldTypes, lambdaTypes);
             }
         }
+    }
+
+    private static boolean belongsToLambda(
+            com.github.javaparser.ast.Node node,
+            com.github.javaparser.ast.expr.LambdaExpr lambda) {
+        return node.findAncestor(com.github.javaparser.ast.expr.LambdaExpr.class)
+                .filter(lambda::equals)
+                .isPresent();
     }
 
     private static List<String> lambdaParameterTypes(
@@ -389,35 +417,195 @@ public class EdgeResolver {
             String callerMethod,
             List<String> callerParameterTypes,
             Map<String, String> fieldTypes,
-            Map<String, String> localTypes) {
+            Map<String, String> localTypes,
+            Map<String, String> declaredTypes) {
         for (com.github.javaparser.ast.expr.MethodReferenceExpr reference
                 : callable.findAll(com.github.javaparser.ast.expr.MethodReferenceExpr.class)) {
-            String scopeName = reference.getScope().toString();
-            String calleeClass = localTypes.getOrDefault(
-                    scopeName, fieldTypes.get(scopeName));
-            if (calleeClass == null) {
-                calleeClass = resolveExpressionType(
-                        reference.getScope(), className, fieldTypes, localTypes);
+            if (reference.findAncestor(
+                    com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
+                continue;
             }
-            if (calleeClass == null) calleeClass = reference.getScope().toString();
-            String calleeMethod = "new".equals(reference.getIdentifier())
-                    ? constructorName(calleeClass)
-                    : reference.getIdentifier();
-            int line = reference.getBegin().map(position -> position.line).orElse(-1);
-            edges.add(new CallEdge(
-                    className,
-                    callerMethod,
-                    callerParameterTypes,
-                    callerParameterTypes.size(),
-                    calleeClass,
-                    calleeMethod,
-                    List.of(CallEdge.UNKNOWN_PARAMETER_TYPE),
-                    line,
-                    -1,
-                    com.jsrc.app.model.InvocationKind.METHOD_REFERENCE,
-                    com.jsrc.app.model.ResolutionLevel.UNRESOLVED,
-                    List.of("METHOD_REFERENCE_EXPRESSION")));
+            addMethodReferenceEdge(edges, reference, className, callerMethod,
+                    callerParameterTypes, fieldTypes, localTypes, declaredTypes, callable);
         }
+    }
+
+    private static void addMethodReferenceEdge(
+            List<CallEdge> edges,
+            com.github.javaparser.ast.expr.MethodReferenceExpr reference,
+            String className,
+            String callerMethod,
+            List<String> callerParameterTypes,
+            Map<String, String> fieldTypes,
+            Map<String, String> localTypes,
+            Map<String, String> declaredTypes,
+            com.github.javaparser.ast.body.CallableDeclaration<?> callable) {
+        String scopeName = reference.getScope().toString();
+        String calleeClass = localTypes.getOrDefault(scopeName, fieldTypes.get(scopeName));
+        if (calleeClass == null) {
+            calleeClass = resolveExpressionType(
+                    reference.getScope(), className, fieldTypes, localTypes);
+        }
+        if (calleeClass == null) calleeClass = reference.getScope().toString();
+        String calleeMethod = "new".equals(reference.getIdentifier())
+                ? constructorName(calleeClass)
+                : reference.getIdentifier();
+        List<String> referencedParameterTypes = methodReferenceParameterTypes(
+                reference, callable, declaredTypes);
+        int line = reference.getBegin().map(position -> position.line).orElse(-1);
+        edges.add(new CallEdge(
+                className,
+                callerMethod,
+                callerParameterTypes,
+                callerParameterTypes.size(),
+                calleeClass,
+                calleeMethod,
+                referencedParameterTypes == null
+                        ? List.of(CallEdge.UNKNOWN_PARAMETER_TYPE)
+                        : referencedParameterTypes,
+                line,
+                referencedParameterTypes == null ? -1 : referencedParameterTypes.size(),
+                com.jsrc.app.model.InvocationKind.METHOD_REFERENCE,
+                com.jsrc.app.model.ResolutionLevel.UNRESOLVED,
+                List.of("METHOD_REFERENCE_EXPRESSION")));
+    }
+
+    private static void addObjectCreationEdge(
+            List<CallEdge> edges,
+            ObjectCreationExpr newExpr,
+            String className,
+            String callerMethod,
+            List<String> callerParameterTypes,
+            Map<String, String> fieldTypes,
+            Map<String, String> localTypes) {
+        String targetClass = newExpr.getType().getNameAsString();
+        int line = newExpr.getBegin().map(position -> position.line).orElse(-1);
+        List<String> calleeParameterTypes = argumentTypes(
+                newExpr.getArguments(), fieldTypes, localTypes);
+        edges.add(new CallEdge(
+                className,
+                callerMethod,
+                callerParameterTypes,
+                callerParameterTypes.size(),
+                targetClass,
+                targetClass,
+                calleeParameterTypes,
+                line,
+                newExpr.getArguments().size(),
+                com.jsrc.app.model.InvocationKind.CONSTRUCTOR,
+                com.jsrc.app.model.ResolutionLevel.UNRESOLVED,
+                List.of("OBJECT_CREATION")));
+    }
+
+    private static List<String> methodReferenceParameterTypes(
+            com.github.javaparser.ast.expr.MethodReferenceExpr reference,
+            com.github.javaparser.ast.body.CallableDeclaration<?> callable,
+            Map<String, String> declaredTypes) {
+        String functionalType = methodReferenceFunctionalType(
+                reference, callable, declaredTypes);
+        if (functionalType == null) return null;
+        return functionalInputTypes(functionalType, reference);
+    }
+
+    private static String methodReferenceFunctionalType(
+            com.github.javaparser.ast.expr.MethodReferenceExpr reference,
+            com.github.javaparser.ast.body.CallableDeclaration<?> callable,
+            Map<String, String> declaredTypes) {
+        var parent = reference.getParentNode().orElse(null);
+        if (parent instanceof VariableDeclarator variable) {
+            return variable.getTypeAsString();
+        }
+        if (parent instanceof com.github.javaparser.ast.expr.CastExpr cast) {
+            return cast.getTypeAsString();
+        }
+        if (parent instanceof com.github.javaparser.ast.stmt.ReturnStmt
+                && callable instanceof MethodDeclaration method) {
+            return method.getTypeAsString();
+        }
+        if (parent instanceof com.github.javaparser.ast.expr.AssignExpr assignment
+                && assignment.getTarget().isNameExpr()) {
+            return declaredTypes.get(assignment.getTarget().asNameExpr().getNameAsString());
+        }
+        if (parent instanceof MethodCallExpr call) {
+            int argumentIndex = call.getArguments().indexOf(reference);
+            if (argumentIndex < 0) return null;
+            return call.findCompilationUnit()
+                    .stream()
+                    .flatMap(unit -> unit.findAll(MethodDeclaration.class).stream())
+                    .filter(method -> method.getNameAsString().equals(call.getNameAsString()))
+                    .filter(method -> method.getParameters().size() == call.getArguments().size())
+                    .filter(method -> argumentIndex < method.getParameters().size())
+                    .map(method -> method.getParameter(argumentIndex).getTypeAsString())
+                    .findFirst()
+                    .orElse(null);
+        }
+        return null;
+    }
+
+    private static List<String> functionalInputTypes(
+            String functionalType,
+            com.github.javaparser.ast.Node context) {
+        String rawType = functionalType;
+        int genericStart = rawType.indexOf('<');
+        if (genericStart >= 0) rawType = rawType.substring(0, genericStart);
+        int qualifier = rawType.lastIndexOf('.');
+        String simpleType = qualifier >= 0 ? rawType.substring(qualifier + 1) : rawType;
+        List<String> arguments = genericArguments(functionalType);
+        return switch (simpleType) {
+            case "Runnable", "Supplier", "Callable" -> List.of();
+            case "Function", "Consumer", "Predicate", "UnaryOperator" ->
+                    arguments.isEmpty() ? null : List.of(arguments.getFirst());
+            case "BiFunction", "BiConsumer", "BiPredicate" ->
+                    arguments.size() < 2 ? null : List.of(arguments.get(0), arguments.get(1));
+            case "BinaryOperator", "Comparator" ->
+                    arguments.isEmpty()
+                            ? null
+                            : List.of(arguments.getFirst(), arguments.getFirst());
+            default -> customFunctionalInputTypes(simpleType, context);
+        };
+    }
+
+    private static List<String> customFunctionalInputTypes(
+            String simpleType,
+            com.github.javaparser.ast.Node context) {
+        return context.findCompilationUnit()
+                .stream()
+                .flatMap(unit -> unit.findAll(MethodDeclaration.class).stream())
+                .filter(method -> method.findAncestor(
+                                com.github.javaparser.ast.body.TypeDeclaration.class)
+                        .map(type -> type.getNameAsString().equals(simpleType))
+                        .orElse(false))
+                .filter(method -> !method.isStatic())
+                .map(method -> method.getParameters().stream()
+                        .map(parameter -> com.jsrc.app.util.SignatureUtils.normalizeType(
+                                parameter.getTypeAsString()
+                                        + (parameter.isVarArgs() ? "..." : "")))
+                        .toList())
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static List<String> genericArguments(String type) {
+        int start = type.indexOf('<');
+        int end = type.lastIndexOf('>');
+        if (start < 0 || end <= start) return List.of();
+        String body = type.substring(start + 1, end);
+        List<String> arguments = new ArrayList<>();
+        int depth = 0;
+        int segmentStart = 0;
+        for (int index = 0; index < body.length(); index++) {
+            char current = body.charAt(index);
+            if (current == '<') depth++;
+            else if (current == '>') depth--;
+            else if (current == ',' && depth == 0) {
+                arguments.add(com.jsrc.app.util.SignatureUtils.normalizeType(
+                        body.substring(segmentStart, index)));
+                segmentStart = index + 1;
+            }
+        }
+        arguments.add(com.jsrc.app.util.SignatureUtils.normalizeType(
+                body.substring(segmentStart)));
+        return List.copyOf(arguments);
     }
 
     private static String constructorName(String typeName) {
@@ -490,6 +678,9 @@ public class EdgeResolver {
         if (call.getScope().isEmpty()) return currentClass;
         var scope = call.getScope().get();
         if (scope instanceof ThisExpr) return currentClass;
+        if (scope instanceof com.github.javaparser.ast.expr.SuperExpr superExpression) {
+            return superType(call, superExpression);
+        }
         if (scope instanceof NameExpr ne) {
             String varName = ne.getNameAsString();
             String type = localTypes.get(varName);
@@ -509,6 +700,26 @@ public class EdgeResolver {
         return "?";
     }
 
+    private static com.jsrc.app.model.InvocationKind extractedInvocationKind(
+            MethodCallExpr call) {
+        return call.getScope()
+                .filter(com.github.javaparser.ast.expr.SuperExpr.class::isInstance)
+                .map(ignored -> com.jsrc.app.model.InvocationKind.SPECIAL)
+                .orElse(com.jsrc.app.model.InvocationKind.UNKNOWN);
+    }
+
+    private static String superType(
+            com.github.javaparser.ast.Node node,
+            com.github.javaparser.ast.expr.SuperExpr superExpression) {
+        return superExpression.getTypeName()
+                .map(Object::toString)
+                .orElseGet(() -> node.findAncestor(
+                                com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                        .flatMap(declaration -> declaration.getExtendedTypes().stream().findFirst())
+                        .map(com.github.javaparser.ast.type.ClassOrInterfaceType::getNameWithScope)
+                        .orElse("?"));
+    }
+
     /**
      * Resolves the type of an expression (variable, this, field access, method call).
      * Produces {@code ?field:} and {@code ?ret:} markers for deferred resolution.
@@ -517,6 +728,9 @@ public class EdgeResolver {
                                          Map<String, String> fieldTypes,
                                          Map<String, String> localTypes) {
         if (expr instanceof ThisExpr) return currentClass;
+        if (expr instanceof com.github.javaparser.ast.expr.SuperExpr superExpression) {
+            return superType(expr, superExpression);
+        }
         if (expr instanceof NameExpr ne) {
             String varName = ne.getNameAsString();
             String type = localTypes.get(varName);

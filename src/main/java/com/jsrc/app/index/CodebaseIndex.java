@@ -83,6 +83,11 @@ public class CodebaseIndex {
         for (IndexEntry e : existing) {
             existingByPath.put(e.path(), e);
         }
+        java.util.Set<String> currentPaths = files.stream()
+                .map(file -> sourceRoot.relativize(file).toString())
+                .collect(java.util.stream.Collectors.toSet());
+        boolean fileSetChanged = !existingByPath.keySet().equals(currentPaths);
+        Map<String, Path> unchangedFiles = new LinkedHashMap<>();
 
         entries.clear();
         int reindexed = 0;
@@ -102,6 +107,7 @@ public class CodebaseIndex {
                         && prev.sourceSet() == sourceSet
                         && hasCanonicalCallEdgeSchema(prev)) {
                     entries.add(prev);
+                    unchangedFiles.put(relativePath, file);
                     continue;
                 }
 
@@ -131,6 +137,22 @@ public class CodebaseIndex {
                 reindexed++;
             } catch (IOException ex) {
                 logger.error("Error indexing {}: {}", file, ex.getMessage());
+            }
+        }
+
+        if ((fileSetChanged || reindexed > 0 || !invokers.isEmpty())
+                && !unchangedFiles.isEmpty()) {
+            for (int index = 0; index < entries.size(); index++) {
+                IndexEntry entry = entries.get(index);
+                Path file = unchangedFiles.get(entry.path());
+                if (file == null) continue;
+                EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser);
+                List<CallEdge> edges = new ArrayList<>(extraction.edges());
+                if (!invokers.isEmpty()) {
+                    edges.addAll(edgeResolver.extractReflectiveEdges(
+                            file, edgeParser, invokers));
+                }
+                entries.set(index, entry.withEdges(edges));
             }
         }
 

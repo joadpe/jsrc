@@ -115,6 +115,49 @@ class CodebaseIndexTest {
     }
 
     @Test
+    void incrementalBuildRecomputesDispatchTargetsFromDeclaredReceiver() throws IOException {
+        Path contract = writeFile("Engine.java", """
+                interface Engine { void run(); }
+                """);
+        Path initialImplementation = writeFile("BaseEngine.java", """
+                class BaseEngine implements Engine {
+                    public void run() {}
+                }
+                """);
+        Path client = writeFile("Client.java", """
+                class Client {
+                    Engine engine;
+                    void execute() { engine.run(); }
+                }
+                """);
+        var parser = new HybridJavaParser();
+        var initial = new CodebaseIndex();
+        initial.build(parser,
+                List.of(contract, initialImplementation, client), tempDir, List.of());
+
+        Path addedImplementation = writeFile("NewEngine.java", """
+                class NewEngine implements Engine {
+                    public void run() {}
+                }
+                """);
+        var added = new CodebaseIndex();
+        added.build(parser,
+                List.of(contract, initialImplementation, addedImplementation, client),
+                tempDir, initial.getEntries());
+
+        assertEquals(java.util.Set.of("BaseEngine", "NewEngine"),
+                dispatchTargets(added, "Client", "execute", "run"));
+
+        var removed = new CodebaseIndex();
+        removed.build(parser,
+                List.of(contract, addedImplementation, client),
+                tempDir, added.getEntries());
+
+        assertEquals(java.util.Set.of("NewEngine"),
+                dispatchTargets(removed, "Client", "execute", "run"));
+    }
+
+    @Test
     @DisplayName("Incremental: should reindex unchanged entries with legacy call edges")
     void shouldReindexLegacyCallEdges() throws IOException {
         Path javaFile = writeFile("Legacy.java", """
@@ -187,6 +230,20 @@ class CodebaseIndexTest {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);
         return file;
+    }
+
+    private static java.util.Set<String> dispatchTargets(
+            CodebaseIndex index,
+            String callerClass,
+            String callerMethod,
+            String calleeMethod) {
+        return index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerClass().equals(callerClass)
+                        && edge.callerMethod().equals(callerMethod)
+                        && edge.calleeMethod().equals(calleeMethod))
+                .map(CallEdge::calleeClass)
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     // ---- Call edge extraction ----

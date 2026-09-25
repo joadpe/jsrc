@@ -167,6 +167,7 @@ class EdgeResolverTest {
                 }
                 class Widget {
                     Widget() {}
+                    Widget(String value) {}
                 }
                 """);
 
@@ -178,6 +179,8 @@ class EdgeResolverTest {
                         && edge.callerMethod().equals("factory")
                         && edge.calleeClass().equals("Widget")
                         && edge.calleeMethod().equals("Widget")
+                        && edge.calleeParameterTypes().isEmpty()
+                        && edge.argCount() == 0
                         && edge.invocationKind() == com.jsrc.app.model.InvocationKind.METHOD_REFERENCE),
                 () -> "Expected canonical constructor reference edge but got " + edges);
 
@@ -193,6 +196,68 @@ class EdgeResolverTest {
                         && edge.invocationKind() == com.jsrc.app.model.InvocationKind.METHOD_REFERENCE
                         && edge.resolutionLevel() == com.jsrc.app.model.ResolutionLevel.EXACT),
                 () -> "Expected resolved constructor reference edge but got " + resolvedEdges);
+    }
+
+    @Test
+    void constructorReferenceInfersFunctionalTypeFromMethodArgument() throws IOException {
+        Path file = writeFile("Registry.java", """
+                import java.util.function.Supplier;
+                class Registry {
+                    void register() { command(Widget::new); }
+                    void command(Supplier<?> factory) {}
+                }
+                class Widget {
+                    Widget() {}
+                    Widget(String value) {}
+                }
+                """);
+
+        List<CallEdge> edges = new EdgeResolver()
+                .extractCallEdges(file, new JavaParser());
+
+        assertTrue(edges.stream().anyMatch(edge ->
+                        edge.callerMethod().equals("register")
+                                && edge.calleeClass().equals("Widget")
+                                && edge.calleeMethod().equals("Widget")
+                                && edge.calleeParameterTypes().isEmpty()
+                                && edge.argCount() == 0),
+                () -> "Expected Supplier constructor signature but got " + edges);
+    }
+
+    @Test
+    void lambdaOwnsConstructorAndMethodReferenceEdges() throws IOException {
+        Path file = writeFile("Registration.java", """
+                import java.util.function.Supplier;
+                class Registration {
+                    void register() {
+                        Runnable action = () -> {
+                            new Widget();
+                            Supplier<Widget> factory = Widget::new;
+                        };
+                    }
+                }
+                class Widget {
+                    Widget() {}
+                }
+                """);
+
+        List<CallEdge> edges = new EdgeResolver()
+                .extractCallEdges(file, new JavaParser());
+
+        List<CallEdge> constructorEdges = edges.stream()
+                .filter(edge -> edge.calleeClass().equals("Widget")
+                        && edge.calleeMethod().equals("Widget"))
+                .toList();
+        assertEquals(2, constructorEdges.size(), () -> "Expected both constructor edges: " + edges);
+        assertTrue(constructorEdges.stream().allMatch(edge ->
+                edge.callerMethod().equals("register$lambda$1")),
+                () -> "Lambda edges must not belong to register: " + constructorEdges);
+        assertEquals(java.util.Set.of(
+                        com.jsrc.app.model.InvocationKind.CONSTRUCTOR,
+                        com.jsrc.app.model.InvocationKind.METHOD_REFERENCE),
+                constructorEdges.stream()
+                        .map(CallEdge::invocationKind)
+                        .collect(java.util.stream.Collectors.toSet()));
     }
 
     @Test
@@ -326,6 +391,37 @@ class EdgeResolverTest {
         CallEdge resolved = entries.get(1).callEdges().getFirst();
         assertEquals(com.jsrc.app.model.InvocationKind.STATIC, resolved.invocationKind());
         assertEquals(com.jsrc.app.model.ResolutionLevel.EXACT, resolved.resolutionLevel());
+    }
+
+    @Test
+    void superCallResolvesToDirectSupertypeAsSpecial() throws IOException {
+        Path file = writeFile("Child.java", """
+                class Base {
+                    void load(String value) {}
+                }
+                class Child extends Base {
+                    @Override
+                    void load(String value) { super.load(value); }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> edges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerClass().equals("Child")
+                        && edge.callerMethod().equals("load"))
+                .toList();
+        assertTrue(edges.stream().anyMatch(edge ->
+                        edge.calleeClass().equals("Base")
+                                && edge.calleeMethod().equals("load")
+                                && edge.invocationKind()
+                                == com.jsrc.app.model.InvocationKind.SPECIAL
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Expected exact super call edge but got " + edges);
     }
 
     @Test

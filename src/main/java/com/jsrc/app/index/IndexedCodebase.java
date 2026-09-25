@@ -123,7 +123,7 @@ public class IndexedCodebase {
                 indexed.smellsLoaded = entries.stream().anyMatch(e -> !e.smells().isEmpty());
                 indexed.preBuiltCallGraph = null; // Keep lazy until ensureGraph
                 indexed.lazyIndexData = sameEntries(persistedEntries, entries) ? lazyData : null;
-                indexed.migrationCache = loadedMigrations;
+                indexed.migrationCache = selectMigrations(entries, loadedMigrations);
                 return indexed;
             } catch (IOException e) {
                 throw new com.jsrc.app.exception.JsrcIOException(
@@ -253,7 +253,7 @@ public class IndexedCodebase {
         indexed.smellsLoaded = refreshed.stream().anyMatch(e -> !e.smells().isEmpty());
         indexed.preBuiltCallGraph = preBuiltGraph;
         indexed.lazyIndexData = sameEntries(existing, refreshed) ? lazyData : null;
-        indexed.migrationCache = loadedMigrations;
+        indexed.migrationCache = selectMigrations(refreshed, loadedMigrations);
         return indexed;
     }
 
@@ -285,6 +285,28 @@ public class IndexedCodebase {
                 .map(IndexEntry::path)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
         return leftPaths.equals(rightPaths);
+    }
+
+    private static java.util.Map<String, List<CachedMigration>> selectMigrations(
+            List<IndexEntry> entries,
+            java.util.Map<String, List<CachedMigration>> persistedMigrations) {
+        if (persistedMigrations == null || persistedMigrations.isEmpty()) {
+            return java.util.Map.of();
+        }
+        Set<String> visibleKeys = entries.stream()
+                .flatMap(entry -> java.util.stream.Stream.concat(
+                        java.util.stream.Stream.of(entry.path()),
+                        entry.classes().stream().flatMap(indexedClass ->
+                                java.util.stream.Stream.of(
+                                        indexedClass.name(), indexedClass.qualifiedName()))))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        var visibleMigrations = new java.util.LinkedHashMap<String, List<CachedMigration>>();
+        persistedMigrations.forEach((path, migrations) -> {
+            if (visibleKeys.contains(path)) {
+                visibleMigrations.put(path, migrations);
+            }
+        });
+        return java.util.Collections.unmodifiableMap(visibleMigrations);
     }
 
     // tryLoad(Path) without refresh removed — use tryLoad(Path, List<Path>) which auto-refreshes

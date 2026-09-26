@@ -11,6 +11,9 @@ public final class ExceptionDiagnosticMapper {
     private ExceptionDiagnosticMapper() {}
 
     public static DiagnosticCode codeFor(JsrcException exception) {
+        if (exception instanceof com.jsrc.app.exception.IndexSourceLevelMismatchException) {
+            return DiagnosticCode.INDEX_SOURCE_LEVEL_MISMATCH;
+        }
         if (exception instanceof BadUsageException) {
             return DiagnosticCode.INVALID_ARGUMENT;
         }

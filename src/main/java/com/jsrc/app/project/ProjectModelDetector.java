@@ -26,8 +26,12 @@ public final class ProjectModelDetector {
             "project\\s*\\(\\s*[\"']:(.*?)[\"']\\s*\\)");
     private static final Pattern GRADLE_TOOLCHAIN = Pattern.compile(
             "JavaLanguageVersion\\.of\\s*\\(\\s*(\\d+)\\s*\\)");
+    private static final Pattern GRADLE_RELEASE = Pattern.compile(
+            "options\\.release(?:\\.set\\s*\\(\\s*|\\s*=\\s*)(\\d+)\\s*\\)?");
     private static final Pattern GRADLE_COMPATIBILITY = Pattern.compile(
-            "(?:sourceCompatibility|targetCompatibility)\\s*=\\s*(?:JavaVersion\\.VERSION_)?([0-9_]+)");
+            "sourceCompatibility\\s*=\\s*(?:JavaVersion\\.VERSION_)?([0-9_]+)");
+    private static final Pattern GRADLE_SHARED_BLOCK = Pattern.compile(
+            "(?m)^\\s*(allprojects|subprojects)\\s*\\{");
 
     public ProjectModel detect(Path projectRoot) {
         Path root = projectRoot.toAbsolutePath().normalize();
@@ -49,7 +53,8 @@ public final class ProjectModelDetector {
             if (modulePaths.isEmpty()) {
                 String name = valueOrDefault(directText(rootPom, "artifactId"), rootName(root));
                 return new ProjectModel(root, BuildSystem.MAVEN, javaVersion,
-                        List.of(mavenModule(root, root, name, Set.of(), rootPom, diagnostics)),
+                        List.of(mavenModule(root, root, name, Set.of(), rootPom, diagnostics,
+                                javaVersion)),
                         diagnostics);
             }
 
@@ -82,7 +87,7 @@ public final class ProjectModelDetector {
             String rootModuleName = valueOrDefault(directText(rootPom, "artifactId"), rootName(root));
             ProjectModule rootModule = mavenModule(
                     root, root, rootModuleName, intersection(dependencyArtifacts(rootPom), moduleNames),
-                    rootPom, diagnostics);
+                    rootPom, diagnostics, javaVersion);
             if (hasExistingSources(rootModule)) {
                 modules.add(rootModule);
             }
@@ -93,7 +98,8 @@ public final class ProjectModelDetector {
                             data.name(),
                             intersection(data.dependencies(), moduleNames),
                             data.pom(),
-                            diagnostics))
+                            diagnostics,
+                            mavenEffectiveVersion(root, data.path(), rootPom, data.pom())))
                     .forEach(modules::add);
             return new ProjectModel(root, BuildSystem.MAVEN, javaVersion, modules, diagnostics);
         } catch (IOException | ParserConfigurationException | SAXException exception) {
@@ -111,11 +117,16 @@ public final class ProjectModelDetector {
             String settingsText = settings == null ? "" : Files.readString(settings);
             String buildText = rootBuild == null ? "" : Files.readString(rootBuild);
             List<String> modulePaths = gradleModules(settingsText);
-            String javaVersion = gradleJavaVersion(buildText);
+            GradleScopes scopes = gradleScopes(buildText);
+            String javaVersion = combineGradleLevels(
+                    scopes.root(), scopes.allProjects());
+            String sharedVersion = combineGradleLevels(
+                    scopes.allProjects(), scopes.subprojects());
             if (modulePaths.isEmpty()) {
                 return new ProjectModel(root, BuildSystem.GRADLE, javaVersion,
                         List.of(gradleModule(
-                                root, root, rootName(root), Set.of(), buildText, diagnostics)),
+                                root, root, rootName(root), Set.of(), buildText,
+                                diagnostics, javaVersion)),
                         diagnostics);
             }
 
@@ -152,7 +163,8 @@ public final class ProjectModelDetector {
                     rootName(root),
                     intersection(gradleDependencies(buildText), moduleNames),
                     buildText,
-                    diagnostics);
+                    diagnostics,
+                    javaVersion);
             if (hasExistingSources(rootModule)) {
                 modules.add(rootModule);
             }
@@ -163,7 +175,8 @@ public final class ProjectModelDetector {
                         data.name(),
                         intersection(gradleDependencies(data.buildFile()), moduleNames),
                         data.buildFile(),
-                        diagnostics));
+                        diagnostics,
+                        effectiveGradleModuleVersion(data.buildFile(), sharedVersion)));
             }
             return new ProjectModel(root, BuildSystem.GRADLE, javaVersion, modules, diagnostics);
         } catch (IOException exception) {
@@ -190,7 +203,8 @@ public final class ProjectModelDetector {
             String name,
             Set<String> dependencies,
             Element pom,
-            List<ProjectDiagnostic> diagnostics) {
+            List<ProjectDiagnostic> diagnostics,
+            String javaVersion) {
         Element build = directElement(pom, "build");
         String sourceDirectory = build == null ? null : directText(build, "sourceDirectory");
         String testSourceDirectory = build == null ? null : directText(build, "testSourceDirectory");
@@ -205,7 +219,64 @@ public final class ProjectModelDetector {
                 testSourceDirectory == null
                         ? List.of(path.resolve("src/test/java"), path.resolve("src/testFixtures/java"))
                         : confinedRoot(projectRoot, path, testSourceDirectory, diagnostics,
-                                "Maven test source root"));
+                                "Maven test source root"),
+                javaVersion);
+    }
+
+    private static String mavenEffectiveVersion(
+            Path root, Path modulePath, Element rootPom, Element modulePom) {
+        Element parent = directElement(modulePom, "parent");
+        if (parent == null) {
+            return mavenJavaVersion(modulePom);
+        }
+        String relativePath = directText(parent, "relativePath");
+        if (relativePath != null && relativePath.isEmpty()) {
+            return mavenJavaVersion(modulePom);
+        }
+        Path parentPom = modulePath.resolve(relativePath == null
+                        ? "../pom.xml" : relativePath)
+                .toAbsolutePath().normalize();
+        if (Files.isDirectory(parentPom)) {
+            parentPom = parentPom.resolve("pom.xml");
+        }
+        if (!parentPom.equals(root.resolve("pom.xml").toAbsolutePath().normalize())
+                || !java.util.Objects.equals(directText(parent, "groupId"),
+                        directText(rootPom, "groupId"))
+                || !java.util.Objects.equals(directText(parent, "artifactId"),
+                        directText(rootPom, "artifactId"))
+                || !java.util.Objects.equals(directText(parent, "version"),
+                        directText(rootPom, "version"))) {
+            return mavenJavaVersion(modulePom);
+        }
+        Element childProperties = directElement(modulePom, "properties");
+        Element parentProperties = directElement(rootPom, "properties");
+        for (String setting : List.of("release", "source")) {
+            String raw = compilerPluginSettingIn(
+                    mavenPlugins(modulePom), setting);
+            if (raw == null) {
+                raw = compilerPluginSettingIn(mavenPlugins(rootPom), setting);
+            }
+            if (raw == null) {
+                raw = compilerPluginSettingIn(
+                        mavenManagedPlugins(modulePom), setting);
+            }
+            if (raw == null) {
+                raw = compilerPluginSettingIn(
+                        mavenManagedPlugins(rootPom), setting);
+            }
+            if (raw == null) {
+                raw = childProperties == null ? null
+                        : directText(childProperties, "maven.compiler." + setting);
+            }
+            if (raw == null) {
+                raw = parentProperties == null ? null
+                        : directText(parentProperties, "maven.compiler." + setting);
+            }
+            if (raw != null) {
+                return resolveMavenVersion(raw, childProperties, parentProperties);
+            }
+        }
+        return "unknown";
     }
 
     private ProjectModule gradleModule(
@@ -214,7 +285,8 @@ public final class ProjectModelDetector {
             String name,
             Set<String> dependencies,
             String content,
-            List<ProjectDiagnostic> diagnostics) {
+            List<ProjectDiagnostic> diagnostics,
+            String javaVersion) {
         if (content.contains("sourceSets") && !containsSimpleSourceDirectory(content)) {
             diagnostics.add(new ProjectDiagnostic(
                     "BUILD_MODEL_PARTIAL",
@@ -226,7 +298,7 @@ public final class ProjectModelDetector {
         List<Path> testRoots = gradleSourceRoots(
                         content, "test", projectRoot, path, diagnostics)
                 .orElse(List.of(path.resolve("src/test/java"), path.resolve("src/testFixtures/java")));
-        return module(path, name, dependencies, mainRoots, testRoots);
+        return module(path, name, dependencies, mainRoots, testRoots, javaVersion);
     }
 
     private ProjectModule conventionalModule(Path path, String name, Set<String> dependencies) {
@@ -235,7 +307,8 @@ public final class ProjectModelDetector {
                 name,
                 dependencies,
                 List.of(path.resolve("src/main/java")),
-                List.of(path.resolve("src/test/java"), path.resolve("src/testFixtures/java")));
+                List.of(path.resolve("src/test/java"), path.resolve("src/testFixtures/java")),
+                "unknown");
     }
 
     private ProjectModule module(
@@ -243,7 +316,8 @@ public final class ProjectModelDetector {
             String name,
             Set<String> dependencies,
             List<Path> mainRoots,
-            List<Path> testRoots) {
+            List<Path> testRoots,
+            String javaVersion) {
         return new ProjectModule(
                 name,
                 path,
@@ -253,7 +327,8 @@ public final class ProjectModelDetector {
                         path.resolve("target/generated-sources/annotations"),
                         path.resolve("build/generated/sources/annotationProcessor/java/main")),
                 List.of(path.resolve("target"), path.resolve("build"), path.resolve(".gradle")),
-                List.copyOf(dependencies));
+                List.copyOf(dependencies),
+                javaVersion);
     }
 
     private static Element parseXml(Path pom)
@@ -270,13 +345,74 @@ public final class ProjectModelDetector {
     }
 
     private static String mavenJavaVersion(Element project) {
-        for (String property : List.of("maven.compiler.release", "maven.compiler.source", "java.version")) {
-            NodeList values = project.getElementsByTagName(property);
-            if (values.getLength() > 0 && !values.item(0).getTextContent().isBlank()) {
-                return normalizeJavaVersion(values.item(0).getTextContent().trim());
+        Element properties = directElement(project, "properties");
+        for (String setting : List.of("release", "source")) {
+            String raw = mavenSetting(project, setting);
+            if (raw != null) {
+                return resolveMavenVersion(raw, properties, null);
             }
         }
         return "unknown";
+    }
+
+    private static String mavenSetting(Element project, String setting) {
+        String explicit = compilerPluginSetting(project, setting);
+        if (explicit != null && !explicit.isBlank()) {
+            return explicit;
+        }
+        Element properties = directElement(project, "properties");
+        String property = properties == null ? null
+                : directText(properties, "maven.compiler." + setting);
+        return property == null || property.isBlank() ? null : property;
+    }
+
+    private static String resolveMavenVersion(
+            String raw, Element childProperties, Element parentProperties) {
+        String value = raw;
+        if (value.startsWith("${") && value.endsWith("}")) {
+            String key = value.substring(2, value.length() - 1);
+            value = childProperties == null ? null : directText(childProperties, key);
+            if (value == null && parentProperties != null) {
+                value = directText(parentProperties, key);
+            }
+        }
+        return value == null || !value.matches("(?:1\\.)?\\d+")
+                ? "unknown" : normalizeJavaVersion(value);
+    }
+
+    private static String compilerPluginSetting(Element project, String setting) {
+        String direct = compilerPluginSettingIn(mavenPlugins(project), setting);
+        if (direct != null) {
+            return direct;
+        }
+        return compilerPluginSettingIn(mavenManagedPlugins(project), setting);
+    }
+
+    private static Element mavenPlugins(Element project) {
+        Element build = directElement(project, "build");
+        return build == null ? null : directElement(build, "plugins");
+    }
+
+    private static Element mavenManagedPlugins(Element project) {
+        Element build = directElement(project, "build");
+        Element management = build == null ? null : directElement(build, "pluginManagement");
+        return management == null ? null : directElement(management, "plugins");
+    }
+
+    private static String compilerPluginSettingIn(Element plugins, String setting) {
+        if (plugins == null) {
+            return null;
+        }
+        NodeList children = plugins.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            if (children.item(i) instanceof Element plugin
+                    && "plugin".equals(plugin.getTagName())
+                    && "maven-compiler-plugin".equals(directText(plugin, "artifactId"))) {
+                Element configuration = directElement(plugin, "configuration");
+                return configuration == null ? null : directText(configuration, setting);
+            }
+        }
+        return null;
     }
 
     private static List<String> directChildren(
@@ -361,15 +497,90 @@ public final class ProjectModelDetector {
     }
 
     private static String gradleJavaVersion(String buildFile) {
-        Matcher toolchain = GRADLE_TOOLCHAIN.matcher(buildFile);
-        if (toolchain.find()) {
-            return toolchain.group(1);
+        String activeBuild = buildFile.replaceAll(
+                "(?s)/\\*.*?\\*/|(?m)//[^\\r\\n]*", " ");
+        Matcher release = GRADLE_RELEASE.matcher(activeBuild);
+        if (activeBuild.contains("options.release")) {
+            return release.find() ? release.group(1) : "unknown";
         }
-        Matcher compatibility = GRADLE_COMPATIBILITY.matcher(buildFile);
-        if (compatibility.find()) {
-            return normalizeJavaVersion(compatibility.group(1).replace('_', '.'));
+        Matcher compatibility = GRADLE_COMPATIBILITY.matcher(activeBuild);
+        if (activeBuild.contains("sourceCompatibility")) {
+            return compatibility.find()
+                    ? normalizeJavaVersion(compatibility.group(1).replace('_', '.'))
+                    : "unknown";
+        }
+        Matcher toolchain = GRADLE_TOOLCHAIN.matcher(activeBuild);
+        if (activeBuild.contains("languageVersion")) {
+            return toolchain.find() ? toolchain.group(1) : "unknown";
         }
         return "unknown";
+    }
+
+    private static String effectiveGradleModuleVersion(
+            String moduleBuild, String sharedVersion) {
+        String ownVersion = gradleJavaVersion(moduleBuild);
+        if (!hasGradleVersionDeclaration(moduleBuild)) {
+            return sharedVersion;
+        }
+        if (!"unknown".equals(sharedVersion)
+                && !"unknown".equals(ownVersion)
+                && !sharedVersion.equals(ownVersion)) {
+            return "unknown";
+        }
+        return ownVersion;
+    }
+
+    private static String combineGradleLevels(String first, String second) {
+        boolean firstDeclared = hasGradleVersionDeclaration(first);
+        boolean secondDeclared = hasGradleVersionDeclaration(second);
+        if (!firstDeclared) {
+            return gradleJavaVersion(second);
+        }
+        if (!secondDeclared) {
+            return gradleJavaVersion(first);
+        }
+        String firstVersion = gradleJavaVersion(first);
+        String secondVersion = gradleJavaVersion(second);
+        return firstVersion.equals(secondVersion) ? firstVersion : "unknown";
+    }
+
+    private static boolean hasGradleVersionDeclaration(String buildFile) {
+        String active = buildFile.replaceAll(
+                "(?s)/\\*.*?\\*/|(?m)//[^\\r\\n]*", " ");
+        return active.contains("options.release")
+                || active.contains("sourceCompatibility")
+                || active.contains("languageVersion");
+    }
+
+    private static GradleScopes gradleScopes(String buildFile) {
+        String active = buildFile.replaceAll(
+                "(?s)/\\*.*?\\*/|(?m)//[^\\r\\n]*", " ");
+        StringBuilder root = new StringBuilder();
+        StringBuilder allProjects = new StringBuilder();
+        StringBuilder subprojects = new StringBuilder();
+        Matcher blocks = GRADLE_SHARED_BLOCK.matcher(active);
+        int cursor = 0;
+        while (blocks.find(cursor)) {
+            int opening = blocks.end() - 1;
+            int depth = 1;
+            int closing = opening + 1;
+            while (closing < active.length() && depth > 0) {
+                char character = active.charAt(closing++);
+                if (character == '{') depth++;
+                if (character == '}') depth--;
+            }
+            if (depth != 0) {
+                break;
+            }
+            root.append(active, cursor, blocks.start());
+            String body = active.substring(opening + 1, closing - 1);
+            ("allprojects".equals(blocks.group(1)) ? allProjects : subprojects)
+                    .append(body).append('\n');
+            cursor = closing;
+        }
+        root.append(active.substring(cursor));
+        return new GradleScopes(
+                root.toString(), allProjects.toString(), subprojects.toString());
     }
 
     private static java.util.Optional<List<Path>> gradleSourceRoots(
@@ -501,4 +712,6 @@ public final class ProjectModelDetector {
             String name, Path path, Set<String> dependencies, Element pom) {}
 
     private record GradleModuleData(String name, Path path, String buildFile) {}
+
+    private record GradleScopes(String root, String allProjects, String subprojects) {}
 }

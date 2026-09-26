@@ -92,7 +92,14 @@ public abstract class PicocliAdapter implements Callable<Integer> {
                 System.err.println(metrics);
             }
 
-            return ExitCodeMapper.mapToExitCode(result);
+            int exitCode = ExitCodeMapper.mapToExitCode(result);
+            if (!parent.versionedJsonEnabled()
+                    && exitCode == ExitCode.OK
+                    && ctx.sourceDiagnostics().stream().anyMatch(diagnostic ->
+                            !"SOURCE_LEVEL_UNKNOWN".equals(diagnostic.code()))) {
+                return ExitCode.IO_ERROR;
+            }
+            return exitCode;
         } catch (JsrcException e) {
             if (parent.versionedJsonEnabled()) {
                 new com.jsrc.app.output.VersionedJsonPrintStream(

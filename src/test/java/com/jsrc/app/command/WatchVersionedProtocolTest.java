@@ -84,7 +84,7 @@ class WatchVersionedProtocolTest {
         var files = List.of(configured, source);
         var config = new ProjectConfig(
                 List.of("custom-src"), List.of("**/Excluded.java"),
-                "22", ArchitectureConfig.empty());
+                "21", ArchitectureConfig.empty());
 
         var originalIn = System.in;
         var originalOut = System.out;

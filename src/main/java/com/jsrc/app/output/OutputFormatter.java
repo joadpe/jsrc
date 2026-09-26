@@ -229,11 +229,20 @@ public interface OutputFormatter {
     static OutputFormatter create(boolean json, boolean signatureOnly, java.util.Set<String> fields,
                                    java.io.PrintStream out, com.jsrc.app.cli.BudgetContext budgetContext,
                                    JsonProtocol protocol, String commandName) {
+        return create(json, signatureOnly, fields, out, budgetContext, protocol, commandName,
+                java.util.List.of());
+    }
+
+    /** Factory method with source compatibility diagnostics. */
+    static OutputFormatter create(boolean json, boolean signatureOnly, java.util.Set<String> fields,
+                                   java.io.PrintStream out, com.jsrc.app.cli.BudgetContext budgetContext,
+                                   JsonProtocol protocol, String commandName,
+                                   java.util.List<com.jsrc.app.project.SourceDiagnostic> diagnostics) {
         if (!json) {
             return new TextFormatter(signatureOnly, out);
         }
         java.io.PrintStream effectiveOut = protocol == JsonProtocol.V1
-                ? new VersionedJsonPrintStream(out, commandName, budgetContext)
+                ? new VersionedJsonPrintStream(out, commandName, budgetContext, diagnostics)
                 : out;
         if (budgetContext != null && budgetContext.profile() != com.jsrc.app.cli.BudgetProfile.STANDARD) {
             return new BudgetAwareJsonFormatter(signatureOnly, fields, effectiveOut, budgetContext);

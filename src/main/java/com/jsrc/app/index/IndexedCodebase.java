@@ -98,6 +98,26 @@ public class IndexedCodebase {
             List<Path> currentFiles,
             boolean frozenIndex,
             Map<Path, com.jsrc.app.project.SourceSet> sourceSets) {
+        return tryLoad(sourceRoot, currentFiles, frozenIndex, sourceSets, Map.of());
+    }
+
+    public static IndexedCodebase tryLoad(
+            Path sourceRoot,
+            List<Path> currentFiles,
+            boolean frozenIndex,
+            Map<Path, com.jsrc.app.project.SourceSet> sourceSets,
+            Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels) {
+        return tryLoad(sourceRoot, currentFiles, frozenIndex, sourceSets,
+                sourceLevels, currentFiles);
+    }
+
+    public static IndexedCodebase tryLoad(
+            Path sourceRoot,
+            List<Path> currentFiles,
+            boolean frozenIndex,
+            Map<Path, com.jsrc.app.project.SourceSet> sourceSets,
+            Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels,
+            List<Path> discoveredFiles) {
         Path v2File = sourceRoot.resolve(".jsrc/index.bin");
         
         // Frozen mode: load existing index without filesystem walk
@@ -113,6 +133,22 @@ public class IndexedCodebase {
                 List<IndexEntry> persistedEntries = lazyData.getData().entries();
                 List<IndexEntry> entries = selectEntries(
                         sourceRoot, currentFiles, persistedEntries);
+                Set<Path> discovered = discoveredFiles.stream()
+                        .map(path -> path.toAbsolutePath().normalize())
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet());
+                for (IndexEntry entry : persistedEntries) {
+                    Path file = sourceRoot.resolve(entry.path()).toAbsolutePath().normalize();
+                    if (!discovered.contains(file)) {
+                        continue;
+                    }
+                    int currentVersion = sourceLevels.containsKey(file)
+                            ? sourceLevels.get(file).version() : 0;
+                    if (entry.sourceVersion() != currentVersion) {
+                        throw new com.jsrc.app.exception.IndexSourceLevelMismatchException(
+                                "Frozen index source level differs for " + entry.path()
+                                        + ". Run 'jsrc index' or omit --frozen-index.");
+                    }
+                }
                 java.util.Map<String, List<CachedMigration>> loadedMigrations = lazyData.getData().migrations();
                 
                 logger.info("Loaded V2 binary index in FROZEN mode (LAZY): {} entries", entries.size());
@@ -168,11 +204,12 @@ public class IndexedCodebase {
             byPath.put(e.path(), e);
         }
 
-        var parser = new HybridJavaParser();
+        var parser = new HybridJavaParser(sourceLevels);
         var updatedIndex = new CodebaseIndex();
         List<IndexEntry> incrementalBase = forceRefresh ? List.of() : existing;
         int reindexed = updatedIndex.build(
-                parser, currentFiles, sourceRoot, incrementalBase, List.of(), sourceSets);
+                parser, currentFiles, sourceRoot, incrementalBase, List.of(), sourceSets,
+                sourceLevels);
         List<IndexEntry> refreshed = new ArrayList<>(updatedIndex.getEntries());
         Set<String> currentPaths = refreshed.stream()
                 .map(IndexEntry::path)
@@ -186,7 +223,8 @@ public class IndexedCodebase {
                 IndexEntry previous = byPath.get(entry.path());
                 if (!forceRefresh && previous != null
                         && previous.contentHash().equals(entry.contentHash())
-                        && previous.sourceSet() == entry.sourceSet()) {
+                        && previous.sourceSet() == entry.sourceSet()
+                        && previous.sourceVersion() == entry.sourceVersion()) {
                     continue;
                 }
                 Path file = sourceRoot.resolve(entry.path());

@@ -20,13 +20,21 @@ public final class VersionedJsonPrintStream extends PrintStream {
     private final PrintStream delegate;
     private final String command;
     private final BudgetContext budgetContext;
+    private final List<com.jsrc.app.project.SourceDiagnostic> sourceDiagnostics;
 
     public VersionedJsonPrintStream(
             PrintStream delegate, String command, BudgetContext budgetContext) {
+        this(delegate, command, budgetContext, List.of());
+    }
+
+    public VersionedJsonPrintStream(
+            PrintStream delegate, String command, BudgetContext budgetContext,
+            List<com.jsrc.app.project.SourceDiagnostic> sourceDiagnostics) {
         super(OutputStream.nullOutputStream());
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.command = Objects.requireNonNull(command, "command");
         this.budgetContext = Objects.requireNonNull(budgetContext, "budgetContext");
+        this.sourceDiagnostics = List.copyOf(sourceDiagnostics);
     }
 
     @Override
@@ -88,7 +96,14 @@ public final class VersionedJsonPrintStream extends PrintStream {
         envelope.put("status", "error");
         envelope.put("data", null);
         envelope.put("diagnostics", List.of(diagnostic));
-        envelope.put("meta", metadata(false));
+        Map<String, Object> errorMeta = metadata(true, false);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> confidence = (Map<String, Object>) errorMeta.get("confidence");
+        confidence.put("reasons", List.of());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> partial = (Map<String, Object>) errorMeta.get("partial");
+        partial.put("reasons", List.of());
+        envelope.put("meta", errorMeta);
         return envelope;
     }
 
@@ -97,7 +112,7 @@ public final class VersionedJsonPrintStream extends PrintStream {
         boolean truncated = isTruncated(originalPayload);
         boolean ambiguous = originalPayload instanceof Map<?, ?> map
                 && Boolean.TRUE.equals(map.get("ambiguous"));
-        boolean partial = truncated || ambiguous;
+        boolean partial = truncated || ambiguous || !sourceDiagnostics.isEmpty();
         String status = partial ? "partial" : isEmpty(payload) ? "empty" : "ok";
 
         Map<String, Object> envelope = new LinkedHashMap<>();
@@ -106,9 +121,18 @@ public final class VersionedJsonPrintStream extends PrintStream {
         envelope.put("command", command);
         envelope.put("status", status);
         envelope.put("data", payload);
-        envelope.put("diagnostics", truncated
-                ? List.of(truncationDiagnostic())
-                : ambiguous ? List.of(unresolvedSymbolDiagnostic()) : List.of());
+        List<Map<String, Object>> diagnostics = new ArrayList<>();
+        if (truncated) diagnostics.add(truncationDiagnostic());
+        if (ambiguous) diagnostics.add(unresolvedSymbolDiagnostic());
+        sourceDiagnostics.stream().map(diagnostic -> {
+            Map<String, Object> map = new LinkedHashMap<String, Object>();
+            map.put("code", diagnostic.code());
+            map.put("severity", "warning");
+            map.put("message", diagnostic.message());
+            map.put("file", diagnostic.file().toString());
+            return map;
+        }).forEach(diagnostics::add);
+        envelope.put("diagnostics", diagnostics);
         envelope.put("meta", metadata(partial, truncated));
         return envelope;
     }
@@ -125,10 +149,21 @@ public final class VersionedJsonPrintStream extends PrintStream {
         }
 
         envelope.put("status", "partial");
-        envelope.put("diagnostics", List.of(truncationDiagnostic()));
-        envelope.put("meta", metadata(true));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> diagnostics = new ArrayList<>(
+                (List<Map<String, Object>>) envelope.get("diagnostics"));
+        if (diagnostics.stream().noneMatch(diagnostic ->
+                OUTPUT_TRUNCATED.equals(diagnostic.get("code")))) {
+            diagnostics.add(truncationDiagnostic());
+        }
+        envelope.put("diagnostics", diagnostics);
+        envelope.put("meta", metadata(true, true));
         Object data = mutablePayload(envelope.get("data"));
         envelope.put("data", data);
+
+        if (serializedSize(envelope) > maxBytes) {
+            envelope.put("diagnostics", condenseSourceDiagnostics(diagnostics));
+        }
 
         while (serializedSize(envelope) > maxBytes && removeLast(data)) {
             // Remove complete fields or items until the envelope fits.
@@ -136,7 +171,36 @@ public final class VersionedJsonPrintStream extends PrintStream {
         if (serializedSize(envelope) > maxBytes) {
             envelope.put("data", null);
         }
+        if (serializedSize(envelope) > maxBytes) {
+            return fitErrorToBudget(errorEnvelope(
+                    DiagnosticCode.OUTPUT_TRUNCATED,
+                    "Diagnostics exceed output budget"));
+        }
         return envelope;
+    }
+
+    private static List<Map<String, Object>> condenseSourceDiagnostics(
+            List<Map<String, Object>> diagnostics) {
+        List<Map<String, Object>> condensed = new ArrayList<>();
+        java.util.Set<String> seenSourceCodes = new java.util.HashSet<>();
+        int omitted = 0;
+        for (Map<String, Object> diagnostic : diagnostics) {
+            if (diagnostic.containsKey("file")
+                    && !seenSourceCodes.add(String.valueOf(diagnostic.get("code")))) {
+                omitted++;
+            } else {
+                condensed.add(diagnostic);
+            }
+        }
+        if (omitted > 0) {
+            Map<String, Object> summary = new LinkedHashMap<>();
+            summary.put("code", "SOURCE_DIAGNOSTICS_TRUNCATED");
+            summary.put("severity", "warning");
+            summary.put("message", omitted
+                    + " additional source compatibility diagnostics omitted");
+            condensed.add(summary);
+        }
+        return condensed;
     }
 
     private Map<String, Object> metadata(boolean truncated) {
@@ -155,13 +219,15 @@ public final class VersionedJsonPrintStream extends PrintStream {
 
         Map<String, Object> confidence = new LinkedHashMap<>();
         confidence.put("level", partialResult ? "partial" : "exact");
+        String reason = truncated ? "truncated"
+                : !sourceDiagnostics.isEmpty() ? "source-compatibility" : "unresolved-symbol";
         confidence.put("reasons", partialResult
-                ? List.of(truncated ? "truncated" : "unresolved-symbol")
+                ? List.of(reason)
                 : List.of());
 
         Map<String, Object> partial = new LinkedHashMap<>();
         partial.put("reasons", partialResult
-                ? List.of(truncated ? "truncated" : "unresolved-symbol")
+                ? List.of(reason)
                 : List.of());
 
         Map<String, Object> meta = new LinkedHashMap<>();

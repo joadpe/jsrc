@@ -64,6 +64,91 @@ class WatchCommandTest {
      * A2: Second identical command with no file changes should NOT call tryLoad again.
      */
     @Test
+    void editDuringIndexRefreshIsDetectedOnNextWatchCommand(@TempDir Path tempDir)
+            throws Exception {
+        Path file = createSimpleJavaFile(tempDir);
+        var scans = new AtomicInteger();
+        var originalIn = System.in;
+        var originalOut = System.out;
+        System.setIn(new ByteArrayInputStream(
+                "{\"command\":\"overview\"}\n{\"command\":\"overview\"}\n"
+                        .getBytes()));
+        System.setOut(new PrintStream(new ByteArrayOutputStream(), true));
+        try {
+            new WatchCommand() {
+                private boolean changed;
+
+                @Override
+                protected com.jsrc.app.project.SourceCompatibilityScanner.Result scanSources(
+                        List<Path> files, com.jsrc.app.project.ProjectModel model,
+                        com.jsrc.app.config.ProjectConfig config) {
+                    scans.incrementAndGet();
+                    return super.scanSources(files, model, config);
+                }
+
+                @Override
+                protected IndexedCodebase callTryLoad(
+                        Path root, List<Path> files, boolean frozenIndex) {
+                    IndexedCodebase loaded = super.callTryLoad(root, files, frozenIndex);
+                    if (!changed) {
+                        changed = true;
+                        try {
+                            var modified = Files.getLastModifiedTime(file);
+                            Files.writeString(file,
+                                    Files.readString(file).replace("run()", "act()"));
+                            Files.setLastModifiedTime(file, modified);
+                        } catch (IOException exception) {
+                            throw new java.io.UncheckedIOException(exception);
+                        }
+                    }
+                    return loaded;
+                }
+            }.execute(createContext(tempDir));
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+        assertEquals(2, scans.get());
+    }
+
+    @Test
+    void repeatedCommandsDoNotRescanUnchangedSources(@TempDir Path tempDir)
+            throws Exception {
+        createSimpleJavaFile(tempDir);
+        Path sources = Files.createDirectories(tempDir.resolve("src/main/java"));
+        for (int index = 0; index < 50; index++) {
+            Files.writeString(sources.resolve("Feature" + index + ".java"),
+                    "class Feature" + index + " {}\n");
+        }
+        assertEquals(0, com.jsrc.app.cli.JsrcCliFactory.create().execute(
+                "--dir", tempDir.toString(), "index"));
+        Files.writeString(sources.resolve("Feature0.java"),
+                "class Feature0 { int changed; }\n");
+        var scans = new AtomicInteger();
+        var originalIn = System.in;
+        var originalOut = System.out;
+        System.setIn(new ByteArrayInputStream(
+                "{\"command\":\"overview\"}\n{\"command\":\"overview\"}\n"
+                        .getBytes()));
+        System.setOut(new PrintStream(new ByteArrayOutputStream(), true));
+        try {
+            new WatchCommand() {
+                @Override
+                protected com.jsrc.app.project.SourceCompatibilityScanner.Result scanSources(
+                        List<Path> files, com.jsrc.app.project.ProjectModel model,
+                        com.jsrc.app.config.ProjectConfig config) {
+                    scans.incrementAndGet();
+                    return super.scanSources(files, model, config);
+                }
+            }.execute(createContext(tempDir));
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+        assertEquals(1, scans.get());
+    }
+
+    @Test
     void secondCommandWithoutChangesSkipsLoad(@TempDir Path tempDir) throws Exception {
         createSimpleJavaFile(tempDir);
         tryLoadCounter.set(0);
@@ -100,6 +185,49 @@ class WatchCommandTest {
      * A3: After touching a Java file mtime, next command should refresh (tryLoad called again).
      */
     @Test
+    void commandAfterBuildSourceLevelChangeRefreshesIndex(@TempDir Path tempDir) throws Exception {
+        createSimpleJavaFile(tempDir);
+        Path sourceRoot = Files.createDirectories(tempDir.resolve("src/main/java"));
+        Files.writeString(sourceRoot.resolve("BuildLevel.java"), "class BuildLevel {}");
+        Path pom = tempDir.resolve("pom.xml");
+        Files.writeString(pom, """
+                <project><modelVersion>4.0.0</modelVersion>
+                <groupId>example</groupId><artifactId>watch</artifactId><version>1</version>
+                <properties><maven.compiler.release>21</maven.compiler.release></properties>
+                </project>
+                """);
+        tryLoadCounter.set(0);
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var commands = new PipedOutputStream();
+        System.setIn(new PipedInputStream(commands));
+        System.setOut(new PrintStream(new ByteArrayOutputStream(), true));
+        try {
+            var watch = createInstrumentedWatchCommand();
+            var executor = Executors.newSingleThreadExecutor();
+            var future = executor.submit(() -> watch.execute(createContext(tempDir)));
+            commands.write("{\"command\":\"overview\"}\n".getBytes());
+            commands.flush();
+            Thread.sleep(500);
+            Files.writeString(pom, Files.readString(pom).replace(
+                    "<maven.compiler.release>21</maven.compiler.release>",
+                    "<maven.compiler.release>8</maven.compiler.release>"));
+            commands.write("{\"command\":\"overview\"}\n".getBytes());
+            commands.flush();
+            Thread.sleep(500);
+            commands.write("{\"command\":\"quit\"}\n".getBytes());
+            commands.close();
+            future.get(5, TimeUnit.SECONDS);
+            executor.shutdownNow();
+            assertTrue(tryLoadCounter.get() >= 2,
+                    "Changing only the declared source level must invalidate the watch cache");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
     void commandAfterFileChangeRefreshesIndex(@TempDir Path tempDir) throws Exception {
         var javaFile = createSimpleJavaFile(tempDir);
         tryLoadCounter.set(0);
@@ -123,8 +251,10 @@ class WatchCommandTest {
             inputCommands.flush();
             Thread.sleep(500);
 
-            Files.setLastModifiedTime(javaFile, 
-                    java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 10000));
+            var originalTime = Files.getLastModifiedTime(javaFile);
+            String original = Files.readString(javaFile);
+            Files.writeString(javaFile, original.replace("run()", "act()"));
+            Files.setLastModifiedTime(javaFile, originalTime);
 
             inputCommands.write("{\"command\":\"overview\"}\n".getBytes());
             inputCommands.flush();
@@ -151,6 +281,69 @@ class WatchCommandTest {
     /**
      * A4: {"command":"quit"} exits cleanly, protocol unchanged.
      */
+    @Test
+    void watchReportsQuarantinedSourceInsteadOfSilentEmptyResult(@TempDir Path tempDir)
+            throws Exception {
+        Path sourceRoot = Files.createDirectories(tempDir.resolve("src/main/java"));
+        Files.writeString(sourceRoot.resolve("Point.java"), "record Point(int x) {}");
+        Files.writeString(tempDir.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                <groupId>example</groupId><artifactId>watch</artifactId><version>1</version>
+                <properties><maven.compiler.release>8</maven.compiler.release></properties>
+                </project>
+                """);
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setIn(new ByteArrayInputStream(
+                "{\"command\":\"overview\"}\n{\"command\":\"quit\"}\n".getBytes()));
+        System.setOut(new PrintStream(captured, true));
+        try {
+            new WatchCommand().execute(createContext(tempDir));
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+        assertTrue(captured.toString().contains("SOURCE_SYNTAX_UNSUPPORTED"));
+    }
+
+    @Test
+    void frozenWatchReportsInitialQuarantinedSource(@TempDir Path tempDir) throws Exception {
+        Path file = createSimpleJavaFile(tempDir);
+        var diagnostic = new com.jsrc.app.project.SourceDiagnostic(
+                "SOURCE_SYNTAX_UNSUPPORTED", tempDir.resolve("Point.java"),
+                "Source cannot be parsed as Java 8");
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var captured = new ByteArrayOutputStream();
+        System.setIn(new ByteArrayInputStream(
+                "{\"command\":\"overview\"}\n{\"command\":\"quit\"}\n".getBytes()));
+        System.setOut(new PrintStream(captured, true));
+        try {
+            var ctx = new CommandContext(
+                    List.of(file), tempDir.toString(), null,
+                    OutputFormatter.create(true, false, null),
+                    null, new com.jsrc.app.parser.HybridJavaParser(),
+                    false, null, false, false, null, true, null,
+                    java.util.Set.of(), java.util.Map.of(), List.of(diagnostic));
+            new WatchCommand() {
+                @Override
+                protected IndexedCodebase callTryLoad(
+                        Path root, List<Path> files, boolean frozenIndex) {
+                    return null;
+                }
+            }.execute(ctx);
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+        Map<?, ?> response = assertInstanceOf(Map.class,
+                JsonReader.parse(captured.toString().trim()));
+        assertEquals("partial", response.get("status"));
+        assertNotEquals(0L, response.get("exit"));
+        assertTrue(captured.toString().contains("SOURCE_SYNTAX_UNSUPPORTED"));
+    }
+
     @Test
     void quitCommandExitsCleanly(@TempDir Path tempDir) throws Exception {
         createSimpleJavaFile(tempDir);

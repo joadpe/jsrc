@@ -26,8 +26,21 @@ public record ProjectConfig(
         SecurityConfig security,
         MigrationConfig migration,
         DebtConfig debt,
-        ProjectInfo project
+        ProjectInfo project,
+        Map<String, String> moduleJavaVersions
 ) {
+    public ProjectConfig {
+        moduleJavaVersions = Map.copyOf(moduleJavaVersions);
+    }
+
+    public ProjectConfig(List<String> sourceRoots, List<String> excludes,
+                         String javaVersion, String budget, ArchitectureConfig architecture,
+                         PerformanceConfig performance, SecurityConfig security,
+                         MigrationConfig migration, DebtConfig debt, ProjectInfo project) {
+        this(sourceRoots, excludes, javaVersion, budget, architecture,
+                performance, security, migration, debt, project, Map.of());
+    }
+
     /** Backward-compatible constructor for configs without new sections. */
     public ProjectConfig(List<String> sourceRoots, List<String> excludes,
                           String javaVersion, ArchitectureConfig architecture) {
@@ -133,8 +146,14 @@ public record ProjectConfig(
         MigrationConfig mig = parseMigration((Map<String, Object>) root.get("migration"));
         DebtConfig debt = parseDebt((Map<String, Object>) root.get("debt"));
         ProjectInfo proj = parseProject((Map<String, Object>) root.get("project"));
+        Map<String, String> moduleJavaVersions = new java.util.LinkedHashMap<>();
+        if (root.get("moduleJavaVersions") instanceof Map<?, ?> versions) {
+            versions.forEach((path, version) ->
+                    moduleJavaVersions.put(path.toString(), version.toString()));
+        }
 
-        return new ProjectConfig(sourceRoots, excludes, javaVersion, budget, arch, perf, sec, mig, debt, proj);
+        return new ProjectConfig(sourceRoots, excludes, javaVersion, budget, arch,
+                perf, sec, mig, debt, proj, moduleJavaVersions);
     }
 
     @SuppressWarnings("unchecked")

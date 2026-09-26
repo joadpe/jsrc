@@ -82,6 +82,15 @@ public class CodebaseIndex {
                      List<IndexEntry> existing,
                      List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers,
                      Map<Path, com.jsrc.app.project.SourceSet> sourceSets) {
+        return build(parser, files, sourceRoot, existing, invokers, sourceSets,
+                Map.of());
+    }
+
+    public int build(CodeParser parser, List<Path> files, Path sourceRoot,
+                     List<IndexEntry> existing,
+                     List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers,
+                     Map<Path, com.jsrc.app.project.SourceSet> sourceSets,
+                     Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels) {
         Map<String, IndexEntry> existingByPath = new LinkedHashMap<>();
         for (IndexEntry e : existing) {
             existingByPath.put(e.path(), e);
@@ -94,9 +103,10 @@ public class CodebaseIndex {
 
         entries.clear();
         int reindexed = 0;
-        var edgeConfig = new com.github.javaparser.ParserConfiguration().setLanguageLevel(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_21); var edgeParser = new JavaParser(edgeConfig); // reused across files
+        var edgeParsers = new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
 
         for (Path file : files) {
+            JavaParser edgeParser = edgeParsers.forFile(file);
             String relativePath = sourceRoot.relativize(file).toString();
             var sourceSet = sourceSets.getOrDefault(
                     file, com.jsrc.app.project.SourceSet.UNKNOWN);
@@ -106,8 +116,11 @@ public class CodebaseIndex {
                 long lastModified = Files.getLastModifiedTime(file).toMillis();
 
                 IndexEntry prev = existingByPath.get(relativePath);
+                int sourceVersion = sourceLevels.containsKey(file)
+                        ? sourceLevels.get(file).version() : 0;
                 if (prev != null && prev.contentHash().equals(hash)
                         && prev.sourceSet() == sourceSet
+                        && prev.sourceVersion() == sourceVersion
                         && hasCanonicalCallEdgeSchema(prev)) {
                     entries.add(prev);
                     unchangedFiles.put(relativePath, file);
@@ -143,7 +156,7 @@ public class CodebaseIndex {
 
                 entries.add(new IndexEntry(
                         relativePath, hash, lastModified, sourceSet,
-                        indexed, edges, List.of()));
+                        indexed, edges, List.of(), sourceVersion));
                 reindexed++;
             } catch (IOException ex) {
                 logger.error("Error indexing {}: {}", file, ex.getMessage());
@@ -158,6 +171,7 @@ public class CodebaseIndex {
                 IndexEntry entry = entries.get(index);
                 Path file = unchangedFiles.get(entry.path());
                 if (file == null) continue;
+                JavaParser edgeParser = edgeParsers.forFile(file);
                 EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser);
                 List<CallEdge> edges = new ArrayList<>(extraction.edges());
                 if (!invokers.isEmpty()) {
@@ -546,6 +560,8 @@ public class CodebaseIndex {
         com.jsrc.app.project.SourceSet sourceSet = map.get("sourceSet") instanceof String value
                 ? com.jsrc.app.project.SourceSet.fromExternalName(value)
                 : com.jsrc.app.project.SourceSet.UNKNOWN;
+        int sourceVersion = map.get("sourceVersion") instanceof Number number
+                ? number.intValue() : -1;
 
         List<IndexedClass> classes = new ArrayList<>();
         Object classesRaw = map.get("classes");
@@ -575,7 +591,8 @@ public class CodebaseIndex {
             }
         }
         return new IndexEntry(
-                path, hash, lastModified, sourceSet, classes, callEdges, smells);
+                path, hash, lastModified, sourceSet, classes, callEdges, smells,
+                sourceVersion);
     }
 
     @SuppressWarnings("unchecked")
@@ -748,6 +765,7 @@ public class CodebaseIndex {
         map.put("contentHash", entry.contentHash());
         map.put("lastModified", entry.lastModified());
         map.put("sourceSet", entry.sourceSet().externalName());
+        map.put("sourceVersion", entry.sourceVersion());
         map.put("classes", entry.classes().stream().map(this::classToMap).toList());
         if (!entry.callEdges().isEmpty()) {
             map.put("callEdges", entry.callEdges().stream().map(this::edgeToMap).toList());

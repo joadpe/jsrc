@@ -19,8 +19,15 @@ public record IndexEntry(
         com.jsrc.app.project.SourceSet sourceSet,
         List<IndexedClass> classes,
         List<CallEdge> callEdges,
-        List<CachedSmell> smells
+        List<CachedSmell> smells,
+        int sourceVersion
 ) {
+    public IndexEntry(String path, String contentHash, long lastModified,
+                      com.jsrc.app.project.SourceSet sourceSet,
+                      List<IndexedClass> classes, List<CallEdge> callEdges,
+                      List<CachedSmell> smells) {
+        this(path, contentHash, lastModified, sourceSet, classes, callEdges, smells, -1);
+    }
     /** Backward-compatible constructor for entries without call edges or smells. */
     public IndexEntry(String path, String contentHash, long lastModified, List<IndexedClass> classes) {
         this(path, contentHash, lastModified, com.jsrc.app.project.SourceSet.UNKNOWN,
@@ -45,12 +52,12 @@ public record IndexEntry(
     /** Returns a copy with different call edges. */
     public IndexEntry withEdges(List<CallEdge> newEdges) {
         return new IndexEntry(
-                path, contentHash, lastModified, sourceSet, classes, newEdges, smells);
+                path, contentHash, lastModified, sourceSet, classes, newEdges, smells, sourceVersion);
     }
 
     /** Returns a copy with different smells. */
     public IndexEntry withSmells(List<CachedSmell> newSmells) {
         return new IndexEntry(
-                path, contentHash, lastModified, sourceSet, classes, callEdges, newSmells);
+                path, contentHash, lastModified, sourceSet, classes, callEdges, newSmells, sourceVersion);
     }
 }

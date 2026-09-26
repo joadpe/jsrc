@@ -31,7 +31,9 @@ public class IndexCommand implements Command {
                 java.util.function.Function.identity(),
                 ctx::sourceSet));
         int reindexed = index.build(
-                ctx.parser(), ctx.javaFiles(), root, existing, invokers, sourceSets);
+                ctx.parser(), ctx.javaFiles(), root, existing, invokers, sourceSets,
+                com.jsrc.app.project.SourceLevel.resolveFiles(
+                        ctx.javaFiles(), ctx.projectModel(), ctx.config()));
 
         try {
             // Build call graph and save V2 binary with pre-resolved graph

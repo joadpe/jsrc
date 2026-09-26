@@ -12,11 +12,20 @@ public record ProjectModule(
         List<Path> testSourceRoots,
         List<Path> generatedSourceRoots,
         List<Path> excludedRoots,
-        List<String> internalDependencies) {
+        List<String> internalDependencies,
+        String javaVersion) {
+
+    public ProjectModule(String name, Path path, List<Path> mainSourceRoots,
+                         List<Path> testSourceRoots, List<Path> generatedSourceRoots,
+                         List<Path> excludedRoots, List<String> internalDependencies) {
+        this(name, path, mainSourceRoots, testSourceRoots, generatedSourceRoots,
+                excludedRoots, internalDependencies, "unknown");
+    }
 
     public ProjectModule {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(path, "path");
+        Objects.requireNonNull(javaVersion, "javaVersion");
         mainSourceRoots = List.copyOf(mainSourceRoots);
         testSourceRoots = List.copyOf(testSourceRoots);
         generatedSourceRoots = List.copyOf(generatedSourceRoots);

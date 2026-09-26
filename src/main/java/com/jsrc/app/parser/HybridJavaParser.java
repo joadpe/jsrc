@@ -49,15 +49,17 @@ public class HybridJavaParser implements CodeParser {
     private static final Logger logger = LoggerFactory.getLogger(HybridJavaParser.class);
 
     private final TreeSitterParser treeSitter;
-    private final JavaParser javaParser;
+    private final SourceParserFactory javaParsers;
     private final CodeSmellDetector smellDetector;
     private final java.util.Set<String> skippedFiles = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public HybridJavaParser() {
+        this(java.util.Map.of());
+    }
+
+    public HybridJavaParser(java.util.Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels) {
         this.treeSitter = new TreeSitterParser("java");
-        var config = new com.github.javaparser.ParserConfiguration()
-                .setLanguageLevel(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_21);
-        this.javaParser = new JavaParser(config);
+        this.javaParsers = new SourceParserFactory(sourceLevels);
         this.smellDetector = new CodeSmellDetector();
     }
 
@@ -381,7 +383,7 @@ public class HybridJavaParser implements CodeParser {
     private CompilationUnit parseWithJavaParserStrict(Path path) {
         try {
             String source = Files.readString(path);
-            var result = javaParser.parse(source);
+            var result = javaParsers.forFile(path).parse(source);
             if (result.isSuccessful() && result.getResult().isPresent()) {
                 return result.getResult().get();
             }
@@ -400,7 +402,7 @@ public class HybridJavaParser implements CodeParser {
     private CompilationUnit parseWithJavaParser(Path path) {
         try {
             String source = Files.readString(path);
-            var result = javaParser.parse(source);
+            var result = javaParsers.forFile(path).parse(source);
             if (result.getResult().isPresent()) {
                 if (!result.isSuccessful()) {
                     logger.debug("Parsed {} with {} problem(s)", path.getFileName(), result.getProblems().size());

@@ -64,6 +64,12 @@ public class CallGraphBuilder {
      * </ol>
      */
     public void build(List<Path> javaFiles) {
+        build(javaFiles, Map.of());
+    }
+
+    public void build(
+            List<Path> javaFiles,
+            Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels) {
         if (javaFiles.isEmpty()) {
             callerIndex.clear();
             calleeIndex.clear();
@@ -78,10 +84,13 @@ public class CallGraphBuilder {
         Path sourceRoot = commonSourceRoot(normalizedFiles);
         var index = new com.jsrc.app.index.CodebaseIndex();
         index.build(
-                new com.jsrc.app.parser.HybridJavaParser(),
+                new com.jsrc.app.parser.HybridJavaParser(sourceLevels),
                 normalizedFiles,
                 sourceRoot,
-                List.of());
+                List.of(),
+                List.of(),
+                Map.of(),
+                sourceLevels);
         loadFromIndex(index.getEntries());
     }
 

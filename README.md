@@ -137,6 +137,9 @@ Output: `dist\jsrc-windows-x64.zip`.
 
 The JAR requires Java 22+ and the Tree-sitter native libraries from the matching bundle:
 
+This is the **runtime requirement for jsrc**, not the source version of the project
+being analyzed. jsrc recognizes declared Java source levels 8–21 per module.
+
 ```bash
 java --enable-native-access=ALL-UNNAMED \
   -Djava.library.path="$HOME/lib" \
@@ -353,13 +356,25 @@ If a command fails with exit code 2, verify you are using the subcommand syntax,
 
 Create `.jsrc.yaml` in your project root:
 
+When no source level can be verified from Maven/Gradle or this file, JSON v1
+reports `SOURCE_LEVEL_UNKNOWN` with partial confidence. Files with unsupported
+syntax are excluded from exact semantic results. A frozen index records the
+effective source level; after changing build settings or overrides, run
+`jsrc index` again before using `--frozen-index`. jsrc does not replace
+`javac --release` or verify dependency/API compatibility.
+JavaParser 3.27.0 cannot parse Java 11 `var` lambda parameters; jsrc reports
+`SOURCE_PARSER_LIMITATION` and quarantines those files instead of presenting
+incomplete semantic results as exact.
+
 ```yaml
 sourceRoots:
   - src/main/java
 excludes:
   - "**/test/**"
   - "**/generated/**"
-javaVersion: "22"
+javaVersion: "21"  # Optional source-language override (8–21), not jsrc's runtime JDK
+moduleJavaVersions:  # Optional overrides for modules with dynamic/undeclared build settings
+  legacy: "8"       # Key is the module path relative to the project root
 budget: small  # Optional: tiny|small|standard (default: standard)
 
 architecture:

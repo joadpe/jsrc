@@ -566,6 +566,7 @@ public class BinaryIndexV2Reader {
         long lastModified = in.readLong();
         var sourceSet = com.jsrc.app.project.SourceSet.fromExternalName(
                 str(in.readInt(), strings));
+        int sourceVersion = in.readInt();
 
         int classCount = in.readUnsignedShort();
         List<IndexedClass> classes = new ArrayList<>(classCount);
@@ -615,7 +616,7 @@ public class BinaryIndexV2Reader {
         }
 
         return new IndexEntry(
-                path, hash, lastModified, sourceSet, classes, List.of(), List.of());
+                path, hash, lastModified, sourceSet, classes, List.of(), List.of(), sourceVersion);
     }
 
     private static String str(int ref, String[] table) {

@@ -118,9 +118,21 @@ public class JsrcCommand implements Runnable {
                         globalOptions.sourceSets(),
                         globalOptions.noTest());
         var projectModel = projectSources.model();
-        var javaFiles = new ArrayList<>(projectSources.files());
+        boolean sourceIndependent = java.util.Set.of(
+                "skill", "describe", "version", "help").contains(commandName);
+        var compatibility = sourceIndependent
+                ? new com.jsrc.app.project.SourceCompatibilityScanner.Result(
+                        projectSources.files(), java.util.List.of())
+                : new com.jsrc.app.project.SourceCompatibilityScanner()
+                        .scan(projectSources.files(), projectModel, config);
+        var javaFiles = new ArrayList<>(compatibility.files());
+        compatibility.diagnostics().forEach(diagnostic -> System.err.printf(
+                "%s: %s: %s%n",
+                diagnostic.code(), diagnostic.file(), diagnostic.message()));
 
-        var parser = new HybridJavaParser();
+        var sourceLevels = com.jsrc.app.project.SourceLevel.resolveFiles(
+                projectSources.files(), projectModel, config);
+        var parser = new HybridJavaParser(sourceLevels);
         OutputFormatter formatter = OutputFormatter.create(
                 effectiveJson,
                 globalOptions.signatureOnly(),
@@ -128,12 +140,14 @@ public class JsrcCommand implements Runnable {
                 System.out,
                 budgetContext,
                 globalOptions.jsonProtocol(),
-                commandName);
+                commandName,
+                compatibility.diagnostics());
         var sourceSets = projectSources.sourceSets();
         IndexedCodebase indexed = skipIndex != null
                 ? null
                 : IndexedCodebase.tryLoad(
-                        projectModel.root(), javaFiles, globalOptions.frozenIndex(), sourceSets);
+                        projectModel.root(), javaFiles, globalOptions.frozenIndex(), sourceSets,
+                        sourceLevels, projectSources.files());
 
         return new CommandContext(
                 javaFiles,
@@ -150,6 +164,7 @@ public class JsrcCommand implements Runnable {
                 globalOptions.frozenIndex(),
                 projectModel,
                 globalOptions.sourceSets(),
-                sourceSets);
+                sourceSets,
+                compatibility.diagnostics());
     }
 }

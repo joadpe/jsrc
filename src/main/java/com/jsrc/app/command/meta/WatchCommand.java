@@ -37,6 +37,11 @@ public class WatchCommand implements Command {
     private IndexedCodebase cachedIndex = null;
     private IndexStamp lastStamp = null;
     private java.util.Map<Path, com.jsrc.app.project.SourceSet> pendingSourceSets = java.util.Map.of();
+    private java.util.Map<Path, com.jsrc.app.project.SourceLevel> pendingSourceLevels = java.util.Map.of();
+    private List<Path> pendingDiscoveredFiles = List.of();
+    private List<com.jsrc.app.project.SourceDiagnostic> currentDiagnostics = List.of();
+    private List<Path> cachedAcceptedFiles = List.of();
+    private List<com.jsrc.app.project.SourceDiagnostic> cachedDiagnostics = List.of();
 
     @Override
     public int execute(CommandContext ctx) {
@@ -93,10 +98,21 @@ public class WatchCommand implements Command {
 
                     // Refresh index only if needed (session cache)
                     // If frozenIndex is set, never refresh (skip stamp-driven rebuild)
-                    var refreshResult = loadOrRefreshIndex(
-                            Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex, ctx.frozenIndex(),
-                            ctx.config(), ctx.projectModel(), ctx.sourceSets(), ctx.noTest(),
-                            ctx.fileSourceSets());
+                    boolean sourceIndependent = java.util.Set.of(
+                            "skill", "describe", "version", "help").contains(command);
+                    if (ctx.frozenIndex()) {
+                        currentDiagnostics = ctx.sourceDiagnostics();
+                    }
+                    var refreshResult = sourceIndependent
+                            ? new RefreshResult(ctx.indexed(), ctx.javaFiles(),
+                                    ctx.projectModel(), ctx.fileSourceSets())
+                            : loadOrRefreshIndex(
+                                    Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex,
+                                    ctx.frozenIndex(), ctx.config(), ctx.projectModel(),
+                                    ctx.sourceSets(), ctx.noTest(), ctx.fileSourceSets());
+                    if (sourceIndependent) {
+                        currentDiagnostics = List.of();
+                    }
                     cachedIndex = refreshResult.index();
                     List<Path> freshFiles = refreshResult.files();
 
@@ -145,11 +161,25 @@ public class WatchCommand implements Command {
                     
                     // Map raw result through shared mapper
                     int exitCode = ExitCodeMapper.mapToExitCode(rawResult);
+                    boolean incomplete = currentDiagnostics.stream().anyMatch(diagnostic ->
+                            !"SOURCE_LEVEL_UNKNOWN".equals(diagnostic.code()));
+                    if (incomplete && exitCode == com.jsrc.app.ExitCode.OK) {
+                        exitCode = com.jsrc.app.ExitCode.IO_ERROR;
+                    }
                     
                     // Emit envelope: {"exit": <mapped>, "result": <parsed>}
                     Map<String, Object> envelope = new LinkedHashMap<>();
                     envelope.put("exit", exitCode);
                     envelope.put("result", resultBody);
+                    if (!currentDiagnostics.isEmpty()) {
+                        envelope.put("status", "partial");
+                        envelope.put("diagnostics", currentDiagnostics.stream()
+                                .map(diagnostic -> Map.of(
+                                        "code", diagnostic.code(),
+                                        "file", diagnostic.file().toString(),
+                                        "message", diagnostic.message()))
+                                .toList());
+                    }
                     emit(ctx, envelope);
 
                 } catch (Exception e) {
@@ -209,7 +239,8 @@ public class WatchCommand implements Command {
                 return new RefreshResult(cached, files, existingModel, existingSourceSets);
             }
             return new RefreshResult(
-                    callTryLoad(root, files, frozenIndex, existingSourceSets),
+                    callTryLoadWithSourceLevels(root, files, files, frozenIndex,
+                            existingSourceSets, existingModel, config),
                     files,
                     existingModel,
                     existingSourceSets);
@@ -217,25 +248,42 @@ public class WatchCommand implements Command {
         
         // Normal mode: rediscover files on each stamp check (detect create/delete/rename)
         var projectSources = discoverJavaFiles(root, config, sourceSets, excludeTests);
-        List<Path> freshFiles = projectSources.files();
-        
-        IndexStamp currentStamp = computeStamp(root, freshFiles);
+        IndexStamp currentStamp = computeStamp(root, projectSources.files(),
+                projectSources.model(), config);
 
         if (lastStamp != null && lastStamp.equals(currentStamp)) {
+            currentDiagnostics = cachedDiagnostics;
             return new RefreshResult(
                     cached,
-                    freshFiles,
+                    cachedAcceptedFiles,
                     projectSources.model(),
                     projectSources.sourceSets());
         }
 
-        lastStamp = currentStamp;
+        var compatibility = scanSources(
+                projectSources.files(), projectSources.model(), config);
+        currentDiagnostics = compatibility.diagnostics();
+        cachedDiagnostics = currentDiagnostics;
+        List<Path> freshFiles = compatibility.files();
+        cachedAcceptedFiles = freshFiles;
         var fileSourceSets = projectSources.sourceSets();
+        IndexedCodebase refreshed = callTryLoadWithSourceLevels(
+                root, freshFiles, projectSources.files(), frozenIndex,
+                fileSourceSets, projectSources.model(), config);
+        lastStamp = new IndexStamp(
+                indexMtime(root), currentStamp.files(), currentStamp.sourceVersions());
         return new RefreshResult(
-                callTryLoad(root, freshFiles, frozenIndex, fileSourceSets),
+                refreshed,
                 freshFiles,
                 projectSources.model(),
                 fileSourceSets);
+    }
+
+    protected com.jsrc.app.project.SourceCompatibilityScanner.Result scanSources(
+            List<Path> files, ProjectModel model,
+            com.jsrc.app.config.ProjectConfig config) {
+        return new com.jsrc.app.project.SourceCompatibilityScanner()
+                .scan(files, model, config);
     }
     
     /**
@@ -253,7 +301,24 @@ public class WatchCommand implements Command {
      * Wrapper for IndexedCodebase.tryLoad to allow test instrumentation.
      */
     protected IndexedCodebase callTryLoad(Path root, List<Path> files, boolean frozenIndex) {
-        return IndexedCodebase.tryLoad(root, files, frozenIndex, pendingSourceSets);
+        return IndexedCodebase.tryLoad(root, files, frozenIndex, pendingSourceSets,
+                pendingSourceLevels, pendingDiscoveredFiles.isEmpty()
+                        ? files : pendingDiscoveredFiles);
+    }
+
+    private IndexedCodebase callTryLoadWithSourceLevels(
+            Path root, List<Path> files, List<Path> discoveredFiles, boolean frozenIndex,
+            java.util.Map<Path, com.jsrc.app.project.SourceSet> sourceSets,
+            ProjectModel model, com.jsrc.app.config.ProjectConfig config) {
+        pendingSourceLevels = com.jsrc.app.project.SourceLevel.resolveFiles(
+                discoveredFiles, model, config);
+        pendingDiscoveredFiles = discoveredFiles;
+        try {
+            return callTryLoad(root, files, frozenIndex, sourceSets);
+        } finally {
+            pendingSourceLevels = java.util.Map.of();
+            pendingDiscoveredFiles = List.of();
+        }
     }
 
     protected IndexedCodebase callTryLoad(
@@ -272,37 +337,49 @@ public class WatchCommand implements Command {
     /**
      * Computes a cheap stamp representing the current state of the index and source files.
      */
-    private IndexStamp computeStamp(Path root, List<Path> files) {
+    private IndexStamp computeStamp(Path root, List<Path> files, ProjectModel model,
+                                    com.jsrc.app.config.ProjectConfig config) {
+        long indexMtime = indexMtime(root);
+        java.util.Map<Path, FileStamp> fileStamps = new java.util.LinkedHashMap<>();
+        for (Path file : files) {
+            try {
+                long mtime = Files.getLastModifiedTime(file).toMillis();
+                byte[] content = Files.readAllBytes(file);
+                fileStamps.put(file, new FileStamp(
+                        mtime, content.length,
+                        com.jsrc.app.util.Hashing.sha256(content)));
+            } catch (IOException e) {
+                fileStamps.put(file, new FileStamp(-1, -1, "unreadable"));
+            }
+        }
+
+        java.util.Map<Path, Integer> sourceVersions = new java.util.LinkedHashMap<>();
+        for (Path file : files) {
+            sourceVersions.put(file, com.jsrc.app.project.SourceLevel.resolve(file, model, config)
+                    .map(com.jsrc.app.project.SourceLevel::version).orElse(0));
+        }
+        return new IndexStamp(indexMtime, fileStamps, sourceVersions);
+    }
+
+    private static long indexMtime(Path root) {
         Path indexBin = root.resolve(".jsrc/index.bin");
-        long indexMtime = 0;
         try {
             if (Files.exists(indexBin)) {
-                indexMtime = Files.getLastModifiedTime(indexBin).toMillis();
+                return Files.getLastModifiedTime(indexBin).toMillis();
             }
         } catch (IOException e) {
             // Ignore
         }
-
-        long maxSourceMtime = 0;
-        int fileCount = files.size();
-        for (Path file : files) {
-            try {
-                long mtime = Files.getLastModifiedTime(file).toMillis();
-                if (mtime > maxSourceMtime) {
-                    maxSourceMtime = mtime;
-                }
-            } catch (IOException e) {
-                // Ignore
-            }
-        }
-
-        return new IndexStamp(indexMtime, maxSourceMtime, fileCount);
+        return 0;
     }
 
     /**
      * Simple stamp record for detecting changes.
      */
-    private record IndexStamp(long indexMtime, long maxSourceMtime, int fileCount) {}
+    private record FileStamp(long modified, long size, String contentHash) {}
+
+    private record IndexStamp(long indexMtime, java.util.Map<Path, FileStamp> files,
+                              java.util.Map<Path, Integer> sourceVersions) {}
 
     /**
      * Result of index refresh containing both index and discovered files.

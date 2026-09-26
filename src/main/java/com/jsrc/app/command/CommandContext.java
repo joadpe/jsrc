@@ -36,6 +36,7 @@ public final class CommandContext {
     private final com.jsrc.app.project.ProjectModel projectModel;
     private final java.util.Set<com.jsrc.app.project.SourceSet> sourceSets;
     private final java.util.Map<Path, com.jsrc.app.project.SourceSet> fileSourceSets;
+    private final List<com.jsrc.app.project.SourceDiagnostic> sourceDiagnostics;
 
     private CallGraph callGraphCache;
     private DependencyAnalyzer dependencyAnalyzerCache;
@@ -106,6 +107,19 @@ public final class CommandContext {
                           com.jsrc.app.project.ProjectModel projectModel,
                           java.util.Set<com.jsrc.app.project.SourceSet> sourceSets,
                           java.util.Map<Path, com.jsrc.app.project.SourceSet> fileSourceSets) {
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir,
+                fullOutput, noTest, budgetContext, frozenIndex, projectModel, sourceSets,
+                fileSourceSets, List.of());
+    }
+
+    public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
+                          OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
+                          boolean mdOutput, String outDir, boolean fullOutput, boolean noTest,
+                          com.jsrc.app.cli.BudgetContext budgetContext, boolean frozenIndex,
+                          com.jsrc.app.project.ProjectModel projectModel,
+                          java.util.Set<com.jsrc.app.project.SourceSet> sourceSets,
+                          java.util.Map<Path, com.jsrc.app.project.SourceSet> fileSourceSets,
+                          List<com.jsrc.app.project.SourceDiagnostic> sourceDiagnostics) {
         this.javaFiles = javaFiles;
         this.rootPath = rootPath;
         this.config = config;
@@ -121,6 +135,7 @@ public final class CommandContext {
         this.projectModel = projectModel;
         this.sourceSets = java.util.Set.copyOf(sourceSets);
         this.fileSourceSets = java.util.Map.copyOf(fileSourceSets);
+        this.sourceDiagnostics = List.copyOf(sourceDiagnostics);
     }
 
     public List<Path> javaFiles() { return javaFiles; }
@@ -139,6 +154,9 @@ public final class CommandContext {
     public java.util.Set<com.jsrc.app.project.SourceSet> sourceSets() { return sourceSets; }
     public java.util.Map<Path, com.jsrc.app.project.SourceSet> fileSourceSets() {
         return fileSourceSets;
+    }
+    public List<com.jsrc.app.project.SourceDiagnostic> sourceDiagnostics() {
+        return sourceDiagnostics;
     }
 
     public com.jsrc.app.project.SourceSet sourceSet(Path file) {
@@ -163,7 +181,8 @@ public final class CommandContext {
             IndexedCodebase codebase,
             com.jsrc.app.project.ProjectModel refreshedProjectModel) {
         return new CommandContext(
-                files, rootPath, config, outputFormatter, codebase, parser,
+                files, rootPath, config, outputFormatter, codebase,
+                refreshedParser(files, refreshedProjectModel),
                 mdOutput, outDir, fullOutput, noTest, budgetContext, frozenIndex,
                 refreshedProjectModel, sourceSets, classify(files, refreshedProjectModel));
     }
@@ -175,9 +194,19 @@ public final class CommandContext {
             com.jsrc.app.project.ProjectModel refreshedProjectModel,
             java.util.Map<Path, com.jsrc.app.project.SourceSet> refreshedSourceSets) {
         return new CommandContext(
-                files, rootPath, config, outputFormatter, codebase, parser,
+                files, rootPath, config, outputFormatter, codebase,
+                refreshedParser(files, refreshedProjectModel),
                 mdOutput, outDir, fullOutput, noTest, budgetContext, frozenIndex,
                 refreshedProjectModel, sourceSets, refreshedSourceSets);
+    }
+
+    private CodeParser refreshedParser(
+            List<Path> files, com.jsrc.app.project.ProjectModel model) {
+        if (parser instanceof com.jsrc.app.parser.HybridJavaParser) {
+            return new com.jsrc.app.parser.HybridJavaParser(
+                    com.jsrc.app.project.SourceLevel.resolveFiles(files, model, config));
+        }
+        return parser;
     }
 
     private static java.util.Map<Path, com.jsrc.app.project.SourceSet> classify(
@@ -307,7 +336,9 @@ public final class CommandContext {
         if (indexed != null && indexed.hasCallEdges()) {
             builder.loadFromIndex(indexed.getEntries());
         } else {
-            builder.build(javaFiles);
+            builder.build(javaFiles,
+                    com.jsrc.app.project.SourceLevel.resolveFiles(
+                            javaFiles, projectModel, config));
         }
         callGraphCache = builder.toCallGraph();
         return callGraphCache;

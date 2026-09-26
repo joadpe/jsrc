@@ -54,6 +54,112 @@ class ProjectModelDetectorTest {
     }
 
     @Test
+    void inheritedMavenReleaseTakesPrecedenceOverChildSource() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version>
+                  <properties><maven.compiler.release>17</maven.compiler.release></properties>
+                  <modules><module>child</module></modules>
+                </project>
+                """);
+        writePom("child", """
+                <artifactId>child</artifactId>
+                <properties><maven.compiler.source>8</maven.compiler.source></properties>
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("17", model.module("child").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void inheritsMavenCompilerReleaseFromPluginManagement() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version>
+                  <packaging>pom</packaging><modules><module>child</module></modules>
+                  <build><pluginManagement><plugins><plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration><release>8</release></configuration>
+                  </plugin></plugins></pluginManagement></build>
+                </project>
+                """);
+        writePom("child", "<artifactId>child</artifactId>");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("8", model.module("child").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void inheritedMavenPluginReleaseTakesPrecedenceOverChildProperty() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version>
+                  <modules><module>child</module></modules>
+                  <build><plugins><plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration><release>8</release></configuration>
+                  </plugin></plugins></build>
+                </project>
+                """);
+        writePom("child", """
+                <artifactId>child</artifactId>
+                <properties><maven.compiler.release>17</maven.compiler.release></properties>
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("8", model.module("child").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void conflictingGradleSharedLevelsRemainUnknownForChild() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle.kts"), "include(\":child\")");
+        Files.writeString(projectRoot.resolve("build.gradle.kts"), """
+                allprojects { sourceCompatibility = JavaVersion.VERSION_17 }
+                subprojects { sourceCompatibility = JavaVersion.VERSION_8 }
+                """);
+        writeGradleModule("child", "");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("17", model.javaVersion());
+        assertEquals("unknown", model.module("child").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void inheritsGradleSubprojectsSourceCompatibilityOnlyForChildren() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle.kts"), "include(\":child\")");
+        Files.writeString(projectRoot.resolve("build.gradle.kts"), """
+                subprojects {
+                    sourceCompatibility = JavaVersion.VERSION_8
+                }
+                """);
+        writeGradleModule("child", "");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("unknown", model.javaVersion());
+        assertEquals("8", model.module("child").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void dynamicGradleReleaseDoesNotFallBackToStaticSource() throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle.kts"), """
+                sourceCompatibility = JavaVersion.VERSION_17
+                tasks.withType<JavaCompile>().configureEach {
+                    options.release.set(providers.gradleProperty("javaRelease").map(String::toInt))
+                }
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("unknown", model.javaVersion());
+    }
+
+    @Test
     void detectsGradleModulesToolchainAndProjectDependencies() throws Exception {
         Files.writeString(projectRoot.resolve("settings.gradle.kts"), """
                 rootProject.name = "shop"

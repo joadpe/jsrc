@@ -33,6 +33,8 @@ public class CodebaseIndex {
     private static final String CLASSES_BIN = "classes.bin"; // legacy — cleaned up on re-index
     private static final String EDGES_FILE = "edges.json";
     private static final String SMELLS_FILE = "smells.json";
+    private static final String CALL_EDGE_SCHEMA_KEY = "callEdgeSchemaVersion";
+    private static final int CALL_EDGE_SCHEMA_VERSION = 1;
 
     private final List<IndexEntry> entries;
     private final EdgeResolver edgeResolver;
@@ -229,6 +231,7 @@ public class CodebaseIndex {
         for (var entry : entries) {
             // Classes: everything except callEdges and smells
             Map<String, Object> classEntry = new LinkedHashMap<>();
+            classEntry.put(CALL_EDGE_SCHEMA_KEY, CALL_EDGE_SCHEMA_VERSION);
             classEntry.put("path", entry.path());
             classEntry.put("contentHash", entry.contentHash());
             classEntry.put("lastModified", entry.lastModified());
@@ -238,6 +241,7 @@ public class CodebaseIndex {
             // Edges: path + callEdges only (if non-empty)
             if (!entry.callEdges().isEmpty()) {
                 Map<String, Object> edgeEntry = new LinkedHashMap<>();
+                edgeEntry.put(CALL_EDGE_SCHEMA_KEY, CALL_EDGE_SCHEMA_VERSION);
                 edgeEntry.put("path", entry.path());
                 edgeEntry.put("callEdges", entry.callEdges().stream().map(this::edgeToMap).toList());
                 edgesData.add(edgeEntry);
@@ -371,6 +375,9 @@ public class CodebaseIndex {
                 if (item instanceof Map<?, ?> map) {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> m = (Map<String, Object>) map;
+                    if (intVal(m, CALL_EDGE_SCHEMA_KEY) != CALL_EDGE_SCHEMA_VERSION) {
+                        continue;
+                    }
                     String path = (String) m.getOrDefault("path", "");
                     List<CallEdge> edges = parseCallEdges(m);
                     if (!edges.isEmpty()) edgesByPath.put(path, edges);
@@ -484,8 +491,12 @@ public class CodebaseIndex {
 
     @SuppressWarnings("unchecked")
     private static IndexEntry mapToEntry(Map<String, Object> map) {
+        boolean currentCallEdgeSchema =
+                intVal(map, CALL_EDGE_SCHEMA_KEY) == CALL_EDGE_SCHEMA_VERSION;
         String path = (String) map.getOrDefault("path", "");
-        String hash = (String) map.getOrDefault("contentHash", "");
+        String hash = currentCallEdgeSchema
+                ? (String) map.getOrDefault("contentHash", "")
+                : "";
         long lastModified = map.get("lastModified") instanceof Number n ? n.longValue() : 0;
         com.jsrc.app.project.SourceSet sourceSet = map.get("sourceSet") instanceof String value
                 ? com.jsrc.app.project.SourceSet.fromExternalName(value)
@@ -500,7 +511,9 @@ public class CodebaseIndex {
                 }
             }
         }
-        List<CallEdge> callEdges = parseCallEdges(map);
+        List<CallEdge> callEdges = currentCallEdgeSchema
+                ? parseCallEdges(map)
+                : List.of();
         // Deserialize cached smells
         List<CachedSmell> smells = new ArrayList<>();
         Object smellsRaw = map.get("smells");
@@ -665,6 +678,7 @@ public class CodebaseIndex {
 
     private Map<String, Object> entryToMap(IndexEntry entry) {
         Map<String, Object> map = new LinkedHashMap<>();
+        map.put(CALL_EDGE_SCHEMA_KEY, CALL_EDGE_SCHEMA_VERSION);
         map.put("path", entry.path());
         map.put("contentHash", entry.contentHash());
         map.put("lastModified", entry.lastModified());

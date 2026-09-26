@@ -225,6 +225,112 @@ class CodebaseIndexTest {
     }
 
     @Test
+    void shouldReindexJsonWithoutCurrentCallEdgeSchema() throws IOException {
+        Path javaFile = writeFile("Legacy.java", """
+                public class Legacy {
+                    public void call() { target(); }
+                    private void target() {}
+                }
+                """);
+        String contentHash = com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(javaFile));
+        Files.createDirectories(tempDir.resolve(".jsrc"));
+        Files.writeString(tempDir.resolve(".jsrc/index.json"), """
+                [{
+                  "path": "Legacy.java",
+                  "contentHash": "%s",
+                  "lastModified": 0,
+                  "classes": [],
+                  "callEdges": [{
+                    "callerClass": "Legacy",
+                    "callerMethod": "call",
+                    "callerParameterTypes": [],
+                    "callerParamCount": 0,
+                    "calleeClass": "Legacy",
+                    "calleeMethod": "target",
+                    "calleeParameterTypes": [],
+                    "line": 2,
+                    "argCount": 0,
+                    "invocationKind": "UNKNOWN",
+                    "resolutionLevel": "UNRESOLVED",
+                    "evidence": []
+                  }]
+                }]
+                """.formatted(contentHash));
+
+        List<IndexEntry> legacy = CodebaseIndex.load(tempDir);
+        var rebuilt = new CodebaseIndex();
+        int reindexed = rebuilt.build(
+                new HybridJavaParser(), List.of(javaFile), tempDir, legacy);
+
+        assertEquals(1, reindexed);
+        assertTrue(rebuilt.getEntries().getFirst().callEdges().stream().anyMatch(edge ->
+                edge.calleeMethod().equals("target")
+                        && edge.resolutionLevel()
+                        == com.jsrc.app.model.ResolutionLevel.EXACT));
+    }
+
+    @Test
+    void localClassIdentityMatchesEdgesSyntheticMethodsAndBinaryRoundtrip() throws Exception {
+        Path javaFile = writeFile("Owners.java", """
+                package app;
+                class Service { void ping() {} }
+                class First {
+                    void create() {
+                        class Local {
+                            void run(Service service) {
+                                Runnable task = () -> service.ping();
+                            }
+                        }
+                    }
+                }
+                class Second {
+                    void create() {
+                        class Local {
+                            void run(Service service) {
+                                Runnable task = () -> service.ping();
+                            }
+                        }
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new HybridJavaParser(), List.of(javaFile), tempDir, List.of());
+
+        java.util.Set<String> localClasses = index.getEntries().stream()
+                .flatMap(entry -> entry.classes().stream())
+                .map(IndexedClass::qualifiedName)
+                .filter(name -> name.endsWith("$Local"))
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(java.util.Set.of("app.First$Local", "app.Second$Local"), localClasses);
+        assertTrue(index.getEntries().stream()
+                .flatMap(entry -> entry.classes().stream())
+                .filter(indexedClass -> localClasses.contains(indexedClass.qualifiedName()))
+                .allMatch(indexedClass -> indexedClass.methods().stream()
+                        .anyMatch(method -> method.name().equals("run$lambda$1"))));
+
+        java.util.Set<String> callerClasses = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(localClasses, callerClasses);
+
+        var graphBuilder = new com.jsrc.app.analysis.CallGraphBuilder();
+        graphBuilder.loadFromIndex(index.getEntries());
+        Path binary = tempDir.resolve("local-owners.bin");
+        BinaryIndexV2Writer.write(
+                binary, index.getEntries(), graphBuilder.toCallGraph());
+        var loaded = BinaryIndexV2Reader.read(binary);
+        java.util.Set<String> loadedCallers = loaded.entries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(localClasses, loadedCallers);
+    }
+
+    @Test
     @DisplayName("Incremental: should re-index modified files")
     void shouldReindexModified() throws IOException {
         Path javaFile = writeFile("Mutable.java", """

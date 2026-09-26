@@ -53,6 +53,11 @@ public class EdgeResolver {
         }
     }
 
+    private record LexicalTypes(
+            Map<String, String> local,
+            Map<String, String> declared) {
+    }
+
     /**
      * Extracts call edges from a Java file using JavaParser.
      * Resolves callee class names using field types, parameter types,
@@ -88,16 +93,18 @@ public class EdgeResolver {
                 }
 
                 for (MethodDeclaration md : declaration.getMethods()) {
+                    LexicalTypes lexicalTypes = lexicalTypes(md);
                     extractEdgesFromCallable(edges, md, className, md.getNameAsString(),
-                            fieldTypes, syntheticMethods);
+                            fieldTypes, lexicalTypes, syntheticMethods);
                 }
                 for (ConstructorDeclaration cd : declaration.getMembers().stream()
                         .filter(ConstructorDeclaration.class::isInstance)
                         .map(ConstructorDeclaration.class::cast)
                         .toList()) {
+                    LexicalTypes lexicalTypes = lexicalTypes(cd);
                     extractEdgesFromCallable(edges, cd, className,
                             declaration.getNameAsString(),
-                            fieldTypes, syntheticMethods);
+                            fieldTypes, lexicalTypes, syntheticMethods);
                 }
             }
         } catch (IOException ex) {
@@ -234,10 +241,116 @@ public class EdgeResolver {
 
     // ---- internal ----
 
+    private static LexicalTypes lexicalTypes(
+            com.github.javaparser.ast.body.CallableDeclaration<?> callable) {
+        Map<String, String> localTypes = new HashMap<>();
+        Map<String, String> declaredTypes = new HashMap<>();
+        List<com.github.javaparser.ast.Node> ancestors = new ArrayList<>();
+        com.github.javaparser.ast.Node current = callable.getParentNode().orElse(null);
+        while (current != null) {
+            ancestors.add(current);
+            current = current.getParentNode().orElse(null);
+        }
+        java.util.Collections.reverse(ancestors);
+
+        for (com.github.javaparser.ast.Node ancestor : ancestors) {
+            if (ancestor instanceof com.github.javaparser.ast.body.TypeDeclaration<?> type) {
+                for (FieldDeclaration field : type.getFields()) {
+                    String fieldType = field.getCommonType().asString();
+                    for (VariableDeclarator variable : field.getVariables()) {
+                        putType(localTypes, declaredTypes,
+                                variable.getNameAsString(), fieldType);
+                    }
+                }
+            }
+            if (ancestor instanceof com.github.javaparser.ast.body.CallableDeclaration<?> outer) {
+                for (Parameter parameter : outer.getParameters()) {
+                    putType(localTypes, declaredTypes,
+                            parameter.getNameAsString(), parameter.getTypeAsString());
+                }
+                for (VariableDeclarator variable
+                        : outer.findAll(VariableDeclarator.class)) {
+                    if (isVisibleCapturedVariable(variable, callable)) {
+                        putType(localTypes, declaredTypes,
+                                variable.getNameAsString(), variable.getTypeAsString());
+                    }
+                }
+            }
+            if (ancestor instanceof com.github.javaparser.ast.expr.LambdaExpr lambda) {
+                List<String> parameterTypes = lambdaParameterTypes(lambda, declaredTypes);
+                for (int index = 0; index < lambda.getParameters().size(); index++) {
+                    putType(localTypes, declaredTypes,
+                            lambda.getParameter(index).getNameAsString(),
+                            parameterTypes.get(index));
+                }
+            }
+        }
+        return new LexicalTypes(Map.copyOf(localTypes), Map.copyOf(declaredTypes));
+    }
+
+    private static boolean isVisibleCapturedVariable(
+            VariableDeclarator variable,
+            com.github.javaparser.ast.body.CallableDeclaration<?> callable) {
+        com.github.javaparser.ast.Node scope = lexicalScope(variable);
+        return scope != null
+                && isAncestor(scope, callable)
+                && startsBefore(variable, callable);
+    }
+
+    private static com.github.javaparser.ast.Node lexicalScope(
+            com.github.javaparser.ast.Node node) {
+        com.github.javaparser.ast.Node current = node.getParentNode().orElse(null);
+        while (current != null) {
+            if (current instanceof com.github.javaparser.ast.stmt.BlockStmt
+                    || current instanceof com.github.javaparser.ast.stmt.ForStmt
+                    || current instanceof com.github.javaparser.ast.stmt.ForEachStmt
+                    || current instanceof com.github.javaparser.ast.expr.LambdaExpr
+                    || current instanceof com.github.javaparser.ast.stmt.SwitchEntry
+                    || current instanceof com.github.javaparser.ast.stmt.TryStmt) {
+                return current;
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        return null;
+    }
+
+    private static boolean isAncestor(
+            com.github.javaparser.ast.Node ancestor,
+            com.github.javaparser.ast.Node node) {
+        com.github.javaparser.ast.Node current = node.getParentNode().orElse(null);
+        while (current != null) {
+            if (current == ancestor) return true;
+            current = current.getParentNode().orElse(null);
+        }
+        return false;
+    }
+
+    private static boolean startsBefore(
+            com.github.javaparser.ast.Node first,
+            com.github.javaparser.ast.Node second) {
+        var firstPosition = first.getBegin().orElse(null);
+        var secondPosition = second.getBegin().orElse(null);
+        if (firstPosition == null || secondPosition == null) return false;
+        return firstPosition.line < secondPosition.line
+                || firstPosition.line == secondPosition.line
+                && firstPosition.column < secondPosition.column;
+    }
+
+    private static void putType(
+            Map<String, String> localTypes,
+            Map<String, String> declaredTypes,
+            String name,
+            String type) {
+        declaredTypes.put(name, type);
+        int genericStart = type.indexOf('<');
+        localTypes.put(name, genericStart > 0 ? type.substring(0, genericStart) : type);
+    }
+
     private static void extractEdgesFromCallable(List<CallEdge> edges,
                                                   com.github.javaparser.ast.body.CallableDeclaration<?> callable,
                                                   String className, String callerMethod,
                                                   Map<String, String> fieldTypes,
+                                                  LexicalTypes lexicalTypes,
                                                   Map<String, List<IndexedMethod>> syntheticMethods) {
         List<String> callerParameterTypes = callable.getParameters().stream()
                 .map(parameter -> parameter.getTypeAsString()
@@ -245,8 +358,8 @@ public class EdgeResolver {
                 .map(com.jsrc.app.util.SignatureUtils::normalizeType)
                 .toList();
         int callerParamCount = callerParameterTypes.size();
-        Map<String, String> localTypes = new HashMap<>();
-        Map<String, String> declaredTypes = new HashMap<>();
+        Map<String, String> localTypes = new HashMap<>(lexicalTypes.local());
+        Map<String, String> declaredTypes = new HashMap<>(lexicalTypes.declared());
         for (Parameter param : callable.getParameters()) {
             String pType = param.getTypeAsString();
             declaredTypes.put(param.getNameAsString(), pType);
@@ -347,7 +460,11 @@ public class EdgeResolver {
             if (!belongsToOwner(lambda, callable)) continue;
             ordinal++;
             String syntheticName = callerMethod + "$lambda$" + ordinal;
-            List<String> parameterTypes = lambdaParameterTypes(lambda, declaredTypes);
+            Map<String, String> lambdaTypes = new HashMap<>(enclosingLocalTypes);
+            Map<String, String> lambdaDeclaredTypes = new HashMap<>(declaredTypes);
+            addEnclosingLambdaTypes(lambda, lambdaTypes, lambdaDeclaredTypes);
+            List<String> parameterTypes = lambdaParameterTypes(
+                    lambda, lambdaDeclaredTypes);
             int startLine = lambda.getBegin().map(position -> position.line).orElse(-1);
             int endLine = lambda.getEnd().map(position -> position.line).orElse(startLine);
             String signature = "void " + syntheticName + "("
@@ -356,11 +473,11 @@ public class EdgeResolver {
                     .add(new IndexedMethod(
                             syntheticName, signature, startLine, endLine, "void", List.of()));
 
-            Map<String, String> lambdaTypes = new HashMap<>(enclosingLocalTypes);
             for (int index = 0; index < lambda.getParameters().size(); index++) {
                 String parameterName = lambda.getParameter(index).getNameAsString();
                 String parameterType = parameterTypes.get(index);
-                lambdaTypes.put(parameterName, parameterType);
+                putType(lambdaTypes, lambdaDeclaredTypes,
+                        parameterName, parameterType);
             }
 
             for (MethodCallExpr call : lambda.findAll(MethodCallExpr.class)) {
@@ -392,12 +509,37 @@ public class EdgeResolver {
                     : lambda.findAll(com.github.javaparser.ast.expr.MethodReferenceExpr.class)) {
                 if (!belongsToLambda(reference, lambda)) continue;
                 addMethodReferenceEdge(edges, reference, className, syntheticName,
-                        parameterTypes, fieldTypes, lambdaTypes, declaredTypes, callable);
+                        parameterTypes, fieldTypes, lambdaTypes,
+                        lambdaDeclaredTypes, callable);
             }
             for (ObjectCreationExpr newExpr : lambda.findAll(ObjectCreationExpr.class)) {
                 if (!belongsToLambda(newExpr, lambda)) continue;
                 addObjectCreationEdge(edges, newExpr, className, syntheticName,
                         parameterTypes, fieldTypes, lambdaTypes);
+            }
+        }
+    }
+
+    private static void addEnclosingLambdaTypes(
+            com.github.javaparser.ast.expr.LambdaExpr lambda,
+            Map<String, String> localTypes,
+            Map<String, String> declaredTypes) {
+        List<com.github.javaparser.ast.expr.LambdaExpr> ancestors = new ArrayList<>();
+        com.github.javaparser.ast.Node current = lambda.getParentNode().orElse(null);
+        while (current != null
+                && !(current instanceof com.github.javaparser.ast.body.CallableDeclaration<?>)) {
+            if (current instanceof com.github.javaparser.ast.expr.LambdaExpr enclosing) {
+                ancestors.add(enclosing);
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        java.util.Collections.reverse(ancestors);
+        for (com.github.javaparser.ast.expr.LambdaExpr enclosing : ancestors) {
+            List<String> parameterTypes = lambdaParameterTypes(enclosing, declaredTypes);
+            for (int index = 0; index < enclosing.getParameters().size(); index++) {
+                putType(localTypes, declaredTypes,
+                        enclosing.getParameter(index).getNameAsString(),
+                        parameterTypes.get(index));
             }
         }
     }
@@ -757,17 +899,7 @@ public class EdgeResolver {
 
     private static String qualifiedClassName(
             com.github.javaparser.ast.body.TypeDeclaration<?> declaration) {
-        StringBuilder result = new StringBuilder(declaration.getNameAsString());
-        var parent = declaration.getParentNode().orElse(null);
-        while (parent instanceof com.github.javaparser.ast.body.TypeDeclaration<?> outer) {
-            result.insert(0, outer.getNameAsString() + "$");
-            parent = outer.getParentNode().orElse(null);
-        }
-        declaration.findCompilationUnit()
-                .flatMap(CompilationUnit::getPackageDeclaration)
-                .map(packageDeclaration -> packageDeclaration.getNameAsString() + ".")
-                .ifPresent(prefix -> result.insert(0, prefix));
-        return result.toString();
+        return com.jsrc.app.util.JavaParserTypeNames.qualifiedName(declaration);
     }
 
     /**

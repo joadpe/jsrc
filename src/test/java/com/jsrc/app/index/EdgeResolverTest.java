@@ -350,6 +350,79 @@ class EdgeResolverTest {
     }
 
     @Test
+    void nestedLambdaInheritsAncestorLambdaParameterTypes() throws IOException {
+        Path file = writeFile("Caller.java", """
+                class Service { void ping() {} }
+                class Caller {
+                    void work() {
+                        java.util.function.Consumer<Service> outerTask =
+                                (Service outer) -> {
+                                    Runnable innerTask = () -> outer.ping();
+                                };
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        CallEdge pingEdge = resolver.extractCallEdges(file, new JavaParser()).stream()
+                .filter(edge -> edge.callerMethod().equals("work$lambda$2")
+                        && edge.calleeMethod().equals("ping"))
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals("Service", pingEdge.calleeClass());
+    }
+
+    @Test
+    void localClassCallableInheritsEnclosingMethodParameterTypes() throws IOException {
+        Path file = writeFile("Caller.java", """
+                class Service { void ping() {} }
+                class Caller {
+                    void work(Service service) {
+                        class Local {
+                            Local() { service.ping(); }
+                        }
+                        new Local();
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        CallEdge pingEdge = resolver.extractCallEdges(file, new JavaParser()).stream()
+                .filter(edge -> edge.callerMethod().equals("Local")
+                        && edge.calleeMethod().equals("ping"))
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals("Service", pingEdge.calleeClass());
+    }
+
+    @Test
+    void localClassCallableInheritsEnclosingLocalVariableTypes() throws IOException {
+        Path file = writeFile("Caller.java", """
+                class Service { void ping() {} }
+                class Caller {
+                    void work() {
+                        Service captured = new Service();
+                        class Local {
+                            Local() { captured.ping(); }
+                        }
+                        new Local();
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        CallEdge pingEdge = resolver.extractCallEdges(file, new JavaParser()).stream()
+                .filter(edge -> edge.callerMethod().equals("Local")
+                        && edge.calleeMethod().equals("ping"))
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals("Service", pingEdge.calleeClass());
+    }
+
+    @Test
     void extractCallEdgesIncludesRecordAndEnumMethods() throws IOException {
         Path file = writeFile("Types.java", """
                 package app;

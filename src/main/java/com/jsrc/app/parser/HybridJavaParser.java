@@ -428,30 +428,17 @@ public class HybridJavaParser implements CodeParser {
     private String findEnclosingClassName(MethodDeclaration md) {
         Node current = md.getParentNode().orElse(null);
         while (current != null) {
-            if (current instanceof ClassOrInterfaceDeclaration
-                    || current instanceof com.github.javaparser.ast.body.RecordDeclaration
-                    || current instanceof com.github.javaparser.ast.body.EnumDeclaration) {
-                return binaryTypeName(current);
+            if (current instanceof com.github.javaparser.ast.body.TypeDeclaration<?> type) {
+                return binaryTypeName(type);
             }
             current = current.getParentNode().orElse(null);
         }
         return "";
     }
 
-    private String binaryTypeName(Node declaration) {
-        var names = new java.util.ArrayDeque<String>();
-        Node current = declaration;
-        while (current != null) {
-            if (current instanceof ClassOrInterfaceDeclaration cid) {
-                names.addFirst(cid.getNameAsString());
-            } else if (current instanceof com.github.javaparser.ast.body.RecordDeclaration rd) {
-                names.addFirst(rd.getNameAsString());
-            } else if (current instanceof com.github.javaparser.ast.body.EnumDeclaration ed) {
-                names.addFirst(ed.getNameAsString());
-            }
-            current = current.getParentNode().orElse(null);
-        }
-        return String.join("$", names);
+    private String binaryTypeName(
+            com.github.javaparser.ast.body.TypeDeclaration<?> declaration) {
+        return com.jsrc.app.util.JavaParserTypeNames.binaryName(declaration);
     }
 
     private boolean isValidPath(Path path) {

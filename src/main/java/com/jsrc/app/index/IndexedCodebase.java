@@ -184,6 +184,8 @@ public class IndexedCodebase {
                     long currentModified = Files.getLastModifiedTime(file).toMillis();
                     if (!prev.contentHash().isEmpty()
                             && currentModified <= prev.lastModified()
+                        && (lazyData != null
+                        || CodebaseIndex.hasCurrentSplitCallEdgeSchema(sourceRoot))
                             && prev.sourceSet() == sourceSet) {
                         refreshed.add(prev);
                         continue;

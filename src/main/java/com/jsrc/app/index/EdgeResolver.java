@@ -284,6 +284,11 @@ public class EdgeResolver {
                             parameterTypes.get(index));
                 }
             }
+            if (ancestor instanceof com.github.javaparser.ast.stmt.CatchClause catchClause) {
+                Parameter parameter = catchClause.getParameter();
+                putType(localTypes, declaredTypes,
+                        parameter.getNameAsString(), parameter.getTypeAsString());
+            }
         }
         return new LexicalTypes(Map.copyOf(localTypes), Map.copyOf(declaredTypes));
     }
@@ -297,10 +302,41 @@ public class EdgeResolver {
     private static boolean isVisibleVariableAt(
             VariableDeclarator variable,
             com.github.javaparser.ast.Node node) {
+        var resourceOwner = resourceOwner(variable);
+        if (resourceOwner != null) {
+            if (!startsBefore(variable, node)) {
+                return false;
+            }
+            if (isAncestor(resourceOwner.getTryBlock(), node)) {
+                return true;
+            }
+            var resources = resourceOwner.getResources();
+            int declarationIndex = -1;
+            for (int index = 0; index < resources.size(); index++) {
+                if (isAncestor(resources.get(index), variable)) {
+                    declarationIndex = index;
+                    break;
+                }
+            }
+            for (int index = declarationIndex + 1; index < resources.size(); index++) {
+                if (isAncestor(resources.get(index), node)) {
+                    return true;
+                }
+            }
+            return false;
+        }
         com.github.javaparser.ast.Node scope = lexicalScope(variable);
         return scope != null
                 && isAncestor(scope, node)
                 && startsBefore(variable, node);
+    }
+
+    private static com.github.javaparser.ast.stmt.TryStmt resourceOwner(
+            VariableDeclarator variable) {
+        return variable.findAncestor(com.github.javaparser.ast.stmt.TryStmt.class)
+                .filter(tryStmt -> tryStmt.getResources().stream()
+                        .anyMatch(resource -> isAncestor(resource, variable)))
+                .orElse(null);
     }
 
     private static LexicalTypes lexicalTypesAt(
@@ -321,6 +357,21 @@ public class EdgeResolver {
                         variable.getNameAsString(), variable.getTypeAsString());
             }
         }
+        List<com.github.javaparser.ast.stmt.CatchClause> catchClauses
+                = new ArrayList<>();
+        com.github.javaparser.ast.Node current = node;
+        while (current != null && current != callable) {
+            if (current instanceof com.github.javaparser.ast.stmt.CatchClause catchClause) {
+                catchClauses.add(catchClause);
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        java.util.Collections.reverse(catchClauses);
+        for (var catchClause : catchClauses) {
+            Parameter parameter = catchClause.getParameter();
+            putType(localTypes, declaredTypes,
+                    parameter.getNameAsString(), parameter.getTypeAsString());
+        }
         return new LexicalTypes(localTypes, declaredTypes);
     }
 
@@ -332,8 +383,7 @@ public class EdgeResolver {
                     || current instanceof com.github.javaparser.ast.stmt.ForStmt
                     || current instanceof com.github.javaparser.ast.stmt.ForEachStmt
                     || current instanceof com.github.javaparser.ast.expr.LambdaExpr
-                    || current instanceof com.github.javaparser.ast.stmt.SwitchEntry
-                    || current instanceof com.github.javaparser.ast.stmt.TryStmt) {
+                    || current instanceof com.github.javaparser.ast.stmt.SwitchEntry) {
                 return current;
             }
             current = current.getParentNode().orElse(null);

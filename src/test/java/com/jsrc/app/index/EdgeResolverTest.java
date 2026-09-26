@@ -446,6 +446,80 @@ class EdgeResolverTest {
     }
 
     @Test
+    void tryResourceIsVisibleOnlyInResourcesAndTryBody() throws IOException {
+        Path file = writeFile("Caller.java", """
+                class Alpha implements AutoCloseable {
+                    void ping() {}
+                    public void close() throws Exception {}
+                }
+                class Beta { void ping() {} }
+                class Caller {
+                    Beta target = new Beta();
+                    void work() {
+                        try (Alpha target = new Alpha()) {
+                            target.ping();
+                        } catch (Exception failure) {
+                            target.ping();
+                        } finally {
+                            target.ping();
+                        }
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> pingEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .sorted(java.util.Comparator.comparingInt(CallEdge::line))
+                .toList();
+        assertEquals(List.of("Alpha", "Beta", "Beta"), pingEdges.stream()
+                .map(CallEdge::calleeClass)
+                .toList());
+        assertTrue(pingEdges.stream().allMatch(edge -> edge.resolutionLevel()
+                == com.jsrc.app.model.ResolutionLevel.EXACT));
+    }
+
+    @Test
+    void catchParameterShadowsEnclosingField() throws IOException {
+        Path file = writeFile("Caller.java", """
+                class Alpha { void ping() {} }
+                class BetaProblem extends Exception { void ping() {} }
+                class Caller {
+                    Alpha problem = new Alpha();
+                    void work() {
+                        try {
+                            throw new BetaProblem();
+                        } catch (BetaProblem problem) {
+                            problem.ping();
+                            class Local {
+                                void call() { problem.ping(); }
+                            }
+                            new Local().call();
+                        }
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> pingEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .toList();
+        assertEquals(2, pingEdges.size());
+        assertTrue(pingEdges.stream().allMatch(edge ->
+                edge.calleeClass().equals("BetaProblem")));
+        assertTrue(pingEdges.stream().allMatch(edge -> edge.resolutionLevel()
+                == com.jsrc.app.model.ResolutionLevel.EXACT));
+    }
+
+    @Test
     void siblingLambdasResolveOwnVariableTypes() throws IOException {
         Path file = writeFile("Caller.java", """
                 class Alpha { void ping() {} }

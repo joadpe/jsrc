@@ -362,6 +362,33 @@ public class CodebaseIndex {
     }
 
     /** Loads edges from split file and merges into existing entries. */
+    public static boolean hasCurrentSplitCallEdgeSchema(Path projectRoot) {
+        Path edgesFile = projectRoot.resolve(INDEX_DIR).resolve(EDGES_FILE);
+        if (!Files.exists(edgesFile)) {
+            return false;
+        }
+        try {
+            String json = Files.readString(
+                    edgesFile, java.nio.charset.StandardCharsets.UTF_8);
+            Object parsed = com.jsrc.app.output.JsonReader.parse(json);
+            if (!(parsed instanceof List<?> rawList)) {
+                return false;
+            }
+            return rawList.stream().allMatch(item -> {
+                if (!(item instanceof Map<?, ?> map)) {
+                    return false;
+                }
+                @SuppressWarnings("unchecked")
+                Map<String, Object> entry = (Map<String, Object>) map;
+                return intVal(entry, CALL_EDGE_SCHEMA_KEY)
+                        == CALL_EDGE_SCHEMA_VERSION;
+            });
+        } catch (Exception e) {
+            logger.debug("Failed to validate split edge schema: {}", e.getMessage());
+            return false;
+        }
+    }
+
     public static void loadEdgesInto(Path projectRoot, List<IndexEntry> entries) {
         Path edgesFile = projectRoot.resolve(INDEX_DIR).resolve(EDGES_FILE);
         if (!Files.exists(edgesFile)) return;

@@ -187,4 +187,50 @@ class AutoRefreshTest {
         assertTrue(indexed.hasCallEdges());
         assertFalse(indexed.getEntries().getFirst().contentHash().isEmpty());
     }
+
+    @Test
+    void refreshesMixedSplitIndexWhenEdgesUseLegacySchema() throws Exception {
+        Path sourceFile = tempDir.resolve("Mixed.java");
+        Files.writeString(sourceFile, """
+                class Mixed {
+                    void call() { target(); }
+                    void target() {}
+                }
+                """);
+        String contentHash = com.jsrc.app.util.Hashing.sha256(
+                Files.readAllBytes(sourceFile));
+        long lastModified = Files.getLastModifiedTime(sourceFile).toMillis();
+        Path indexDir = tempDir.resolve(".jsrc");
+        Files.createDirectories(indexDir);
+        Files.writeString(indexDir.resolve("classes.json"), """
+                [{
+                  "callEdgeSchemaVersion": 1,
+                  "path": "Mixed.java",
+                  "contentHash": "%s",
+                  "lastModified": %d,
+                  "classes": []
+                }]
+                """.formatted(contentHash, lastModified));
+        Files.writeString(indexDir.resolve("edges.json"), """
+                [{
+                  "path": "Mixed.java",
+                  "callEdges": [{
+                    "callerClass": "Mixed",
+                    "callerMethod": "call",
+                    "callerParamCount": 0,
+                    "calleeClass": "Mixed",
+                    "calleeMethod": "target",
+                    "line": 2,
+                    "argCount": 0
+                  }]
+                }]
+                """);
+
+        IndexedCodebase indexed = IndexedCodebase.tryLoad(
+                tempDir, List.of(sourceFile));
+
+        assertNotNull(indexed);
+        assertTrue(indexed.hasCallEdges());
+        assertFalse(indexed.getAllClasses().isEmpty());
+    }
 }

@@ -1403,6 +1403,64 @@ class EdgeResolverTest {
     }
 
     @Test
+    void methodTypeParametersRemainStructuredAndScopedToTheExactOverload()
+            throws IOException {
+        Path file = writeFile("MethodTypeParameters.java", """
+                package app;
+                import java.util.Map;
+                import java.util.function.Function;
+                class Base<T> {
+                    void accept(Function<T, String> function) {}
+                }
+                class Mid<U> extends Base<U> {}
+                class Other<U> extends Base<U> {}
+                class External {}
+                class X {}
+                class Target {
+                    static String parse(External value) { return value.toString(); }
+                    static String parse(X value) { return value.toString(); }
+                }
+                class Client {
+                    <T extends Map<String, External>>
+                    void bounded(Mid<External> api) { api.accept(Target::parse); }
+
+                    <X> void overloaded(Mid<X> api) { api.accept(Target::parse); }
+                    void overloaded(Other<X> api) { api.accept(Target::parse); }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> boundedEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerMethod().equals("bounded"))
+                .filter(edge -> edge.calleeMethod().equals("parse"))
+                .toList();
+        assertTrue(boundedEdges.stream().anyMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("External"))
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Bounded declaration must keep External concrete: "
+                        + boundedEdges);
+
+        List<CallEdge> concreteOverloadEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerMethod().equals("overloaded"))
+                .filter(edge -> edge.callerParameterTypes()
+                        .equals(List.of("Other<X>")))
+                .filter(edge -> edge.calleeMethod().equals("parse"))
+                .toList();
+        assertTrue(concreteOverloadEdges.stream().anyMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("X"))
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Generic sibling overload must not hide concrete X: "
+                        + concreteOverloadEdges);
+    }
+
+    @Test
     void samePackageTypeDoesNotActivateWildcardJdkFallback() throws IOException {
         Path listFile = writeFile("List.java", """
                 package app;

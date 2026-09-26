@@ -21,14 +21,32 @@ public record IndexedMethod(
         int endLine,
         String returnType,
         List<String> annotations,
+        List<String> typeParameters,
         int complexity,
         int paramCount
 ) {
+    /** Backward-compatible constructor without method type parameters. */
+    public IndexedMethod(String name, String signature, int startLine, int endLine,
+                         String returnType, List<String> annotations,
+                         int complexity, int paramCount) {
+        this(name, signature, startLine, endLine, returnType, annotations,
+                List.of(), complexity, paramCount);
+    }
+
     /** Backward-compatible constructor without precomputed fields. */
     public IndexedMethod(String name, String signature, int startLine, int endLine,
                          String returnType, List<String> annotations) {
         this(name, signature, startLine, endLine, returnType, annotations,
-                computeComplexity(startLine, endLine), countParams(signature));
+                List.of(), computeComplexity(startLine, endLine), countParams(signature));
+    }
+
+    /** Constructor with structured method type parameters and computed metrics. */
+    public IndexedMethod(String name, String signature, int startLine, int endLine,
+                         String returnType, List<String> annotations,
+                         List<String> typeParameters) {
+        this(name, signature, startLine, endLine, returnType, annotations,
+                typeParameters, computeComplexity(startLine, endLine),
+                countParams(signature));
     }
 
     private static int computeComplexity(int startLine, int endLine) {

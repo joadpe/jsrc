@@ -604,8 +604,9 @@ public class BinaryIndexV2Reader {
                 short complexity = in.readShort();
                 byte paramCount = in.readByte();
                 List<String> mAnns = readStringRefs(in, strings);
+                List<String> mTypeParameters = readStringRefs(in, strings);
                 methods.add(new IndexedMethod(mName, sig, mStart, mEnd,
-                        retType, mAnns, complexity, paramCount));
+                        retType, mAnns, mTypeParameters, complexity, paramCount));
             }
 
             classes.add(new IndexedClass(name, pkg, startLine, endLine,

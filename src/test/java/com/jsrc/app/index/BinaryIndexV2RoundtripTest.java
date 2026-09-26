@@ -59,7 +59,9 @@ class BinaryIndexV2RoundtripTest {
                 new IndexEntry("Foo.java", "abc123", 1000L,
                         List.of(new IndexedClass("Foo", "com.example", 1, 50,
                                 false, false, List.of(), List.of(), List.of(
-                                new IndexedMethod("bar", "void bar(int x)", 10, 20, "void", List.of(), (short) 2, (byte) 1)
+                                new IndexedMethod("bar", "void bar(int x)", 10, 20,
+                                        "void", List.of(), List.of("T extends Number"),
+                                        (short) 2, (byte) 1)
                         ), List.of(), List.of(), List.of())),
                         List.of(new CallEdge("Foo", "bar", List.of("int"), 1,
                                 "Baz", "qux", List.of("String", "int"), 25, 2,
@@ -96,6 +98,8 @@ class BinaryIndexV2RoundtripTest {
         assertEquals("Foo", result.entries().get(0).classes().get(0).name());
         assertEquals(1, result.entries().get(0).classes().get(0).methods().size());
         assertEquals("bar", result.entries().get(0).classes().get(0).methods().get(0).name());
+        assertEquals(List.of("T extends Number"),
+                result.entries().get(0).classes().get(0).methods().get(0).typeParameters());
 
         // Verify edges preserved
         assertEquals(1, result.entries().get(0).callEdges().size());

@@ -198,7 +198,10 @@ public final class SemanticCallResolver {
         caller.methods().stream()
                 .filter(method -> method.name().equals(edge.callerMethod()))
                 .filter(method -> method.paramCount() == edge.callerParamCount())
-                .map(method -> methodTypeParameters(method.signature()))
+                .filter(method -> com.jsrc.app.util.SignatureUtils
+                        .extractParameterTypes(method.signature())
+                        .equals(edge.callerParameterTypes()))
+                .map(method -> typeParameterNames(method.typeParameters()))
                 .forEach(parameters::addAll);
         return Set.copyOf(parameters);
     }
@@ -228,8 +231,8 @@ public final class SemanticCallResolver {
                             parameters.get(argumentIndex), substitutions);
                     if (containsTypeParameter(
                             functionalType, indexedClass.typeParameters())
-                            || containsMethodTypeParameter(
-                            functionalType, method.signature())) {
+                            || containsTypeParameter(functionalType,
+                            typeParameterNames(method.typeParameters()))) {
                         return;
                     }
                     functionalTypes.add(functionalType);
@@ -304,20 +307,8 @@ public final class SemanticCallResolver {
                         .find());
     }
 
-    private static boolean containsMethodTypeParameter(
-            String type,
-            String signature) {
-        return methodTypeParameters(signature).stream()
-                .anyMatch(parameter -> containsTypeParameter(type, List.of(parameter)));
-    }
-
-    private static List<String> methodTypeParameters(String signature) {
-        int start = signature.indexOf('<');
-        int end = signature.indexOf('>');
-        if (start < 0 || end <= start || start > signature.indexOf('(')) {
-            return List.of();
-        }
-        return java.util.Arrays.stream(signature.substring(start + 1, end).split(","))
+    private static List<String> typeParameterNames(List<String> declarations) {
+        return declarations.stream()
                 .map(String::trim)
                 .map(declaration -> declaration.split("\\s+", 2)[0])
                 .toList();

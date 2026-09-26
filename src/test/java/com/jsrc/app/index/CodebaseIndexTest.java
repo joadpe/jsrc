@@ -490,8 +490,9 @@ class CodebaseIndexTest {
     void genericTypeParametersSurviveJsonAndBinaryRoundtrip() throws Exception {
         Path javaFile = writeFile("GenericOwner.java", """
                 package app;
+                import java.util.Map;
                 class GenericOwner<Key, Value> {
-                    Value find(Key key) { return null; }
+                    <Entry extends Map<Key, Value>> Value find(Key key) { return null; }
                 }
                 """);
         var index = new CodebaseIndex();
@@ -505,6 +506,8 @@ class CodebaseIndexTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals(List.of("Key", "Value"), jsonClass.typeParameters());
+        assertEquals(List.of("Entry extends Map<Key,Value>"),
+                jsonClass.methods().getFirst().typeParameters());
 
         var graphBuilder = new com.jsrc.app.analysis.CallGraphBuilder();
         graphBuilder.loadFromIndex(index.getEntries());
@@ -517,6 +520,8 @@ class CodebaseIndexTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals(List.of("Key", "Value"), binaryClass.typeParameters());
+        assertEquals(List.of("Entry extends Map<Key,Value>"),
+                binaryClass.methods().getFirst().typeParameters());
     }
 
     private Path writeFile(String name, String content) throws IOException {

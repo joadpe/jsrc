@@ -34,7 +34,7 @@ public class CodebaseIndex {
     private static final String EDGES_FILE = "edges.json";
     private static final String SMELLS_FILE = "smells.json";
     private static final String CALL_EDGE_SCHEMA_KEY = "callEdgeSchemaVersion";
-    private static final int CALL_EDGE_SCHEMA_VERSION = 3;
+    private static final int CALL_EDGE_SCHEMA_VERSION = 4;
     private static final String SPLIT_ENTRIES_KEY = "entries";
 
     private final List<IndexEntry> entries;
@@ -626,6 +626,7 @@ public class CodebaseIndex {
                 str(map, "name"), str(map, "signature"),
                 intVal(map, "startLine"), intVal(map, "endLine"),
                 str(map, "returnType"), strList(map.get("annotations")),
+                strList(map.get("typeParameters")),
                 intVal(map, "complexity"), intVal(map, "paramCount"));
     }
 
@@ -662,7 +663,8 @@ public class CodebaseIndex {
                 .map(m -> new IndexedMethod(
                         m.name(), m.signature(), m.startLine(), m.endLine(),
                         m.returnType(),
-                        m.annotations().stream().map(a -> a.name()).toList()))
+                        m.annotations().stream().map(a -> a.name()).toList(),
+                        m.typeParameters()))
                 .toList();
 
         List<String> annotations = ci.annotations().stream()
@@ -835,6 +837,7 @@ public class CodebaseIndex {
         map.put("endLine", im.endLine());
         map.put("returnType", im.returnType());
         map.put("annotations", im.annotations());
+        map.put("typeParameters", im.typeParameters());
         if (im.complexity() > 0) map.put("complexity", im.complexity());
         if (im.paramCount() > 0) map.put("paramCount", im.paramCount());
         return map;

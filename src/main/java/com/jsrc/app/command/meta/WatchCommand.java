@@ -362,7 +362,8 @@ public class WatchCommand implements Command {
     }
 
     private static long indexMtime(Path root) {
-        Path indexBin = root.resolve(".jsrc/index.bin");
+        Path manifest = root.resolve(".jsrc/current");
+        Path indexBin = Files.exists(manifest) ? manifest : root.resolve(".jsrc/index.bin");
         try {
             if (Files.exists(indexBin)) {
                 return Files.getLastModifiedTime(indexBin).toMillis();

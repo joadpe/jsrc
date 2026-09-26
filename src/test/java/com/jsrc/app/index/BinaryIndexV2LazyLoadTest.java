@@ -180,7 +180,7 @@ class BinaryIndexV2LazyLoadTest {
         // Write migrations manually (BinaryIndexV2Writer handles this)
         var indexWithMigrations = new CodebaseIndex(entries);
         indexWithMigrations.saveWithGraph(tempDir, graph, migrations);
-        Path actualIndexFile = tempDir.resolve(".jsrc/index.bin");
+        Path actualIndexFile = CodebaseIndex.currentBinary(tempDir);
 
         // Act: Read lazy
         var lazyData = BinaryIndexV2Reader.readLazy(actualIndexFile);

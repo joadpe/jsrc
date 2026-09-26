@@ -49,10 +49,11 @@ class IndexExitCodeContractTest {
             assertTrue(stderr.contains("Done. Indexed"), 
                     "index should print 'Done. Indexed' to stderr");
 
-            // Acceptance criterion 1: .jsrc/index.bin exists
-            Path indexBin = tempDir.resolve(".jsrc").resolve("index.bin");
-            assertTrue(Files.exists(indexBin), 
-                    ".jsrc/index.bin should exist after successful index");
+            // Acceptance criterion 1: a complete generation is published.
+            Path manifest = tempDir.resolve(".jsrc/current");
+            assertTrue(Files.isRegularFile(manifest));
+            assertTrue(Files.isRegularFile(
+                    com.jsrc.app.index.CodebaseIndex.currentBinary(tempDir)));
 
         } finally {
             System.setErr(originalErr);

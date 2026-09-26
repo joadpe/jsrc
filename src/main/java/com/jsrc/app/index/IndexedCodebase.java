@@ -41,7 +41,7 @@ public class IndexedCodebase {
     private java.util.Map<String, List<CachedMigration>> migrationCache; // path → migrations
 
     private IndexedCodebase(List<IndexEntry> entries) {
-        this.entries = entries;
+        this.entries = new ArrayList<>(entries);
     }
 
     /**
@@ -119,9 +119,27 @@ public class IndexedCodebase {
             Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels,
             List<Path> discoveredFiles) {
         Path v2File = sourceRoot.resolve(".jsrc/index.bin");
+        IOException snapshotFailure = null;
+        try {
+            v2File = IndexSnapshotStore.currentBinary(sourceRoot, frozenIndex);
+        } catch (IOException ex) {
+            snapshotFailure = ex;
+        }
+        if (!frozenIndex && snapshotFailure == null
+                && !Files.exists(sourceRoot.resolve(".jsrc/current"))
+                && (Files.exists(v2File)
+                    || Files.exists(sourceRoot.resolve(".jsrc/index.json")))) {
+            snapshotFailure = new IOException("Legacy index has no snapshot identity");
+        }
         
         // Frozen mode: load existing index without filesystem walk
         if (frozenIndex) {
+            if (snapshotFailure != null) {
+                throw new com.jsrc.app.exception.JsrcIOException(
+                        "--frozen-index set but index snapshot corrupt: "
+                                + snapshotFailure.getMessage() + "\nRun 'jsrc index' to rebuild.",
+                        snapshotFailure);
+            }
             if (!Files.exists(v2File)) {
                 throw new com.jsrc.app.exception.JsrcIOException(
                     "--frozen-index set but index file missing: " + v2File + "\n" +
@@ -129,7 +147,8 @@ public class IndexedCodebase {
             }
             
             try {
-                BinaryIndexV2Reader.LazyIndexData lazyData = BinaryIndexV2Reader.readLazy(v2File);
+                BinaryIndexV2Reader.LazyIndexData lazyData =
+                        IndexSnapshotStore.readCurrent(sourceRoot, true);
                 List<IndexEntry> persistedEntries = lazyData.getData().entries();
                 List<IndexEntry> entries = selectEntries(
                         sourceRoot, currentFiles, persistedEntries);
@@ -175,18 +194,21 @@ public class IndexedCodebase {
         boolean forceRefresh = false;
         List<IndexEntry> existing;
 
-        if (Files.exists(v2File)) {
+        if (snapshotFailure != null) {
+            logger.warn("Index snapshot invalid, rebuilding: {}", snapshotFailure.getMessage());
+            existing = List.of();
+            forceRefresh = true;
+        } else if (Files.exists(v2File)) {
             try {
-                lazyData = BinaryIndexV2Reader.readLazy(v2File);
+                lazyData = IndexSnapshotStore.readCurrent(sourceRoot, false);
                 existing = lazyData.getData().entries();
                 loadedMigrations = lazyData.getData().migrations();
                 logger.info("Loaded V2 binary index (LAZY): {} entries",
                         existing.size());
             } catch (IOException e) {
-                logger.warn("V2 binary index corrupt, falling back to JSON: {}", e.getMessage());
-                existing = CodebaseIndex.loadClassesOnly(sourceRoot);
-                forceRefresh = e.getMessage() != null
-                        && e.getMessage().startsWith("Unsupported V2 index version:");
+                logger.warn("Binary index invalid, rebuilding from sources: {}", e.getMessage());
+                existing = List.of();
+                forceRefresh = true;
             }
         } else {
             existing = CodebaseIndex.loadClassesOnly(sourceRoot);
@@ -210,6 +232,10 @@ public class IndexedCodebase {
         int reindexed = updatedIndex.build(
                 parser, currentFiles, sourceRoot, incrementalBase, List.of(), sourceSets,
                 sourceLevels);
+        if (updatedIndex.getEntries().size() != currentFiles.size()) {
+            throw new com.jsrc.app.exception.JsrcIOException(
+                    "Source set changed while refreshing index; retry the command.");
+        }
         List<IndexEntry> refreshed = new ArrayList<>(updatedIndex.getEntries());
         Set<String> currentPaths = refreshed.stream()
                 .map(IndexEntry::path)
@@ -242,12 +268,13 @@ public class IndexedCodebase {
                 var builder = new com.jsrc.app.analysis.CallGraphBuilder();
                 builder.loadFromIndex(refreshed);
                 var graphForSave = builder.toCallGraph();
-                updatedIndex.saveWithGraph(sourceRoot, graphForSave, loadedMigrations);
+                updatedIndex.saveWithGraph(sourceRoot, graphForSave, loadedMigrations, true);
                 
-                // Re-read index in LAZY mode to restore lazy state after refresh
+                // Re-read the generation just published, not the previous one.
+                v2File = IndexSnapshotStore.currentBinary(sourceRoot);
                 if (Files.exists(v2File)) {
                     try {
-                        lazyData = BinaryIndexV2Reader.readLazy(v2File);
+                        lazyData = IndexSnapshotStore.readCurrent(sourceRoot, false);
                         refreshed = new ArrayList<>(lazyData.getData().entries());
                         loadedMigrations = lazyData.getData().migrations();
                         preBuiltGraph = null; // keep lazy until ensureGraph
@@ -262,7 +289,8 @@ public class IndexedCodebase {
                     lazyData = null;
                 }
             } catch (IOException e) {
-                logger.warn("Could not save refreshed index: {}", e.getMessage());
+                throw new com.jsrc.app.exception.JsrcIOException(
+                        "Could not publish refreshed index: " + e.getMessage(), e);
             }
         } else {
             logger.info("Index up-to-date: {} entries", refreshed.size());
@@ -645,8 +673,7 @@ public class IndexedCodebase {
     /** Persists the index (with cached smells) to disk. */
     public void save(java.nio.file.Path projectRoot) {
         try {
-            var index = new CodebaseIndex();
-            index.saveEntries(projectRoot, entries);
+            IndexSnapshotStore.updateSmells(projectRoot, entries);
         } catch (Exception e) {
             logger.warn("Failed to persist cached smells: {}", e.getMessage());
         }

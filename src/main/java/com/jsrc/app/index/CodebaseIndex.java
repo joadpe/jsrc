@@ -214,11 +214,17 @@ public class CodebaseIndex {
 
     public void saveWithGraph(Path projectRoot, com.jsrc.app.analysis.CallGraph callGraph,
                                java.util.Map<String, java.util.List<CachedMigration>> migrations) throws IOException {
+        saveWithGraph(projectRoot, callGraph, migrations, false);
+    }
+
+    public void saveWithGraph(Path projectRoot, com.jsrc.app.analysis.CallGraph callGraph,
+                              java.util.Map<String, java.util.List<CachedMigration>> migrations,
+                              boolean validateSources) throws IOException {
         Path indexDir = projectRoot.resolve(INDEX_DIR);
         Files.createDirectories(indexDir);
 
         // Write unified V2 binary (primary format)
-        BinaryIndexV2Writer.write(indexDir.resolve(INDEX_BIN), entries, callGraph, migrations);
+        IndexSnapshotStore.publish(indexDir, entries, callGraph, migrations, validateSources);
 
         // Clean up legacy files if they exist
         deleteLegacyFiles(indexDir);
@@ -310,6 +316,19 @@ public class CodebaseIndex {
         entries.clear();
         entries.addAll(entriesToSave);
         save(projectRoot);
+    }
+
+    /** Loads the authoritative snapshot; legacy JSON is never used as a reuse base. */
+    public static List<IndexEntry> loadPublished(Path projectRoot) throws IOException {
+        if (!Files.isRegularFile(projectRoot.resolve(INDEX_DIR).resolve("current"))) {
+            return List.of();
+        }
+        return IndexSnapshotStore.readCurrent(projectRoot, false).getData().entries();
+    }
+
+    /** Returns the published binary path, or the legacy path during migration. */
+    public static Path currentBinary(Path projectRoot) throws IOException {
+        return IndexSnapshotStore.currentBinary(projectRoot);
     }
 
     /**

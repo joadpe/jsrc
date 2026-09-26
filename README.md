@@ -397,7 +397,12 @@ architecture:
 
 ## Persistent Index
 
-The index stores all data in a single binary file (`.jsrc/index.bin`) with pre-resolved call graph:
+The index publishes immutable binary generations under `.jsrc/generations/`.
+The small `.jsrc/current` manifest selects the complete generation used by readers;
+writers serialize publication with `.jsrc/index.lock` and replace the manifest
+atomically. The previous generation is retained for recovery while older ones
+are cleaned up. Legacy `.jsrc/index.bin`/JSON indexes are rebuilt on the next
+explicit `jsrc index` rather than reused as a trusted snapshot.
 
 ```bash
 jsrc index                    # First run: ~60s for 8K files
@@ -408,13 +413,20 @@ jsrc callers MyMethod --json  # Auto-refreshes changed files + edges
 
 Index uses SHA-256 content hashes. Auto-refresh re-extracts call edges for modified files, so the call graph stays fresh after edits.
 
+After a Git branch switch, normal commands compare source hashes and refresh
+changed files. `--frozen-index` does not scan sources: it rejects a snapshot
+whose recorded Git tree differs from the current committed tree. For an
+uncommitted working tree or a non-Git project, frozen freshness is not verified;
+run `jsrc index` after edits before relying on frozen results. Frozen mode does
+not migrate or repair legacy/corrupt indexes.
+
 ### Watch Mode Session Cache
 
 Watch mode (`jsrc watch`) maintains an in-memory cache of the indexed codebase across multiple commands:
 
-- **First command**: Loads index from `.jsrc/index.bin`
+- **First command**: Loads the generation named by `.jsrc/current`
 - **Subsequent commands**: Reuses cached index if no file changes detected
-- **Automatic refresh**: Detects file modifications via cheap timestamp stamp (index mtime + max source mtime + file count) and reloads only when necessary
+- **Automatic refresh**: Compares source content hashes and reloads only when necessary, including equal-size edits with preserved timestamps
 
 This eliminates redundant index loads during interactive sessions, making back-to-back queries instant even without filesystem changes.
 

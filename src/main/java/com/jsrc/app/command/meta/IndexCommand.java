@@ -16,7 +16,13 @@ public class IndexCommand implements Command {
         Path root = Paths.get(ctx.rootPath());
         System.err.printf("Indexing %d Java files under '%s'...%n", ctx.javaFiles().size(), ctx.rootPath());
 
-        var existing = CodebaseIndex.load(root);
+        java.util.List<com.jsrc.app.index.IndexEntry> existing;
+        try {
+            existing = CodebaseIndex.loadPublished(root);
+        } catch (IOException ex) {
+            System.err.printf("Invalid published index; rebuilding: %s%n", ex.getMessage());
+            existing = java.util.List.of();
+        }
         // Re-index entries that lack complete edge data (callerParamCount + argCount)
         existing = existing.stream()
                 .filter(e -> !e.callEdges().isEmpty()
@@ -34,6 +40,9 @@ public class IndexCommand implements Command {
                 ctx.parser(), ctx.javaFiles(), root, existing, invokers, sourceSets,
                 com.jsrc.app.project.SourceLevel.resolveFiles(
                         ctx.javaFiles(), ctx.projectModel(), ctx.config()));
+        if (index.getEntries().size() != ctx.javaFiles().size()) {
+            throw new JsrcIOException("Source set changed while indexing; retry 'jsrc index'.");
+        }
 
         try {
             // Build call graph and save V2 binary with pre-resolved graph
@@ -50,7 +59,7 @@ public class IndexCommand implements Command {
                         .toList());
             }
 
-            index.saveWithGraph(root, callGraph, migrations);
+            index.saveWithGraph(root, callGraph, migrations, true);
             System.err.printf("Done. Indexed %d files (%d re-indexed, %d cached).%n",
                     ctx.javaFiles().size(), reindexed, ctx.javaFiles().size() - reindexed);
         } catch (IOException ex) {

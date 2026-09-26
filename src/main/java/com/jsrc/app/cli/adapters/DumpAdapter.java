@@ -22,7 +22,14 @@ public class DumpAdapter extends PicocliAdapter {
     protected com.jsrc.app.command.Command createCommand() {
         // Custom execution — doesn't use the standard Command pattern
         return ctx -> {
-            Path indexBin = Path.of(ctx.rootPath()).resolve(".jsrc/index.bin");
+            Path indexBin;
+            try {
+                indexBin = com.jsrc.app.index.CodebaseIndex.currentBinary(
+                        Path.of(ctx.rootPath()));
+            } catch (java.io.IOException ex) {
+                System.err.println("Invalid published index: " + ex.getMessage());
+                return 0;
+            }
             if (!Files.exists(indexBin)) {
                 System.err.println("No binary index found at " + indexBin);
                 System.err.println("Run 'jsrc index' first.");

@@ -112,6 +112,9 @@ public class BinaryIndexV2Writer {
         out.writeInt(strings.size());
         for (String s : strings) {
             byte[] bytes = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            if (bytes.length > 0xffff) {
+                throw new IOException("Binary index string exceeds 65535 UTF-8 bytes");
+            }
             out.writeShort(bytes.length);
             out.write(bytes);
         }

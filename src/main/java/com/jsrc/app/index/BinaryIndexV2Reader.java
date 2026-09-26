@@ -104,6 +104,9 @@ public class BinaryIndexV2Reader {
      * @return parsed index data, or null if file is invalid/corrupt
      */
     public static IndexData read(Path file) throws IOException {
+        if (Files.size(file) > 1_073_741_824L) {
+            throw new IOException("Binary index exceeds supported size");
+        }
         byte[] allBytes = Files.readAllBytes(file);
         if (allBytes.length < 12) throw new IOException("Binary index too small");
 
@@ -130,6 +133,9 @@ public class BinaryIndexV2Reader {
 
         // 1. STRING_TABLE
         int stringCount = in.readInt();
+        if (stringCount < 0 || stringCount > in.available() / 2) {
+            throw new IOException("Invalid binary index string count: " + stringCount);
+        }
         String[] strings = new String[stringCount];
         for (int i = 0; i < stringCount; i++) {
             int len = in.readUnsignedShort();
@@ -139,18 +145,18 @@ public class BinaryIndexV2Reader {
         }
 
         // 2. CLASSES
-        int entryCount = in.readInt();
+        int entryCount = checkedCount(in, "entries", 4);
         List<IndexEntry> entries = new ArrayList<>(entryCount);
         for (int e = 0; e < entryCount; e++) {
             entries.add(readEntry(in, strings));
         }
 
         // 3. EDGES
-        int edgeFileCount = in.readInt();
+        int edgeFileCount = checkedCount(in, "edge files", 8);
         Map<String, List<CallEdge>> edgesByPath = new HashMap<>();
         for (int ef = 0; ef < edgeFileCount; ef++) {
             String path = str(in.readInt(), strings);
-            int edgeCount = in.readInt();
+            int edgeCount = checkedCount(in, "edges", 18);
             List<CallEdge> edges = new ArrayList<>(edgeCount);
             for (int i = 0; i < edgeCount; i++) {
                 String callerClass = str(in.readInt(), strings);
@@ -194,10 +200,10 @@ public class BinaryIndexV2Reader {
         }
 
         // 5. SMELLS
-        int smellFileCount = in.readInt();
+        int smellFileCount = checkedCount(in, "smell files", 8);
         for (int sf = 0; sf < smellFileCount; sf++) {
             String path = str(in.readInt(), strings);
-            int smellCount = in.readInt();
+            int smellCount = checkedCount(in, "smells", 24);
             List<CachedSmell> smells = new ArrayList<>(smellCount);
             for (int i = 0; i < smellCount; i++) {
                 String ruleId = str(in.readInt(), strings);
@@ -222,7 +228,7 @@ public class BinaryIndexV2Reader {
         if (in.available() > 0) {
             byte hasMigrations = in.readByte();
             if (hasMigrations == 1) {
-                int migFileCount = in.readInt();
+                int migFileCount = checkedCount(in, "migration files", 6);
                 for (int mf = 0; mf < migFileCount; mf++) {
                     String path = str(in.readInt(), strings);
                     int migCount = in.readUnsignedShort();
@@ -252,13 +258,17 @@ public class BinaryIndexV2Reader {
      * @return LazyIndexData with deferred graph loading
      */
     public static LazyIndexData readLazy(Path file) throws IOException {
+        long observedSize = Files.size(file);
+        if (observedSize < 12 || observedSize > 1_073_741_824L) {
+            throw new IOException("Unsupported binary index size: " + observedSize);
+        }
         ByteBuffer buffer;
         boolean usedMmap = false;
 
         try (var channel = FileChannel.open(file, StandardOpenOption.READ)) {
             long fileSize = channel.size();
-            if (fileSize < 12) {
-                throw new IOException("Binary index too small");
+            if (fileSize < 12 || fileSize > 1_073_741_824L) {
+                throw new IOException("Unsupported binary index size: " + fileSize);
             }
 
             buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize);
@@ -266,6 +276,9 @@ public class BinaryIndexV2Reader {
             logger.debug("Using memory-mapped I/O for index.bin ({} bytes)", fileSize);
         } catch (IOException e) {
             logger.warn("Memory-mapping failed, falling back to heap copy: {}", e.getMessage());
+            if (Files.size(file) > 1_073_741_824L) {
+                throw new IOException("Binary index exceeds supported size", e);
+            }
             byte[] allBytes = Files.readAllBytes(file);
             buffer = ByteBuffer.wrap(allBytes);
         }
@@ -298,6 +311,9 @@ public class BinaryIndexV2Reader {
 
         // 1. STRING_TABLE
         int stringCount = in.readInt();
+        if (stringCount < 0 || stringCount > in.available() / 2) {
+            throw new IOException("Invalid binary index string count: " + stringCount);
+        }
         String[] strings = new String[stringCount];
         for (int i = 0; i < stringCount; i++) {
             int len = in.readUnsignedShort();
@@ -307,18 +323,18 @@ public class BinaryIndexV2Reader {
         }
 
         // 2. CLASSES
-        int entryCount = in.readInt();
+        int entryCount = checkedCount(in, "entries", 4);
         List<IndexEntry> entries = new ArrayList<>(entryCount);
         for (int e = 0; e < entryCount; e++) {
             entries.add(readEntry(in, strings));
         }
 
         // 3. EDGES
-        int edgeFileCount = in.readInt();
+        int edgeFileCount = checkedCount(in, "edge files", 8);
         Map<String, List<CallEdge>> edgesByPath = new HashMap<>();
         for (int ef = 0; ef < edgeFileCount; ef++) {
             String path = str(in.readInt(), strings);
-            int edgeCount = in.readInt();
+            int edgeCount = checkedCount(in, "edges", 18);
             List<CallEdge> edges = new ArrayList<>(edgeCount);
             for (int i = 0; i < edgeCount; i++) {
                 String callerClass = str(in.readInt(), strings);
@@ -362,14 +378,14 @@ public class BinaryIndexV2Reader {
 
         // Skip graph section to continue reading smells/migrations
         if (hasGraph == 1) {
-            skipGraphSection(in);
+            skipGraphSection(in, strings);
         }
 
         // 5. SMELLS
-        int smellFileCount = in.readInt();
+        int smellFileCount = checkedCount(in, "smell files", 8);
         for (int sf = 0; sf < smellFileCount; sf++) {
             String path = str(in.readInt(), strings);
-            int smellCount = in.readInt();
+            int smellCount = checkedCount(in, "smells", 24);
             List<CachedSmell> smells = new ArrayList<>(smellCount);
             for (int i = 0; i < smellCount; i++) {
                 String ruleId = str(in.readInt(), strings);
@@ -394,7 +410,7 @@ public class BinaryIndexV2Reader {
         if (in.available() > 0) {
             byte hasMigrations = in.readByte();
             if (hasMigrations == 1) {
-                int migFileCount = in.readInt();
+                int migFileCount = checkedCount(in, "migration files", 6);
                 for (int mf = 0; mf < migFileCount; mf++) {
                     String path = str(in.readInt(), strings);
                     int migCount = in.readUnsignedShort();
@@ -441,48 +457,57 @@ public class BinaryIndexV2Reader {
      * Skips the graph section by reading and discarding its data.
      * Used by readLazy to continue to smells/migrations sections.
      */
-    private static void skipGraphSection(DataInputStream in) throws IOException {
-        // All methods
-        int methodCount = in.readInt();
+    private static void skipGraphSection(DataInputStream in, String[] strings) throws IOException {
+        int methodCount = checkedCount(in, "graph methods", 14);
         for (int i = 0; i < methodCount; i++) {
-            in.readInt(); // className
-            in.readInt(); // methodName
-            skipStringRefs(in); // parameterTypes
-            in.readInt(); // paramCount
+            requiredStr(in.readInt(), strings);
+            requiredStr(in.readInt(), strings);
+            skipStringRefs(in, strings);
+            in.readInt(); // parameter count may be unknown (-1)
         }
 
-        // CallerIndex
-        int callerEntryCount = in.readInt();
+        int callerEntryCount = checkedCount(in, "graph callers", 8);
         for (int i = 0; i < callerEntryCount; i++) {
-            in.readInt(); // calleeId
-            int callerCount = in.readInt();
+            checkedMethodId(in.readInt(), methodCount);
+            int callerCount = checkedCount(in, "graph caller edges", 12);
             for (int j = 0; j < callerCount; j++) {
-                in.readInt(); // callerId
-                in.readInt(); // line
-                in.readByte(); // invocationKind
-                in.readByte(); // resolutionLevel
-                skipStringRefs(in); // evidence
+                skipGraphCall(in, strings, methodCount);
             }
         }
 
-        // CalleeIndex
-        int calleeEntryCount = in.readInt();
+        int calleeEntryCount = checkedCount(in, "graph callees", 8);
         for (int i = 0; i < calleeEntryCount; i++) {
-            in.readInt(); // callerId
-            int calleeCount = in.readInt();
+            checkedMethodId(in.readInt(), methodCount);
+            int calleeCount = checkedCount(in, "graph callee edges", 12);
             for (int j = 0; j < calleeCount; j++) {
-                in.readInt(); // calleeId
-                in.readInt(); // line
-                in.readByte(); // invocationKind
-                in.readByte(); // resolutionLevel
-                skipStringRefs(in); // evidence
+                skipGraphCall(in, strings, methodCount);
             }
         }
     }
 
+    private static void skipGraphCall(DataInputStream in, String[] strings,
+                                      int methodCount) throws IOException {
+        checkedMethodId(in.readInt(), methodCount);
+        in.readInt(); // line
+        int kind = in.readUnsignedByte();
+        int resolution = in.readUnsignedByte();
+        if (kind >= com.jsrc.app.model.InvocationKind.values().length
+                || resolution >= com.jsrc.app.model.ResolutionLevel.values().length) {
+            throw new IOException("Invalid graph call enum value");
+        }
+        skipStringRefs(in, strings);
+    }
+
+    private static int checkedMethodId(int id, int count) throws IOException {
+        if (id < 0 || id >= count) {
+            throw new IOException("Invalid graph method reference: " + id);
+        }
+        return id;
+    }
+
     private static CallGraph readGraph(DataInputStream in, String[] strings) throws IOException {
         // All methods
-        int methodCount = in.readInt();
+        int methodCount = checkedCount(in, "graph methods", 14);
         MethodReference[] methods = new MethodReference[methodCount];
         for (int i = 0; i < methodCount; i++) {
             String className = str(in.readInt(), strings);
@@ -496,11 +521,11 @@ public class BinaryIndexV2Reader {
 
         // CallerIndex
         Map<MethodReference, Set<MethodCall>> callerIndex = new HashMap<>();
-        int callerEntryCount = in.readInt();
+        int callerEntryCount = checkedCount(in, "graph callers", 8);
         for (int i = 0; i < callerEntryCount; i++) {
             int calleeId = in.readInt();
             MethodReference callee = calleeId >= 0 && calleeId < methodCount ? methods[calleeId] : null;
-            int callerCount = in.readInt();
+            int callerCount = checkedCount(in, "graph caller edges", 12);
             Set<MethodCall> callers = new HashSet<>(callerCount);
             for (int j = 0; j < callerCount; j++) {
                 int callerId = in.readInt();
@@ -524,11 +549,11 @@ public class BinaryIndexV2Reader {
 
         // CalleeIndex
         Map<MethodReference, Set<MethodCall>> calleeIndex = new HashMap<>();
-        int calleeEntryCount = in.readInt();
+        int calleeEntryCount = checkedCount(in, "graph callees", 8);
         for (int i = 0; i < calleeEntryCount; i++) {
             int callerId = in.readInt();
             MethodReference caller = callerId >= 0 && callerId < methodCount ? methods[callerId] : null;
-            int calleeCount = in.readInt();
+            int calleeCount = checkedCount(in, "graph callee edges", 12);
             Set<MethodCall> callees = new HashSet<>(calleeCount);
             for (int j = 0; j < calleeCount; j++) {
                 int cId = in.readInt();
@@ -561,7 +586,7 @@ public class BinaryIndexV2Reader {
     }
 
     private static IndexEntry readEntry(DataInputStream in, String[] strings) throws IOException {
-        String path = str(in.readInt(), strings);
+        String path = requiredStr(in.readInt(), strings);
         String hash = str(in.readInt(), strings);
         long lastModified = in.readLong();
         var sourceSet = com.jsrc.app.project.SourceSet.fromExternalName(
@@ -619,22 +644,50 @@ public class BinaryIndexV2Reader {
                 path, hash, lastModified, sourceSet, classes, List.of(), List.of(), sourceVersion);
     }
 
-    private static String str(int ref, String[] table) {
-        if (ref < 0 || ref >= table.length) return "";
+    private static String str(int ref, String[] table) throws IOException {
+        if (ref == -1) return "";
+        if (ref < -1 || ref >= table.length) {
+            throw new IOException("Invalid binary index string reference: " + ref);
+        }
         return table[ref];
     }
 
-    private static void skipStringRefs(DataInputStream in) throws IOException {
+    private static String requiredStr(int ref, String[] table) throws IOException {
+        String value = str(ref, table);
+        if (value.isEmpty()) {
+            throw new IOException("Required binary index string is missing");
+        }
+        return value;
+    }
+
+    private static void skipStringRefs(DataInputStream in, String[] strings) throws IOException {
         int count = in.readUnsignedShort();
-        for (int i = 0; i < count; i++) in.readInt();
+        if (count > in.available() / 4) {
+            throw new IOException("Invalid binary index string reference count: " + count);
+        }
+        for (int i = 0; i < count; i++) {
+            str(in.readInt(), strings);
+        }
     }
 
     private static List<String> readStringRefs(DataInputStream in, String[] table) throws IOException {
         int count = in.readUnsignedShort();
+        if (count > in.available() / 4) {
+            throw new IOException("Invalid binary index string reference count: " + count);
+        }
         List<String> result = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             result.add(str(in.readInt(), table));
         }
         return result;
+    }
+
+    private static int checkedCount(DataInputStream in, String section, int minimumBytes)
+            throws IOException {
+        int count = in.readInt();
+        if (count < 0 || count > in.available() / minimumBytes) {
+            throw new IOException("Invalid binary index " + section + " count: " + count);
+        }
+        return count;
     }
 }

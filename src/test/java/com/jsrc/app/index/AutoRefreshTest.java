@@ -128,7 +128,7 @@ class AutoRefreshTest {
                 "  public void noop() { }\n}");
 
         buildIndex(List.of(fileA, fileB));
-        var v2Before = BinaryIndexV2Reader.read(tempDir.resolve(".jsrc/index.bin"));
+        var v2Before = BinaryIndexV2Reader.read(CodebaseIndex.currentBinary(tempDir));
 
         // Modify only Other
         Thread.sleep(100);
@@ -137,7 +137,7 @@ class AutoRefreshTest {
                 "  public void changed() { int x = 2; }\n}");
 
         IndexedCodebase.tryLoad(tempDir, List.of(fileA, fileB));
-        var v2After = BinaryIndexV2Reader.read(tempDir.resolve(".jsrc/index.bin"));
+        var v2After = BinaryIndexV2Reader.read(CodebaseIndex.currentBinary(tempDir));
 
         if (!v2Before.migrations().isEmpty()) {
             assertFalse(v2After.migrations().isEmpty(),

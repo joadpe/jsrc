@@ -213,7 +213,7 @@ class FrozenIndexContractTest {
     @Test
     void frozenIndexRejectsPreCanonicalIdentitySchema() throws Exception {
         buildValidIndex();
-        Path indexFile = tempDir.resolve(".jsrc/index.bin");
+        Path indexFile = publishedBinary();
         setIndexVersion(indexFile, 3);
 
         JsrcIOException error = assertThrows(JsrcIOException.class,
@@ -225,13 +225,18 @@ class FrozenIndexContractTest {
     @Test
     void normalLoadRebuildsPreCanonicalIdentitySchema() throws Exception {
         buildValidIndex();
-        Path indexFile = tempDir.resolve(".jsrc/index.bin");
+        Path indexFile = publishedBinary();
         setIndexVersion(indexFile, 3);
 
         assertNotNull(IndexedCodebase.tryLoad(tempDir, List.of(sourceFile), false));
 
-        byte[] bytes = Files.readAllBytes(indexFile);
+        byte[] bytes = Files.readAllBytes(publishedBinary());
         assertEquals(9, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
+    }
+
+    private Path publishedBinary() throws java.io.IOException {
+        var manifest = Files.readAllLines(tempDir.resolve(".jsrc/current"));
+        return tempDir.resolve(".jsrc/generations").resolve(manifest.get(1));
     }
 
     private void setIndexVersion(Path indexFile, int version) throws Exception {
@@ -292,21 +297,16 @@ class FrozenIndexContractTest {
         // Pre-build index using JavaParser (no tree-sitter natives)
         buildValidIndex();
         
-        Path indexFile = tempDir.resolve(".jsrc/index.bin");
+        Path indexFile = publishedBinary();
         assertTrue(Files.exists(indexFile), "Precondition: index should exist before test");
-        long mtimeBefore = Files.getLastModifiedTime(indexFile).toMillis();
-        
-        // Sleep to ensure mtime difference if file is rewritten
-        Thread.sleep(10);
         
         // Rebuild index with --frozen-index flag (should ignore flag and rebuild)
         buildValidIndex();
         
-        long mtimeAfter = Files.getLastModifiedTime(indexFile).toMillis();
-        
-        // IndexCommand should ignore frozen flag and rebuild (mtime changes)
-        // OR at minimum, not crash when frozen flag is set
-        assertTrue(mtimeAfter >= mtimeBefore, 
+        Path refreshed = publishedBinary();
+        org.junit.jupiter.api.Assertions.assertNotEquals(indexFile, refreshed);
+        assertTrue(Files.exists(indexFile), "Previous generation remains readable");
+        assertTrue(Files.exists(refreshed),
                 "Index command should work with frozen flag (ignored/rebuilds)");
         
         // Verify index file still exists and is valid

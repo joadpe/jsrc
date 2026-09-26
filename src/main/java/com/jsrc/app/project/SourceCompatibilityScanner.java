@@ -131,13 +131,8 @@ public final class SourceCompatibilityScanner {
         if (model == null) {
             return Map.of();
         }
-        Path indexFile = model.root().resolve(".jsrc/index.bin");
-        if (!Files.isRegularFile(indexFile)) {
-            return Map.of();
-        }
         try {
-            var entries = com.jsrc.app.index.BinaryIndexV2Reader.readLazy(indexFile)
-                    .getData().entries();
+            var entries = com.jsrc.app.index.CodebaseIndex.loadPublished(model.root());
             Map<Path, com.jsrc.app.index.IndexEntry> byPath = new HashMap<>();
             for (var entry : entries) {
                 byPath.put(model.root().resolve(entry.path()).toAbsolutePath().normalize(),

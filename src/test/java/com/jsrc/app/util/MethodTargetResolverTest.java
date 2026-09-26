@@ -204,6 +204,29 @@ class MethodTargetResolverTest {
     }
 
     @Test
+    void equivalentKnownAndArityOnlyReferencesAreNotAmbiguous() {
+        var known = new MethodReference(
+                "app.Service", "run", List.of("String"), null);
+        var arityOnly = new MethodReference("app.Service", "run", 1, null);
+        var call = new com.jsrc.app.parser.model.MethodCall(
+                new MethodReference("app.Client", "call", List.of(), null),
+                arityOnly,
+                3);
+        var duplicateGraph = com.jsrc.app.analysis.CallGraph.of(
+                java.util.Map.of(arityOnly, java.util.Set.of(call)),
+                java.util.Map.of(call.caller(), java.util.Set.of(call)),
+                java.util.Set.of(known, arityOnly, call.caller()),
+                java.util.Map.of("run", java.util.Set.of(known, arityOnly)));
+
+        var result = MethodTargetResolver.resolve(
+                MethodResolver.parse("app.Service.run(String)"), duplicateGraph);
+
+        assertTrue(result.isResolved());
+        assertFalse(result.isAmbiguous());
+        assertEquals(java.util.Set.of(known), result.targets());
+    }
+
+    @Test
     @DisplayName("Metadata maps preserve homonymous classes by qualified name")
     void metadataMapsPreserveHomonymousClassesByQualifiedName() throws Exception {
         Path sales = writeFile("sales/Service.java", """

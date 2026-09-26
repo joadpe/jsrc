@@ -81,6 +81,51 @@ class EdgeResolverTest {
     }
 
     @Test
+    void explicitConstructorInvocationsResolveThisAndSuperTargets() throws IOException {
+        Path file = writeFile("Child.java", """
+                package app;
+                class Base {
+                    Base(String value) {}
+                }
+                class Child extends Base {
+                    Child() { this("default"); }
+                    Child(String value) { super(value); }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> edges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerClass().equals("app.Child"))
+                .toList();
+        assertTrue(edges.stream().anyMatch(edge ->
+                        edge.callerParameterTypes().isEmpty()
+                                && edge.calleeClass().equals("app.Child")
+                                && edge.calleeMethod().equals("Child")
+                                && edge.calleeParameterTypes().equals(List.of("String"))
+                                && edge.invocationKind()
+                                == com.jsrc.app.model.InvocationKind.SPECIAL
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT
+                                && edge.evidence().contains("THIS_CONSTRUCTOR_INVOCATION")),
+                () -> "Expected exact this(...) constructor edge but got " + edges);
+        assertTrue(edges.stream().anyMatch(edge ->
+                        edge.callerParameterTypes().equals(List.of("String"))
+                                && edge.calleeClass().equals("app.Base")
+                                && edge.calleeMethod().equals("Base")
+                                && edge.calleeParameterTypes().equals(List.of("String"))
+                                && edge.invocationKind()
+                                == com.jsrc.app.model.InvocationKind.SPECIAL
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT
+                                && edge.evidence().contains("SUPER_CONSTRUCTOR_INVOCATION")),
+                () -> "Expected exact super(...) constructor edge but got " + edges);
+    }
+
+    @Test
     void extractCallEdgesIncludesRecordAndEnumMethods() throws IOException {
         Path file = writeFile("Types.java", """
                 package app;
@@ -196,22 +241,98 @@ class EdgeResolverTest {
                                 && edge.calleeParameterTypes().isEmpty()
                                 && edge.argCount() == 0
                                 && edge.resolutionLevel()
-                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                                == com.jsrc.app.model.ResolutionLevel.EXACT
+                                && edge.evidence().contains("TYPE_SCOPED_METHOD_REFERENCE")),
                 () -> "Expected unbound receiver to be excluded from method parameters: " + edges);
         assertTrue(edges.stream().anyMatch(edge ->
                         edge.callerMethod().equals("boundParser")
                                 && edge.calleeMethod().equals("parse")
                                 && edge.calleeParameterTypes().equals(List.of("String"))
                                 && edge.resolutionLevel()
-                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                                == com.jsrc.app.model.ResolutionLevel.EXACT
+                                && !edge.evidence().contains("TYPE_SCOPED_METHOD_REFERENCE")),
                 () -> "Expected bound reference parameters to remain unchanged: " + edges);
         assertTrue(edges.stream().anyMatch(edge ->
                         edge.callerMethod().equals("staticParser")
                                 && edge.calleeMethod().equals("parseStatic")
                                 && edge.calleeParameterTypes().equals(List.of("String"))
                                 && edge.resolutionLevel()
-                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                                == com.jsrc.app.model.ResolutionLevel.EXACT
+                                && edge.evidence().contains("TYPE_SCOPED_METHOD_REFERENCE")),
                 () -> "Expected static reference parameters to remain unchanged: " + edges);
+    }
+
+    @Test
+    void genericUnboundMethodReferenceErasesSamReceiverType() throws IOException {
+        Path file = writeFile("Client.java", """
+                package app;
+                import java.util.function.Function;
+                class Client {
+                    Function<Box<String>, String> getter() { return Box::get; }
+                }
+                class Box<T> {
+                    T get() { return null; }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> edges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerMethod().equals("getter"))
+                .toList();
+        assertTrue(edges.stream().anyMatch(edge ->
+                        edge.calleeClass().equals("app.Box")
+                                && edge.calleeMethod().equals("get")
+                                && edge.calleeParameterTypes().isEmpty()
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Expected erased generic SAM receiver but got " + edges);
+    }
+
+    @Test
+    void methodReferenceInfersSamTypeFromMethodDeclaredInAnotherFile() throws IOException {
+        Path registry = writeFile("Registry.java", """
+                package app;
+                import java.util.function.Supplier;
+                class Registry {
+                    void register(Supplier<Widget> factory) {}
+                }
+                """);
+        Path client = writeFile("Client.java", """
+                package app;
+                class Client {
+                    void setup(Registry registry) { registry.register(Widget::new); }
+                }
+                """);
+        Path widget = writeFile("Widget.java", """
+                package app;
+                class Widget {
+                    Widget() {}
+                    Widget(String value) {}
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(registry, client, widget), tempDir, List.of());
+
+        List<CallEdge> edges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerMethod().equals("setup")
+                        && edge.calleeMethod().equals("Widget"))
+                .toList();
+        assertTrue(edges.stream().anyMatch(edge ->
+                        edge.calleeClass().equals("app.Widget")
+                                && edge.calleeParameterTypes().isEmpty()
+                                && edge.argCount() == 0
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT
+                                && edge.evidence().stream().anyMatch(value ->
+                                value.startsWith("FUNCTIONAL_ARGUMENT|"))),
+                () -> "Expected global SAM inference for overloaded constructor: " + edges);
     }
 
     @Test

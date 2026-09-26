@@ -158,6 +158,41 @@ class CodebaseIndexTest {
     }
 
     @Test
+    void noOpIncrementalBuildPreservesResolvedEdges() throws IOException {
+        Path contract = writeFile("Engine.java", """
+                interface Engine { void run(); }
+                """);
+        Path implementation = writeFile("BaseEngine.java", """
+                class BaseEngine implements Engine {
+                    public void run() {}
+                }
+                """);
+        Path client = writeFile("Client.java", """
+                class Client {
+                    Engine engine;
+                    void execute() { engine.run(); }
+                }
+                """);
+        List<Path> files = List.of(contract, implementation, client);
+        var parser = new HybridJavaParser();
+        var initial = new CodebaseIndex();
+        initial.build(parser, files, tempDir, List.of());
+        List<CallEdge> initialEdges = initial.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .toList();
+
+        var unchanged = new CodebaseIndex();
+        int reindexed = unchanged.build(parser, files, tempDir, initial.getEntries());
+        List<CallEdge> unchangedEdges = unchanged.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .toList();
+
+        assertEquals(0, reindexed);
+        assertEquals(initialEdges, unchangedEdges,
+                "A no-op refresh must preserve targets, resolution, and evidence");
+    }
+
+    @Test
     @DisplayName("Incremental: should reindex unchanged entries with legacy call edges")
     void shouldReindexLegacyCallEdges() throws IOException {
         Path javaFile = writeFile("Legacy.java", """

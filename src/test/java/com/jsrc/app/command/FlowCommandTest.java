@@ -28,16 +28,19 @@ class FlowCommandTest {
     @Test
     void flowIncludesDispatchResolutionAndEvidence() throws Exception {
         Path payment = write("Payment.java", """
+                package demo;
                 public interface Payment {
                     void pay();
                 }
                 """);
         Path cardPayment = write("CardPayment.java", """
+                package demo;
                 public class CardPayment implements Payment {
                     public void pay() {}
                 }
                 """);
         Path checkout = write("Checkout.java", """
+                package demo;
                 public class Checkout {
                     private Payment payment;
                     public void run() { payment.pay(); }
@@ -53,14 +56,14 @@ class FlowCommandTest {
         var context = new CommandContext(files, tempDir.toString(), null,
                 new JsonFormatter(false, null, new PrintStream(output)), indexed, parser);
 
-        new FlowCommand("Checkout.run", 2).execute(context);
+        new FlowCommand("demo.Checkout.run", 2).execute(context);
 
         @SuppressWarnings("unchecked")
         Map<String, Object> result = (Map<String, Object>) JsonReader.parse(output.toString().trim());
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> flow = (List<Map<String, Object>>) result.get("flow");
         Map<String, Object> implementationStep = flow.stream()
-                .filter(step -> "CardPayment.pay".equals(step.get("method")))
+                .filter(step -> "demo.CardPayment.pay".equals(step.get("method")))
                 .findFirst()
                 .orElseThrow();
         assertEquals("interface", implementationStep.get("dispatch"));
@@ -68,6 +71,35 @@ class FlowCommandTest {
         @SuppressWarnings("unchecked")
         List<String> evidence = (List<String>) implementationStep.get("evidence");
         assertTrue(evidence.contains("CHA_IMPLEMENTATION"));
+    }
+
+    @Test
+    void flowRejectsAmbiguousOverloads() throws Exception {
+        Path service = write("Service.java", """
+                package demo;
+                public class Service {
+                    public void run() {}
+                    public void run(String value) {}
+                }
+                """);
+        List<Path> files = List.of(service);
+        var parser = new HybridJavaParser();
+        var index = new CodebaseIndex();
+        index.build(parser, files, tempDir, List.of());
+        index.save(tempDir);
+        var indexed = IndexedCodebase.tryLoad(tempDir, files);
+        var output = new ByteArrayOutputStream();
+        var context = new CommandContext(files, tempDir.toString(), null,
+                new JsonFormatter(false, null, new PrintStream(output)), indexed, parser);
+
+        new FlowCommand("demo.Service.run", 2).execute(context);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) JsonReader.parse(output.toString().trim());
+        assertEquals(true, result.get("ambiguous"));
+        @SuppressWarnings("unchecked")
+        List<String> candidates = (List<String>) result.get("candidates");
+        assertEquals(2, candidates.size());
     }
 
     private Path write(String fileName, String source) throws Exception {

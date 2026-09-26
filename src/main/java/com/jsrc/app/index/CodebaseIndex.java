@@ -140,8 +140,10 @@ public class CodebaseIndex {
             }
         }
 
-        if ((fileSetChanged || reindexed > 0 || !invokers.isEmpty())
-                && !unchangedFiles.isEmpty()) {
+        boolean semanticRefreshRequired = fileSetChanged
+                || reindexed > 0
+                || !invokers.isEmpty();
+        if (semanticRefreshRequired && !unchangedFiles.isEmpty()) {
             for (int index = 0; index < entries.size(); index++) {
                 IndexEntry entry = entries.get(index);
                 Path file = unchangedFiles.get(entry.path());
@@ -156,9 +158,11 @@ public class CodebaseIndex {
             }
         }
 
-        // Post-build: resolve ?field:/?ret: markers using cross-class type info
-        edgeResolver.resolveMarkers(entries);
-        edgeResolver.resolveSymbols(entries);
+        if (semanticRefreshRequired) {
+            // Resolve raw edges only when sources or the type universe changed.
+            edgeResolver.resolveMarkers(entries);
+            edgeResolver.resolveSymbols(entries);
+        }
 
         return reindexed;
     }

@@ -156,6 +156,36 @@ class BinaryIndexV2RoundtripTest {
     }
 
     @Test
+    void roundtripPreservesCalleesOutsideProjectDeclarations(@TempDir Path tempDir)
+            throws Exception {
+        var caller = new MethodReference("app.Reader", "read", List.of(), null);
+        var externalCallee = new MethodReference(
+                "java.nio.file.Files", "readString", List.of("Path"), null);
+        var call = new MethodCall(
+                caller,
+                externalCallee,
+                12,
+                com.jsrc.app.model.InvocationKind.METHOD_REFERENCE,
+                com.jsrc.app.model.ResolutionLevel.EXACT,
+                List.of(
+                        "TYPE_SCOPED_METHOD_REFERENCE",
+                        "UNBOUND_INSTANCE_METHOD_REFERENCE"));
+        CallGraph graph = CallGraph.of(
+                Map.of(externalCallee, Set.of(call)),
+                Map.of(caller, Set.of(call)),
+                Set.of(caller),
+                Map.of("read", Set.of(caller)));
+        Path indexFile = tempDir.resolve("index.bin");
+
+        BinaryIndexV2Writer.write(indexFile, List.of(), graph);
+        CallGraph loaded = BinaryIndexV2Reader.read(indexFile).callGraph();
+
+        assertTrue(loaded.getAllMethods().contains(externalCallee));
+        assertEquals(Set.of(call), loaded.getCalleesOf(caller));
+        assertEquals(Set.of(call), loaded.getCallersOf(externalCallee));
+    }
+
+    @Test
     void corruptCrcThrowsException(@TempDir Path tempDir) throws Exception {
         var entries = List.of(new IndexEntry("A.java", "hash", 1L,
                 List.of(new IndexedClass("A", "pkg", 1, 10,

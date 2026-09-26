@@ -87,14 +87,15 @@ public class BinaryIndexV2Writer {
 
         // Intern strings from call graph
         if (callGraph != null) {
-            for (MethodReference ref : callGraph.getAllMethods()) {
+            Set<MethodReference> graphMethods = graphMethods(callGraph);
+            for (MethodReference ref : graphMethods) {
                 intern(ref.className(), stringTable, strings);
                 intern(ref.methodName(), stringTable, strings);
                 for (String type : ref.parameterTypes()) {
                     intern(type, stringTable, strings);
                 }
             }
-            for (MethodReference caller : callGraph.getAllMethods()) {
+            for (MethodReference caller : graphMethods) {
                 for (MethodCall call : callGraph.getCalleesOf(caller)) {
                     for (String evidence : call.evidence()) {
                         intern(evidence, stringTable, strings);
@@ -206,7 +207,7 @@ public class BinaryIndexV2Writer {
     private static void writeGraph(DataOutputStream out, CallGraph graph,
                                     Map<String, Integer> stringTable) throws IOException {
         // All methods
-        Set<MethodReference> allMethods = graph.getAllMethods();
+        Set<MethodReference> allMethods = graphMethods(graph);
         out.writeInt(allMethods.size());
 
         // Assign numeric IDs to methods
@@ -262,6 +263,18 @@ public class BinaryIndexV2Writer {
                 writeStringRefs(out, call.evidence(), stringTable);
             }
         }
+    }
+
+    private static Set<MethodReference> graphMethods(CallGraph graph) {
+        Set<MethodReference> methods = new LinkedHashSet<>(graph.getAllMethods());
+        for (MethodReference callee : graph.getAllCallerIndexKeys()) {
+            methods.add(callee);
+            for (MethodCall call : graph.getCallersOf(callee)) {
+                methods.add(call.caller());
+                methods.add(call.callee());
+            }
+        }
+        return Set.copyOf(methods);
     }
 
     private static void writeEntry(DataOutputStream out, IndexEntry entry,

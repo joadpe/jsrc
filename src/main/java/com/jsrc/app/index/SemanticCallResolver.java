@@ -55,8 +55,20 @@ public final class SemanticCallResolver {
                 .anyMatch(CallEdge.UNKNOWN_PARAMETER_TYPE::equals)
                 ? null
                 : edge.calleeParameterTypes();
+        CallEdge preparedEdge = edge;
+        if (argumentTypes == null) {
+            List<String> inferredArguments = inferFunctionalArgumentTypes(
+                    edge, caller.context());
+            if (inferredArguments != null) {
+                argumentTypes = inferredArguments;
+                preparedEdge = withCalleeArguments(
+                        edge,
+                        inferredArguments,
+                        "FUNCTIONAL_TYPE_FROM_CALL_ARGUMENT");
+            }
+        }
         MethodLookup lookup = resolveMethod(
-                edge, receiverName, argumentTypes, caller.context());
+                preparedEdge, receiverName, argumentTypes, caller.context());
         Resolution<MethodSymbol> methodResolution = lookup.resolution();
         argumentTypes = lookup.argumentTypes();
         CallEdge resolvedEdge = lookup.edge();
@@ -72,7 +84,7 @@ public final class SemanticCallResolver {
                             : "UNRESOLVED_METHOD")));
         }
 
-        InvocationKind kind = invocationKind(edge, receiver.value(), method.value());
+        InvocationKind kind = invocationKind(resolvedEdge, receiver.value(), method.value());
         if (kind == InvocationKind.STATIC
                 || kind == InvocationKind.SPECIAL
                 || kind == InvocationKind.CONSTRUCTOR) {
@@ -80,7 +92,7 @@ public final class SemanticCallResolver {
         }
 
         List<MethodSymbol> runtimeTargets = runtimeTargets(
-                receiver.value(), edge.calleeMethod(), argumentTypes, caller.context());
+                receiver.value(), resolvedEdge.calleeMethod(), argumentTypes, caller.context());
         if (runtimeTargets.isEmpty()) {
             if (isConcrete(method.value())) {
                 return List.of(exact(resolvedEdge, caller.className(), method.value(), kind));
@@ -130,6 +142,45 @@ public final class SemanticCallResolver {
         return List.copyOf(resolved);
     }
 
+    private List<String> inferFunctionalArgumentTypes(
+            CallEdge edge,
+            Context callerContext) {
+        String marker = edge.evidence().stream()
+                .filter(value -> value.startsWith("FUNCTIONAL_ARGUMENT|"))
+                .findFirst()
+                .orElse(null);
+        if (marker == null) return null;
+        String[] parts = marker.split("\\|", -1);
+        if (parts.length != 5) return null;
+
+        int parameterCount;
+        int argumentIndex;
+        try {
+            parameterCount = Integer.parseInt(parts[3]);
+            argumentIndex = Integer.parseInt(parts[4]);
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+
+        Resolution<TypeSymbol> ownerResolution = symbolResolver.resolveType(
+                parts[1], callerContext);
+        if (!(ownerResolution instanceof Resolution.Found<TypeSymbol> owner)) return null;
+        IndexedClass indexedClass = classesByName.get(owner.value().id().canonicalName());
+        if (indexedClass == null) return null;
+
+        List<String> functionalTypes = indexedClass.methods().stream()
+                .filter(method -> method.name().equals(parts[2]))
+                .filter(method -> method.paramCount() == parameterCount)
+                .map(method -> com.jsrc.app.util.SignatureUtils
+                        .extractParameterTypes(method.signature()))
+                .filter(parameters -> argumentIndex < parameters.size())
+                .map(parameters -> parameters.get(argumentIndex))
+                .distinct()
+                .toList();
+        if (functionalTypes.size() != 1) return null;
+        return EdgeResolver.functionalInputTypes(functionalTypes.getFirst(), null);
+    }
+
     private MethodLookup resolveMethod(
             CallEdge edge,
             String receiverName,
@@ -140,7 +191,10 @@ public final class SemanticCallResolver {
         if (!edge.evidence().contains("TYPE_SCOPED_METHOD_REFERENCE")
                 || argumentTypes == null
                 || argumentTypes.isEmpty()
-                || !TypeId.namesMatch(argumentTypes.getFirst(), receiverName)) {
+                || !TypeId.namesMatch(
+                        com.jsrc.app.util.SignatureUtils.eraseParameterType(
+                                argumentTypes.getFirst()),
+                        receiverName)) {
             return new MethodLookup(direct, argumentTypes, edge);
         }
 
@@ -165,10 +219,16 @@ public final class SemanticCallResolver {
             return new MethodLookup(
                     unbound,
                     unboundArguments,
-                    withCalleeArguments(edge, unboundArguments));
+                    withCalleeArguments(
+                            edge,
+                            unboundArguments,
+                            "UNBOUND_INSTANCE_METHOD_REFERENCE"));
         }
         if (staticTarget != null) {
-            return new MethodLookup(direct, argumentTypes, edge);
+            return new MethodLookup(
+                    direct,
+                    argumentTypes,
+                    withEvidence(edge, "STATIC_METHOD_REFERENCE"));
         }
         return new MethodLookup(
                 new Resolution.Unresolved<>(
@@ -184,7 +244,10 @@ public final class SemanticCallResolver {
         return indexedMethod != null && containsModifier(indexedMethod.signature(), "static");
     }
 
-    private static CallEdge withCalleeArguments(CallEdge edge, List<String> argumentTypes) {
+    private static CallEdge withCalleeArguments(
+            CallEdge edge,
+            List<String> argumentTypes,
+            String evidence) {
         return new CallEdge(
                 edge.callerClass(),
                 edge.callerMethod(),
@@ -197,7 +260,29 @@ public final class SemanticCallResolver {
                 argumentTypes.size(),
                 edge.invocationKind(),
                 edge.resolutionLevel(),
-                edge.evidence());
+                appendEvidence(edge, evidence));
+    }
+
+    private static CallEdge withEvidence(CallEdge edge, String evidence) {
+        return new CallEdge(
+                edge.callerClass(),
+                edge.callerMethod(),
+                edge.callerParameterTypes(),
+                edge.callerParamCount(),
+                edge.calleeClass(),
+                edge.calleeMethod(),
+                edge.calleeParameterTypes(),
+                edge.line(),
+                edge.argCount(),
+                edge.invocationKind(),
+                edge.resolutionLevel(),
+                appendEvidence(edge, evidence));
+    }
+
+    private static List<String> appendEvidence(CallEdge edge, String evidence) {
+        var combined = new java.util.LinkedHashSet<>(edge.evidence());
+        combined.add(evidence);
+        return List.copyOf(combined);
     }
 
     private CallerContext resolveCaller(CallEdge edge) {
@@ -354,6 +439,9 @@ public final class SemanticCallResolver {
             InvocationKind kind,
             ResolutionLevel level,
             List<String> evidence) {
+        var combinedEvidence = new java.util.LinkedHashSet<String>();
+        combinedEvidence.addAll(source.evidence());
+        combinedEvidence.addAll(evidence);
         return new CallEdge(
                 callerClass,
                 source.callerMethod(),
@@ -366,7 +454,7 @@ public final class SemanticCallResolver {
                 source.argCount(),
                 kind,
                 level,
-                evidence);
+                List.copyOf(combinedEvidence));
     }
 
     private record CallerContext(String className, Context context) {}

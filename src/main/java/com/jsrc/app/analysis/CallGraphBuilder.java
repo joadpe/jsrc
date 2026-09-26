@@ -140,11 +140,7 @@ public class CallGraphBuilder {
                         edge.resolutionLevel(),
                         edge.evidence());
 
-                allMethods.add(caller);
-                methodsByName.computeIfAbsent(edge.callerMethod(), k -> new HashSet<>()).add(caller);
-
-                calleeIndex.computeIfAbsent(caller, k -> new HashSet<>()).add(call);
-                callerIndex.computeIfAbsent(callee, k -> new HashSet<>()).add(call);
+                addEdge(call);
             }
         }
 

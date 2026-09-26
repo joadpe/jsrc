@@ -826,18 +826,14 @@ public class EdgeResolver {
                 .contains(qualifiedRawType)) {
             return true;
         }
-        if (unit == null) return rawType.equals("Iterable");
+        if (unit == null) return false;
         String packageName = rawType.equals("Stream")
                 ? "java.util.stream"
                 : "java.util";
-        return rawType.equals("Iterable")
-                || unit.getImports().stream().anyMatch(importDeclaration ->
-                        (!importDeclaration.isAsterisk()
-                                && importDeclaration.getNameAsString()
-                                .equals(packageName + "." + rawType))
-                                || (importDeclaration.isAsterisk()
-                                && importDeclaration.getNameAsString()
-                                .equals(packageName)));
+        return unit.getImports().stream().anyMatch(importDeclaration ->
+                !importDeclaration.isAsterisk()
+                        && importDeclaration.getNameAsString()
+                        .equals(packageName + "." + rawType));
     }
 
     private static void extractMethodReferenceEdges(
@@ -898,7 +894,7 @@ public class EdgeResolver {
         }
         if (referencedParameterTypes == null) {
             String functionalArgument = functionalArgumentEvidence(
-                    reference, className, fieldTypes, localTypes);
+                    reference, className, fieldTypes, localTypes, declaredTypes);
             if (functionalArgument != null) evidence.add(functionalArgument);
         }
         edges.add(new CallEdge(
@@ -959,13 +955,22 @@ public class EdgeResolver {
             com.github.javaparser.ast.expr.MethodReferenceExpr reference,
             String className,
             Map<String, String> fieldTypes,
-            Map<String, String> localTypes) {
+            Map<String, String> localTypes,
+            Map<String, String> declaredTypes) {
         if (!(reference.getParentNode().orElse(null) instanceof MethodCallExpr call)) {
             return null;
         }
         int argumentIndex = call.getArguments().indexOf(reference);
         if (argumentIndex < 0) return null;
-        String receiver = resolveCalleeClass(call, className, fieldTypes, localTypes);
+        String receiver = call.getScope()
+                .filter(NameExpr.class::isInstance)
+                .map(NameExpr.class::cast)
+                .map(NameExpr::getNameAsString)
+                .map(declaredTypes::get)
+                .orElse(null);
+        if (receiver == null) {
+            receiver = resolveCalleeClass(call, className, fieldTypes, localTypes);
+        }
         return String.join(
                 "|",
                 "FUNCTIONAL_ARGUMENT",

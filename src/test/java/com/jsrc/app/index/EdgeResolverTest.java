@@ -1345,6 +1345,87 @@ class EdgeResolverTest {
                 () -> "Unresolved type variable must not create an exact edge: " + parseEdges);
     }
 
+    @Test
+    void multiLevelGenericContextUsesReceiverArgumentsAndRejectsRawRelations()
+            throws IOException {
+        Path file = writeFile("MultiLevelGenericReference.java", """
+                package app;
+                import java.util.function.Function;
+                class Base<T> {
+                    void accept(Function<T, String> function) {}
+                }
+                class Mid<U> extends Base<U> {}
+                class Raw extends Mid {}
+                class Target {
+                    static <U> String parse(U value) { return value.toString(); }
+                    static String parse(Integer value) { return value.toString(); }
+                }
+                class Client {
+                    void exact(Mid<Integer> api) { api.accept(Target::parse); }
+                    void raw(Raw api) { api.accept(Target::parse); }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> exactEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerMethod().equals("exact"))
+                .filter(edge -> edge.calleeMethod().equals("parse"))
+                .toList();
+        assertTrue(exactEdges.stream().anyMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("Integer"))
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Expected Mid<Integer> to resolve parse(Integer): " + exactEdges);
+
+        List<CallEdge> rawEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerMethod().equals("raw"))
+                .filter(edge -> edge.calleeMethod().equals("parse"))
+                .toList();
+        assertTrue(rawEdges.stream().noneMatch(edge -> edge.resolutionLevel()
+                        == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Raw inheritance must not fabricate an exact edge: " + rawEdges);
+    }
+
+    @Test
+    void samePackageTypeDoesNotActivateWildcardJdkFallback() throws IOException {
+        Path listFile = writeFile("List.java", """
+                package app;
+                interface Action<T> { void apply(T value); }
+                class List<T> {
+                    void forEach(Action<String> action) {}
+                }
+                """);
+        Path clientFile = writeFile("Client.java", """
+                package app;
+                import java.util.*;
+                class Item { void itemOnly() {} }
+                class Client {
+                    void run(List<Item> items) {
+                        items.forEach(item -> item.itemOnly());
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(listFile, clientFile), tempDir, List.of());
+
+        List<CallEdge> edges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("itemOnly"))
+                .toList();
+        assertTrue(edges.stream().noneMatch(edge ->
+                        edge.calleeClass().equals("app.Item")
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Wildcard import must not override app.List: " + edges);
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);

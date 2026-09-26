@@ -167,6 +167,9 @@ public final class SemanticCallResolver {
         if (!(ownerResolution instanceof Resolution.Found<TypeSymbol> owner)) return null;
         IndexedClass indexedClass = classesByName.get(owner.value().id().canonicalName());
         if (indexedClass == null) return null;
+        Map<String, String> ownerSubstitutions = inheritedSubstitutions(
+                parts[1], Map.of(), indexedClass);
+        if (ownerSubstitutions == null) return null;
 
         var functionalTypes = new java.util.LinkedHashSet<String>();
         collectFunctionalTypes(
@@ -176,7 +179,7 @@ public final class SemanticCallResolver {
                 argumentIndex,
                 false,
                 new HashSet<>(),
-                Map.of(),
+                ownerSubstitutions,
                 functionalTypes);
         if (functionalTypes.size() != 1) return null;
         return EdgeResolver.functionalInputTypes(
@@ -232,15 +235,17 @@ public final class SemanticCallResolver {
                             Map<String, String> inheritedSubstitutions =
                                     inheritedSubstitutions(
                                             relation, substitutions, parent);
-                            collectFunctionalTypes(
-                                    parent,
-                                    methodName,
-                                    parameterCount,
-                                    argumentIndex,
-                                    true,
-                                    visited,
-                                    inheritedSubstitutions,
-                                    functionalTypes);
+                            if (inheritedSubstitutions != null) {
+                                collectFunctionalTypes(
+                                        parent,
+                                        methodName,
+                                        parameterCount,
+                                        argumentIndex,
+                                        true,
+                                        visited,
+                                        inheritedSubstitutions,
+                                        functionalTypes);
+                            }
                         }
                     }
                 });
@@ -252,7 +257,7 @@ public final class SemanticCallResolver {
             IndexedClass parent) {
         String resolvedRelation = substituteTypeParameters(relation, substitutions);
         List<String> arguments = EdgeResolver.genericArguments(resolvedRelation);
-        if (arguments.size() != parent.typeParameters().size()) return Map.of();
+        if (arguments.size() != parent.typeParameters().size()) return null;
         Map<String, String> inherited = new java.util.LinkedHashMap<>();
         for (int index = 0; index < arguments.size(); index++) {
             inherited.put(parent.typeParameters().get(index), arguments.get(index));

@@ -176,6 +176,7 @@ public final class SemanticCallResolver {
                 argumentIndex,
                 false,
                 new HashSet<>(),
+                Map.of(),
                 functionalTypes);
         if (functionalTypes.size() != 1) return null;
         return EdgeResolver.functionalInputTypes(
@@ -189,19 +190,30 @@ public final class SemanticCallResolver {
             int argumentIndex,
             boolean inherited,
             Set<String> visited,
+            Map<String, String> substitutions,
             Set<String> functionalTypes) {
-        if (!visited.add(indexedClass.qualifiedName())) return;
+        String visitKey = indexedClass.qualifiedName() + substitutions;
+        if (!visited.add(visitKey)) return;
 
         indexedClass.methods().stream()
                 .filter(method -> method.name().equals(methodName))
                 .filter(method -> method.paramCount() == parameterCount)
                 .filter(method -> !inherited
                         || !containsModifier(method.signature(), "private"))
-                .map(method -> com.jsrc.app.util.SignatureUtils
-                        .extractParameterTypes(method.signature()))
-                .filter(parameters -> argumentIndex < parameters.size())
-                .map(parameters -> parameters.get(argumentIndex))
-                .forEach(functionalTypes::add);
+                .forEach(method -> {
+                    List<String> parameters = com.jsrc.app.util.SignatureUtils
+                            .extractParameterTypes(method.signature());
+                    if (argumentIndex >= parameters.size()) return;
+                    String functionalType = substituteTypeParameters(
+                            parameters.get(argumentIndex), substitutions);
+                    if (containsTypeParameter(
+                            functionalType, indexedClass.typeParameters())
+                            || containsMethodTypeParameter(
+                            functionalType, method.signature())) {
+                        return;
+                    }
+                    functionalTypes.add(functionalType);
+                });
 
         TypeId ownerId = TypeId.from(
                 indexedClass.packageName(), indexedClass.name());
@@ -217,6 +229,9 @@ public final class SemanticCallResolver {
                         IndexedClass parent = classesByName.get(
                                 found.value().id().canonicalName());
                         if (parent != null) {
+                            Map<String, String> inheritedSubstitutions =
+                                    inheritedSubstitutions(
+                                            relation, substitutions, parent);
                             collectFunctionalTypes(
                                     parent,
                                     methodName,
@@ -224,10 +239,59 @@ public final class SemanticCallResolver {
                                     argumentIndex,
                                     true,
                                     visited,
+                                    inheritedSubstitutions,
                                     functionalTypes);
                         }
                     }
                 });
+    }
+
+    private static Map<String, String> inheritedSubstitutions(
+            String relation,
+            Map<String, String> substitutions,
+            IndexedClass parent) {
+        String resolvedRelation = substituteTypeParameters(relation, substitutions);
+        List<String> arguments = EdgeResolver.genericArguments(resolvedRelation);
+        if (arguments.size() != parent.typeParameters().size()) return Map.of();
+        Map<String, String> inherited = new java.util.LinkedHashMap<>();
+        for (int index = 0; index < arguments.size(); index++) {
+            inherited.put(parent.typeParameters().get(index), arguments.get(index));
+        }
+        return Map.copyOf(inherited);
+    }
+
+    private static String substituteTypeParameters(
+            String type,
+            Map<String, String> substitutions) {
+        String resolved = type;
+        for (var entry : substitutions.entrySet()) {
+            resolved = resolved.replaceAll(
+                    "\\b" + java.util.regex.Pattern.quote(entry.getKey()) + "\\b",
+                    java.util.regex.Matcher.quoteReplacement(entry.getValue()));
+        }
+        return resolved;
+    }
+
+    private static boolean containsTypeParameter(
+            String type,
+            List<String> typeParameters) {
+        return typeParameters.stream().anyMatch(parameter ->
+                java.util.regex.Pattern.compile(
+                                "\\b" + java.util.regex.Pattern.quote(parameter) + "\\b")
+                        .matcher(type)
+                        .find());
+    }
+
+    private static boolean containsMethodTypeParameter(
+            String type,
+            String signature) {
+        int start = signature.indexOf('<');
+        int end = signature.indexOf('>');
+        if (start < 0 || end <= start || start > signature.indexOf('(')) return false;
+        return java.util.Arrays.stream(signature.substring(start + 1, end).split(","))
+                .map(String::trim)
+                .map(declaration -> declaration.split("\\s+", 2)[0])
+                .anyMatch(parameter -> containsTypeParameter(type, List.of(parameter)));
     }
 
     private MethodLookup resolveMethod(

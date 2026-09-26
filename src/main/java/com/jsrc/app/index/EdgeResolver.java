@@ -761,12 +761,13 @@ public class EdgeResolver {
                         com.github.javaparser.ast.body.CallableDeclaration.class)
                 .map(value -> (com.github.javaparser.ast.body.CallableDeclaration<?>) value)
                 .orElse(null);
-        String functionalType = contextualFunctionalType(
+        FunctionalContext context = contextualFunctionalType(
                 lambda, callable, declaredTypes);
-        if (functionalType == null) {
+        if (context.ambiguous()) return List.of();
+        if (context.type() == null) {
             return knownForEachParameterTypes(lambda, declaredTypes);
         }
-        List<String> inferred = functionalInputTypes(functionalType, lambda);
+        List<String> inferred = functionalInputTypes(context.type(), lambda);
         return inferred == null ? List.of() : inferred;
     }
 
@@ -782,10 +783,16 @@ public class EdgeResolver {
         String receiverType = declaredTypes.get(name.getNameAsString());
         if (receiverType == null) return List.of();
         List<String> arguments = genericArguments(receiverType);
-        String rawType = receiverType.substring(
-                Math.max(receiverType.lastIndexOf('.') + 1, 0));
-        int genericStart = rawType.indexOf('<');
-        if (genericStart >= 0) rawType = rawType.substring(0, genericStart);
+        String qualifiedRawType = receiverType;
+        int genericStart = qualifiedRawType.indexOf('<');
+        if (genericStart >= 0) {
+            qualifiedRawType = qualifiedRawType.substring(0, genericStart);
+        }
+        String rawType = qualifiedRawType.substring(
+                Math.max(qualifiedRawType.lastIndexOf('.') + 1, 0));
+        if (!isKnownJdkForEachType(lambda, qualifiedRawType, rawType)) {
+            return List.of();
+        }
         if (rawType.equals("Map") && lambda.getParameters().size() == 2
                 && arguments.size() >= 2) {
             return List.of(arguments.get(0), arguments.get(1));
@@ -797,6 +804,40 @@ public class EdgeResolver {
             return List.of(arguments.getFirst());
         }
         return List.of();
+    }
+
+    private static boolean isKnownJdkForEachType(
+            com.github.javaparser.ast.expr.LambdaExpr lambda,
+            String qualifiedRawType,
+            String rawType) {
+        var unit = lambda.findCompilationUnit().orElse(null);
+        if (unit != null && unit.findAll(
+                        com.github.javaparser.ast.body.TypeDeclaration.class).stream()
+                .anyMatch(type -> type.getNameAsString().equals(rawType))) {
+            return false;
+        }
+        if (java.util.Set.of(
+                        "java.lang.Iterable",
+                        "java.util.Collection",
+                        "java.util.List",
+                        "java.util.Set",
+                        "java.util.Map",
+                        "java.util.stream.Stream")
+                .contains(qualifiedRawType)) {
+            return true;
+        }
+        if (unit == null) return rawType.equals("Iterable");
+        String packageName = rawType.equals("Stream")
+                ? "java.util.stream"
+                : "java.util";
+        return rawType.equals("Iterable")
+                || unit.getImports().stream().anyMatch(importDeclaration ->
+                        (!importDeclaration.isAsterisk()
+                                && importDeclaration.getNameAsString()
+                                .equals(packageName + "." + rawType))
+                                || (importDeclaration.isAsterisk()
+                                && importDeclaration.getNameAsString()
+                                .equals(packageName)));
     }
 
     private static void extractMethodReferenceEdges(
@@ -938,33 +979,34 @@ public class EdgeResolver {
             com.github.javaparser.ast.expr.MethodReferenceExpr reference,
             com.github.javaparser.ast.body.CallableDeclaration<?> callable,
             Map<String, String> declaredTypes) {
-        return contextualFunctionalType(reference, callable, declaredTypes);
+        return contextualFunctionalType(reference, callable, declaredTypes).type();
     }
 
-    private static String contextualFunctionalType(
+    private static FunctionalContext contextualFunctionalType(
             com.github.javaparser.ast.expr.Expression expression,
             com.github.javaparser.ast.body.CallableDeclaration<?> callable,
             Map<String, String> declaredTypes) {
         var parent = expression.getParentNode().orElse(null);
         if (parent instanceof VariableDeclarator variable) {
-            return variable.getTypeAsString();
+            return FunctionalContext.resolved(variable.getTypeAsString());
         }
         if (parent instanceof com.github.javaparser.ast.expr.CastExpr cast) {
-            return cast.getTypeAsString();
+            return FunctionalContext.resolved(cast.getTypeAsString());
         }
         if (parent instanceof com.github.javaparser.ast.stmt.ReturnStmt
                 && callable instanceof MethodDeclaration method) {
-            return method.getTypeAsString();
+            return FunctionalContext.resolved(method.getTypeAsString());
         }
         if (parent instanceof com.github.javaparser.ast.expr.AssignExpr assignment
                 && assignment.getTarget().isNameExpr()) {
-            return declaredTypes.get(assignment.getTarget().asNameExpr().getNameAsString());
+            return FunctionalContext.resolved(
+                    declaredTypes.get(assignment.getTarget().asNameExpr().getNameAsString()));
         }
         if (parent instanceof MethodCallExpr call) {
             int argumentIndex = call.getArguments().indexOf(expression);
-            if (argumentIndex < 0) return null;
+            if (argumentIndex < 0) return FunctionalContext.absent();
             String receiverType = invokedReceiverType(call, declaredTypes);
-            if (receiverType == null) return null;
+            if (receiverType == null) return FunctionalContext.absent();
             List<MethodDeclaration> candidates = call.findCompilationUnit()
                     .map(unit -> unit.findAll(MethodDeclaration.class).stream()
                     .filter(method -> method.getNameAsString().equals(call.getNameAsString()))
@@ -977,13 +1019,30 @@ public class EdgeResolver {
                             .orElse(false))
                     .toList())
                     .orElse(List.of());
-            if (candidates.size() != 1) return null;
+            if (candidates.size() > 1) return FunctionalContext.ambiguousContext();
+            if (candidates.isEmpty()) return FunctionalContext.absent();
             MethodDeclaration candidate = candidates.getFirst();
             String functionalType = candidate.getParameter(argumentIndex).getTypeAsString();
-            return substituteOwnerTypeArguments(
-                    functionalType, candidate, receiverType);
+            return FunctionalContext.resolved(substituteOwnerTypeArguments(
+                    functionalType, candidate, receiverType));
         }
-        return null;
+        return FunctionalContext.absent();
+    }
+
+    private record FunctionalContext(String type, boolean ambiguous) {
+        private static FunctionalContext resolved(String type) {
+            return type == null || type.isBlank()
+                    ? absent()
+                    : new FunctionalContext(type, false);
+        }
+
+        private static FunctionalContext absent() {
+            return new FunctionalContext(null, false);
+        }
+
+        private static FunctionalContext ambiguousContext() {
+            return new FunctionalContext(null, true);
+        }
     }
 
     private static String substituteOwnerTypeArguments(
@@ -1088,7 +1147,7 @@ public class EdgeResolver {
                 .orElse(null);
     }
 
-    private static List<String> genericArguments(String type) {
+    static List<String> genericArguments(String type) {
         int start = type.indexOf('<');
         int end = type.lastIndexOf('>');
         if (start < 0 || end <= start) return List.of();

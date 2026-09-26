@@ -34,7 +34,7 @@ public class CodebaseIndex {
     private static final String EDGES_FILE = "edges.json";
     private static final String SMELLS_FILE = "smells.json";
     private static final String CALL_EDGE_SCHEMA_KEY = "callEdgeSchemaVersion";
-    private static final int CALL_EDGE_SCHEMA_VERSION = 1;
+    private static final int CALL_EDGE_SCHEMA_VERSION = 2;
     private static final String SPLIT_ENTRIES_KEY = "entries";
 
     private final List<IndexEntry> entries;
@@ -588,6 +588,7 @@ public class CodebaseIndex {
         boolean isAbstract = bool(map, "isAbstract");
         List<String> superClass = strList(map.get("superClass"));
         List<String> interfaces = strList(map.get("interfaces"));
+        List<String> typeParameters = strList(map.get("typeParameters"));
         List<String> annotations = strList(map.get("annotations"));
         List<String> imports = strList(map.get("imports"));
 
@@ -615,7 +616,7 @@ public class CodebaseIndex {
         }
 
         return new IndexedClass(name, pkg, startLine, endLine,
-                isInterface, isAbstract, superClass, interfaces,
+                isInterface, isAbstract, superClass, interfaces, typeParameters,
                 methods, annotations, imports, fields);
     }
 
@@ -675,7 +676,7 @@ public class CodebaseIndex {
                 ci.name(), ci.packageName(), ci.startLine(), ci.endLine(),
                 ci.isInterface(), ci.isAbstract(),
                 ci.superClass().isEmpty() ? List.of() : List.of(ci.superClass()),
-                ci.interfaces(), methods, annotations, fileImports, fields);
+                ci.interfaces(), ci.typeParameters(), methods, annotations, fileImports, fields);
     }
 
     private static IndexedClass withSyntheticMethods(
@@ -804,6 +805,9 @@ public class CodebaseIndex {
         map.put("isAbstract", ic.isAbstract());
         map.put("superClass", ic.superClass());
         map.put("interfaces", ic.interfaces());
+        if (!ic.typeParameters().isEmpty()) {
+            map.put("typeParameters", ic.typeParameters());
+        }
         map.put("methods", ic.methods().stream().map(this::methodToMap).toList());
         map.put("annotations", ic.annotations());
         if (!ic.imports().isEmpty()) {

@@ -580,6 +580,7 @@ public class BinaryIndexV2Reader {
 
             List<String> superClass = readStringRefs(in, strings);
             List<String> interfaces = readStringRefs(in, strings);
+            List<String> typeParameters = readStringRefs(in, strings);
             List<String> annotations = readStringRefs(in, strings);
             List<String> imports = readStringRefs(in, strings);
 
@@ -608,7 +609,7 @@ public class BinaryIndexV2Reader {
             }
 
             classes.add(new IndexedClass(name, pkg, startLine, endLine,
-                    isInterface, isAbstract, superClass, interfaces, methods,
+                    isInterface, isAbstract, superClass, interfaces, typeParameters, methods,
                     annotations, imports, fields));
         }
 

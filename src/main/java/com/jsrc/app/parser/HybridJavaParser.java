@@ -174,7 +174,10 @@ public class HybridJavaParser implements CodeParser {
                 .toList();
 
         return new ClassInfo(name, packageName, startLine, endLine,
-                modifiers, methods, "", interfaces, annotations, false, fields);
+                modifiers, methods, "", interfaces, annotations, false,
+                rd.getTypeParameters().stream()
+                        .map(parameter -> parameter.getNameAsString()).toList(),
+                fields);
     }
 
     private ClassInfo enumToClassInfo(com.github.javaparser.ast.body.EnumDeclaration ed,
@@ -341,7 +344,10 @@ public class HybridJavaParser implements CodeParser {
                 .toList();
 
         return new ClassInfo(name, packageName, startLine, endLine,
-                modifiers, methods, superClass, interfaces, annotations, isInterface, fields);
+                modifiers, methods, superClass, interfaces, annotations, isInterface,
+                cid.getTypeParameters().stream()
+                        .map(parameter -> parameter.getNameAsString()).toList(),
+                fields);
     }
 
     private AnnotationInfo toAnnotationInfo(AnnotationExpr ae) {

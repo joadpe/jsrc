@@ -28,8 +28,20 @@ public record ClassInfo(
         List<String> interfaces,
         List<AnnotationInfo> annotations,
         boolean isInterface,
+        List<String> typeParameters,
         List<FieldInfo> fields
 ) {
+    /** Backward-compatible constructor without type parameters. */
+    public ClassInfo(
+            String name, String packageName, int startLine, int endLine,
+            List<String> modifiers, List<MethodInfo> methods,
+            String superClass, List<String> interfaces,
+            List<AnnotationInfo> annotations, boolean isInterface,
+            List<FieldInfo> fields) {
+        this(name, packageName, startLine, endLine, modifiers, methods,
+                superClass, interfaces, annotations, isInterface, List.of(), fields);
+    }
+
     /**
      * Convenience constructor without fields (backward compat).
      */
@@ -38,7 +50,8 @@ public record ClassInfo(
                      String superClass, List<String> interfaces,
                      List<AnnotationInfo> annotations, boolean isInterface) {
         this(name, packageName, startLine, endLine, modifiers, methods,
-                superClass, interfaces, annotations, isInterface, List.of());
+                superClass, interfaces, annotations, isInterface,
+                List.of(), List.of());
     }
 
     /**
@@ -68,6 +81,7 @@ public record ClassInfo(
      */
     public ClassInfo withMethods(List<MethodInfo> newMethods) {
         return new ClassInfo(name, packageName, startLine, endLine, modifiers,
-                newMethods, superClass, interfaces, annotations, isInterface, fields);
+                newMethods, superClass, interfaces, annotations, isInterface,
+                typeParameters, fields);
     }
 }

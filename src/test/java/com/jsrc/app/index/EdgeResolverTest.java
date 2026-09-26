@@ -1274,6 +1274,77 @@ class EdgeResolverTest {
                 () -> "Unexpected String overload: " + parseEdges);
     }
 
+    @Test
+    void ambiguousCustomForEachDoesNotInferJdkListElementType() throws IOException {
+        Path file = writeFile("AmbiguousForEach.java", """
+                package app;
+                interface Action<T> { void apply(T value); }
+                interface Alternate<T> { void apply(T value); }
+                class Item { void itemOnly() {} }
+                class List<T> {
+                    void forEach(Action<T> action) {}
+                    void forEach(Alternate<T> action) {}
+                }
+                class Client {
+                    void run(List<Item> items) {
+                        items.forEach(item -> item.itemOnly());
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> edges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("itemOnly"))
+                .toList();
+        assertTrue(edges.stream().noneMatch(edge ->
+                        edge.calleeClass().equals("app.Item")
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Ambiguous custom API must not fabricate an exact edge: " + edges);
+    }
+
+    @Test
+    void inheritedGenericFunctionalContextSubstitutesTypeArguments() throws IOException {
+        Path file = writeFile("InheritedGenericReference.java", """
+                package app;
+                import java.util.function.Function;
+                class BaseApi<T> {
+                    void accept(Function<T, String> function) {}
+                }
+                class NumberApi extends BaseApi<Integer> {}
+                class Target {
+                    static <T> String parse(T value) { return value.toString(); }
+                    static String parse(Integer value) { return value.toString(); }
+                }
+                class Client {
+                    void run(NumberApi api) { api.accept(Target::parse); }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> parseEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("parse"))
+                .toList();
+        assertTrue(parseEdges.stream().anyMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("Integer"))
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Expected substituted Function<Integer, String>: " + parseEdges);
+        assertTrue(parseEdges.stream().noneMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("T"))
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Unresolved type variable must not create an exact edge: " + parseEdges);
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);

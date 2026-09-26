@@ -18,13 +18,13 @@ public final class JavaParserTypeNames {
             var callable = declaration.findAncestor(
                     com.github.javaparser.ast.body.CallableDeclaration.class).orElse(null);
             if (enclosingOwner != null && callable != null) {
-                int ordinal = callable.findAll(TypeDeclaration.class).stream()
+                var localTypes = callable.findAll(TypeDeclaration.class).stream()
                         .filter(JavaParserTypeNames::isLocalType)
                         .filter(type -> type.findAncestor(
                                 com.github.javaparser.ast.body.CallableDeclaration.class)
                                 .orElse(null) == callable)
-                        .toList()
-                        .indexOf(declaration) + 1;
+                        .toList();
+                int ordinal = identityOrdinal(localTypes, declaration);
                 return enclosingOwner + "$" + callableSegment(callable)
                         + "$" + declaration.getNameAsString() + "$" + ordinal;
             }
@@ -58,14 +58,14 @@ public final class JavaParserTypeNames {
                         .map(value -> (Node) value)
                         .orElse(creation)
                 : callable;
-        int ordinal = scope.findAll(
+        var anonymousTypes = scope.findAll(
                         com.github.javaparser.ast.expr.ObjectCreationExpr.class).stream()
                 .filter(candidate -> candidate.getAnonymousClassBody().isPresent())
                 .filter(candidate -> candidate.findAncestor(
                         com.github.javaparser.ast.body.CallableDeclaration.class)
                         .orElse(null) == callable)
-                .toList()
-                .indexOf(creation) + 1;
+                .toList();
+        int ordinal = identityOrdinal(anonymousTypes, creation);
         String callableName = callable == null ? "initializer" : callableSegment(callable);
         return enclosingOwner + "$" + callableName
                 + "$anonymous$" + ordinal;
@@ -92,7 +92,7 @@ public final class JavaParserTypeNames {
                     .filter(member -> member.getNameAsString()
                             .equals(callable.getNameAsString()))
                     .toList();
-            int ordinal = overloads.indexOf(callable) + 1;
+            int ordinal = identityOrdinal(overloads, callable);
             return callable.getNameAsString() + "$" + Math.max(ordinal, 1);
         }
 
@@ -106,8 +106,17 @@ public final class JavaParserTypeNames {
                 .filter(member -> member.getNameAsString()
                         .equals(callable.getNameAsString()))
                 .toList();
-        int ordinal = overloads.indexOf(callable) + 1;
+        int ordinal = identityOrdinal(overloads, callable);
         return callable.getNameAsString() + "$" + Math.max(ordinal, 1);
+    }
+
+    private static int identityOrdinal(
+            java.util.List<? extends Node> nodes,
+            Node target) {
+        return java.util.stream.IntStream.range(0, nodes.size())
+                .filter(index -> nodes.get(index) == target)
+                .findFirst()
+                .orElse(-1) + 1;
     }
 
     private static String enclosingBinaryOwner(Node node) {

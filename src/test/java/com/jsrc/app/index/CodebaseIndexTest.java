@@ -428,6 +428,97 @@ class CodebaseIndexTest {
         assertEquals(callerOwners, loadedOwners);
     }
 
+    @Test
+    void localTypesInsideSiblingAnonymousOwnersRemainDistinctAfterRoundtrip()
+            throws Exception {
+        Path javaFile = writeFile("AnonymousLocalOwners.java", """
+                package app;
+                class Service {
+                    void ping() {}
+                }
+                class AnonymousLocalOwners {
+                    void build(Service service) {
+                        class Local {
+                            void open() {
+                                Runnable first = new Runnable() {
+                                    public void run() {
+                                        class Deep {
+                                            void call() { service.ping(); }
+                                        }
+                                        new Deep().call();
+                                    }
+                                };
+                                Runnable second = new Runnable() {
+                                    public void run() {
+                                        class Deep {
+                                            void call() { service.ping(); }
+                                        }
+                                        new Deep().call();
+                                    }
+                                };
+                            }
+                        }
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new HybridJavaParser(), List.of(javaFile), tempDir, List.of());
+
+        java.util.Set<String> callerOwners = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(2, callerOwners.size(), () -> "Colliding owners: " + callerOwners);
+
+        var graphBuilder = new com.jsrc.app.analysis.CallGraphBuilder();
+        graphBuilder.loadFromIndex(index.getEntries());
+        Path binary = tempDir.resolve("anonymous-local-owners.bin");
+        BinaryIndexV2Writer.write(
+                binary, index.getEntries(), graphBuilder.toCallGraph());
+        var loaded = BinaryIndexV2Reader.read(binary);
+        java.util.Set<String> loadedOwners = loaded.entries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(callerOwners, loadedOwners);
+    }
+
+    @Test
+    void genericTypeParametersSurviveJsonAndBinaryRoundtrip() throws Exception {
+        Path javaFile = writeFile("GenericOwner.java", """
+                package app;
+                class GenericOwner<Key, Value> {
+                    Value find(Key key) { return null; }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new HybridJavaParser(), List.of(javaFile), tempDir, List.of());
+        index.save(tempDir);
+
+        IndexedClass jsonClass = CodebaseIndex.load(tempDir).stream()
+                .flatMap(entry -> entry.classes().stream())
+                .filter(indexedClass -> indexedClass.name().equals("GenericOwner"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(List.of("Key", "Value"), jsonClass.typeParameters());
+
+        var graphBuilder = new com.jsrc.app.analysis.CallGraphBuilder();
+        graphBuilder.loadFromIndex(index.getEntries());
+        Path binary = tempDir.resolve("generic-owner.bin");
+        BinaryIndexV2Writer.write(
+                binary, index.getEntries(), graphBuilder.toCallGraph());
+        IndexedClass binaryClass = BinaryIndexV2Reader.read(binary).entries().stream()
+                .flatMap(entry -> entry.classes().stream())
+                .filter(indexedClass -> indexedClass.name().equals("GenericOwner"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(List.of("Key", "Value"), binaryClass.typeParameters());
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);

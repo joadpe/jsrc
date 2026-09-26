@@ -27,7 +27,7 @@ import com.jsrc.app.parser.model.MethodReference;
 public class BinaryIndexV2Writer {
 
     static final byte[] MAGIC = {'J', 'S', 'R', '2'};
-    static final int VERSION = 5;
+    static final int VERSION = 6;
 
     /**
      * Writes the unified index to disk.
@@ -294,6 +294,7 @@ public class BinaryIndexV2Writer {
 
             writeStringRefs(out, ic.superClass(), stringTable);
             writeStringRefs(out, ic.interfaces(), stringTable);
+            writeStringRefs(out, ic.typeParameters(), stringTable);
             writeStringRefs(out, ic.annotations(), stringTable);
             writeStringRefs(out, ic.imports(), stringTable);
 
@@ -323,6 +324,7 @@ public class BinaryIndexV2Writer {
         intern(ic.packageName(), table, list);
         for (String s : ic.superClass()) intern(s, table, list);
         for (String s : ic.interfaces()) intern(s, table, list);
+        for (String s : ic.typeParameters()) intern(s, table, list);
         for (String s : ic.annotations()) intern(s, table, list);
         for (String s : ic.imports()) intern(s, table, list);
         for (var f : ic.fields()) {

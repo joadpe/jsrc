@@ -233,4 +233,77 @@ class AutoRefreshTest {
         assertTrue(indexed.hasCallEdges());
         assertFalse(indexed.getAllClasses().isEmpty());
     }
+
+    @Test
+    void refreshPreservesGloballyResolvedDispatchEdges() throws Exception {
+        Path engine = tempDir.resolve("Engine.java");
+        Files.writeString(engine, """
+                package app;
+                interface Engine { void run(); }
+                class BaseEngine implements Engine { public void run() {} }
+                """);
+        Path client = tempDir.resolve("Client.java");
+        Files.writeString(client, """
+                package app;
+                class Client {
+                    void start(Engine engine) { engine.run(); }
+                }
+                """);
+        List<Path> files = List.of(engine, client);
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), files, tempDir, List.of());
+        var graph = new CallGraphBuilder();
+        graph.loadFromIndex(index.getEntries());
+        index.saveWithGraph(tempDir, graph.toCallGraph());
+        Files.setLastModifiedTime(client, java.nio.file.attribute.FileTime.fromMillis(
+                Files.getLastModifiedTime(client).toMillis() + 1_000));
+
+        IndexedCodebase refreshed = IndexedCodebase.tryLoad(tempDir, files);
+
+        List<CallEdge> runEdges = refreshed.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("run"))
+                .toList();
+        assertTrue(runEdges.stream().anyMatch(edge ->
+                        edge.calleeClass().equals("app.BaseEngine")
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.INFERRED
+                                && edge.evidence().contains("CHA_IMPLEMENTATION")),
+                () -> "Expected resolved implementation edge after refresh: " + runEdges);
+    }
+
+    @Test
+    void refreshesCurrentClassesWithUnversionedEmptyEdgesDocument() throws Exception {
+        Path sourceFile = tempDir.resolve("EmptyLegacy.java");
+        Files.writeString(sourceFile, """
+                class EmptyLegacy {
+                    void call() { target(); }
+                    void target() {}
+                }
+                """);
+        String contentHash = com.jsrc.app.util.Hashing.sha256(
+                Files.readAllBytes(sourceFile));
+        long lastModified = Files.getLastModifiedTime(sourceFile).toMillis();
+        Path indexDir = tempDir.resolve(".jsrc");
+        Files.createDirectories(indexDir);
+        Files.writeString(indexDir.resolve("classes.json"), """
+                [{
+                  "callEdgeSchemaVersion": 1,
+                  "path": "EmptyLegacy.java",
+                  "contentHash": "%s",
+                  "lastModified": %d,
+                  "classes": []
+                }]
+                """.formatted(contentHash, lastModified));
+        Files.writeString(indexDir.resolve("edges.json"), "[]");
+
+        IndexedCodebase indexed = IndexedCodebase.tryLoad(
+                tempDir, List.of(sourceFile));
+
+        assertNotNull(indexed);
+        assertTrue(indexed.hasCallEdges());
+        assertTrue(indexed.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .anyMatch(edge -> edge.calleeMethod().equals("target")));
+    }
 }

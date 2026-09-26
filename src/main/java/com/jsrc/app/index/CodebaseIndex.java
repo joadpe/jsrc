@@ -35,6 +35,7 @@ public class CodebaseIndex {
     private static final String SMELLS_FILE = "smells.json";
     private static final String CALL_EDGE_SCHEMA_KEY = "callEdgeSchemaVersion";
     private static final int CALL_EDGE_SCHEMA_VERSION = 1;
+    private static final String SPLIT_ENTRIES_KEY = "entries";
 
     private final List<IndexEntry> entries;
     private final EdgeResolver edgeResolver;
@@ -121,11 +122,18 @@ public class CodebaseIndex {
 
                 EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser);
 
-                List<IndexedClass> indexed = classes.stream()
+                List<IndexedClass> indexed = new ArrayList<>(classes.stream()
                         .map(ci -> toIndexedClass(ci, file, parser, fileImports))
                         .map(indexedClass -> withSyntheticMethods(
                                 indexedClass, extraction.syntheticMethods()))
-                        .toList();
+                        .toList());
+                extraction.syntheticMethods().forEach((owner, methods) -> {
+                    boolean ownerIndexed = indexed.stream()
+                            .anyMatch(indexedClass -> indexedClass.qualifiedName().equals(owner));
+                    if (!ownerIndexed) {
+                        indexed.add(syntheticIndexedClass(owner, methods, fileImports));
+                    }
+                });
 
                 // Extract call edges (direct + reflective) via EdgeResolver
                 List<CallEdge> edges = new ArrayList<>(extraction.edges());
@@ -258,14 +266,11 @@ public class CodebaseIndex {
 
         Files.writeString(indexDir.resolve(CLASSES_FILE),
                 JsonWriter.toJson(classesData), StandardCharsets.UTF_8);
-        // Only overwrite edges/smells if we have data — auto-refresh doesn't
-        // regenerate these, so writing empty would destroy existing data
-        if (!edgesData.isEmpty()) {
-            Files.writeString(indexDir.resolve(EDGES_FILE),
-                    JsonWriter.toJson(edgesData), StandardCharsets.UTF_8);
-        } else if (!Files.exists(indexDir.resolve(EDGES_FILE))) {
-            Files.writeString(indexDir.resolve(EDGES_FILE), "[]", StandardCharsets.UTF_8);
-        }
+        Map<String, Object> edgesDocument = new LinkedHashMap<>();
+        edgesDocument.put(CALL_EDGE_SCHEMA_KEY, CALL_EDGE_SCHEMA_VERSION);
+        edgesDocument.put(SPLIT_ENTRIES_KEY, edgesData);
+        Files.writeString(indexDir.resolve(EDGES_FILE),
+                JsonWriter.toJson(edgesDocument), StandardCharsets.UTF_8);
         if (!smellsData.isEmpty()) {
             Files.writeString(indexDir.resolve(SMELLS_FILE),
                     JsonWriter.toJson(smellsData), StandardCharsets.UTF_8);
@@ -371,7 +376,10 @@ public class CodebaseIndex {
             String json = Files.readString(
                     edgesFile, java.nio.charset.StandardCharsets.UTF_8);
             Object parsed = com.jsrc.app.output.JsonReader.parse(json);
-            if (!(parsed instanceof List<?> rawList)) {
+            if (!(parsed instanceof Map<?, ?> document)
+                    || intVal(document, CALL_EDGE_SCHEMA_KEY)
+                    != CALL_EDGE_SCHEMA_VERSION
+                    || !(document.get(SPLIT_ENTRIES_KEY) instanceof List<?> rawList)) {
                 return false;
             }
             return rawList.stream().allMatch(item -> {
@@ -395,7 +403,17 @@ public class CodebaseIndex {
         try {
             String json = Files.readString(edgesFile, java.nio.charset.StandardCharsets.UTF_8);
             Object parsed = com.jsrc.app.output.JsonReader.parse(json);
-            if (!(parsed instanceof List<?> rawList)) return;
+            List<?> rawList;
+            if (parsed instanceof Map<?, ?> document
+                    && intVal(document, CALL_EDGE_SCHEMA_KEY)
+                    == CALL_EDGE_SCHEMA_VERSION
+                    && document.get(SPLIT_ENTRIES_KEY) instanceof List<?> currentEntries) {
+                rawList = currentEntries;
+            } else if (parsed instanceof List<?> legacyEntries) {
+                rawList = legacyEntries;
+            } else {
+                return;
+            }
 
             Map<String, List<CallEdge>> edgesByPath = new LinkedHashMap<>();
             for (Object item : rawList) {
@@ -615,7 +633,7 @@ public class CodebaseIndex {
         return v instanceof String s ? s : "";
     }
 
-    private static int intVal(Map<String, Object> map, String key) {
+    private static int intVal(Map<?, ?> map, String key) {
         Object v = map.get(key);
         return v instanceof Number n ? n.intValue() : 0;
     }
@@ -681,6 +699,23 @@ public class CodebaseIndex {
                 indexedClass.annotations(),
                 indexedClass.imports(),
                 indexedClass.fields());
+    }
+
+    private static IndexedClass syntheticIndexedClass(
+            String qualifiedName,
+            List<IndexedMethod> methods,
+            List<String> imports) {
+        int separator = qualifiedName.lastIndexOf('.');
+        String packageName = separator < 0 ? "" : qualifiedName.substring(0, separator);
+        String name = separator < 0 ? qualifiedName : qualifiedName.substring(separator + 1);
+        int startLine = methods.stream().mapToInt(IndexedMethod::startLine)
+                .min().orElse(-1);
+        int endLine = methods.stream().mapToInt(IndexedMethod::endLine)
+                .max().orElse(startLine);
+        return new IndexedClass(
+                name, packageName, startLine, endLine,
+                false, false, List.of(), List.of(), methods,
+                List.of(), imports, List.of());
     }
 
     // extractFields removed — fields now come from ClassInfo.fields() via HybridJavaParser

@@ -829,6 +829,118 @@ class EdgeResolverTest {
     }
 
     @Test
+    void methodReferenceUsesInvokedReceiverOverload() throws IOException {
+        Path file = writeFile("References.java", """
+                package app;
+                import java.util.function.Function;
+                class TextApi { void accept(Function<String, String> function) {} }
+                class NumberApi { void accept(Function<Integer, String> function) {} }
+                class Target {
+                    static String parse(String value) { return value; }
+                    static String parse(Integer value) { return value.toString(); }
+                }
+                class Client {
+                    void run(NumberApi numberApi) { numberApi.accept(Target::parse); }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> parseEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("parse"))
+                .toList();
+        assertTrue(parseEdges.stream().anyMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("Integer"))
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Expected Target.parse(Integer): " + parseEdges);
+        assertTrue(parseEdges.stream().noneMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("String"))),
+                () -> "Unexpected Target.parse(String): " + parseEdges);
+    }
+
+    @Test
+    void overloadedMethodsUseDistinctSyntheticLambdaIds() throws IOException {
+        Path file = writeFile("Lambdas.java", """
+                class Service {
+                    void first() {}
+                    void second() {}
+                }
+                class Client {
+                    void work(String value, Service service) {
+                        Runnable task = () -> service.first();
+                    }
+                    void work(int value, Service service) {
+                        Runnable task = () -> service.second();
+                    }
+                }
+                """);
+
+        List<CallEdge> edges = new EdgeResolver()
+                .extractCallEdges(file, new JavaParser()).stream()
+                .filter(edge -> edge.calleeMethod().equals("first")
+                        || edge.calleeMethod().equals("second"))
+                .toList();
+
+        assertEquals(2, edges.stream().map(CallEdge::callerMethod).distinct().count(),
+                () -> "Expected distinct synthetic lambda callers: " + edges);
+    }
+
+    @Test
+    void localAndAnonymousTypesReceiveDistinctIndexedOwners() throws IOException {
+        Path file = writeFile("Owners.java", """
+                package app;
+                class Service {
+                    void first() {}
+                    void second() {}
+                    void third() {}
+                }
+                class Outer {
+                    void first(Service service) {
+                        class Local { void run() { service.first(); } }
+                    }
+                    void second(Service service) {
+                        class Local { void run() { service.second(); } }
+                        Runnable task = new Runnable() {
+                            public void run() { service.third(); }
+                        };
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> edges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> java.util.Set.of("first", "second", "third")
+                        .contains(edge.calleeMethod()))
+                .toList();
+        String firstOwner = edges.stream()
+                .filter(edge -> edge.calleeMethod().equals("first"))
+                .map(CallEdge::callerClass).findFirst().orElseThrow();
+        String secondOwner = edges.stream()
+                .filter(edge -> edge.calleeMethod().equals("second"))
+                .map(CallEdge::callerClass).findFirst().orElseThrow();
+        String anonymousOwner = edges.stream()
+                .filter(edge -> edge.calleeMethod().equals("third"))
+                .map(CallEdge::callerClass).findFirst().orElseThrow();
+        assertNotEquals(firstOwner, secondOwner);
+        assertNotEquals(secondOwner, anonymousOwner);
+        java.util.Set<String> indexedOwners = index.getEntries().stream()
+                .flatMap(entry -> entry.classes().stream())
+                .map(IndexedClass::qualifiedName)
+                .collect(java.util.stream.Collectors.toSet());
+        assertTrue(indexedOwners.containsAll(
+                java.util.Set.of(firstOwner, secondOwner, anonymousOwner)),
+                () -> "Missing synthetic owners in index: " + indexedOwners);
+    }
+
+    @Test
     void lambdaOwnsConstructorAndMethodReferenceEdges() throws IOException {
         Path file = writeFile("Registration.java", """
                 import java.util.function.Supplier;

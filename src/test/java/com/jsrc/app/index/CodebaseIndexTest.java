@@ -300,9 +300,11 @@ class CodebaseIndexTest {
         java.util.Set<String> localClasses = index.getEntries().stream()
                 .flatMap(entry -> entry.classes().stream())
                 .map(IndexedClass::qualifiedName)
-                .filter(name -> name.endsWith("$Local"))
+                .filter(name -> name.contains("$Local$"))
                 .collect(java.util.stream.Collectors.toSet());
-        assertEquals(java.util.Set.of("app.First$Local", "app.Second$Local"), localClasses);
+        assertEquals(java.util.Set.of(
+                "app.First$create$1$Local$1",
+                "app.Second$create$1$Local$1"), localClasses);
         assertTrue(index.getEntries().stream()
                 .flatMap(entry -> entry.classes().stream())
                 .filter(indexedClass -> localClasses.contains(indexedClass.qualifiedName()))

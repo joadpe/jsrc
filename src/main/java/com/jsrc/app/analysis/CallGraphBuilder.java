@@ -105,8 +105,9 @@ public class CallGraphBuilder {
         allMethods.clear();
         methodsByName.clear();
 
+        // Register every method before resolving any persisted edge. Index entry order
+        // must not affect whether a typed callee can be canonicalized.
         for (var entry : entries) {
-            // Register methods from classes
             for (var ic : entry.classes()) {
                 for (var im : ic.methods()) {
                     var parameterTypes = com.jsrc.app.util.SignatureUtils
@@ -117,8 +118,9 @@ public class CallGraphBuilder {
                     methodsByName.computeIfAbsent(im.name(), k -> new HashSet<>()).add(ref);
                 }
             }
+        }
 
-            // Load call edges
+        for (var entry : entries) {
             for (var edge : entry.callEdges()) {
                 MethodReference caller = edge.callerParameterTypes().size() == edge.callerParamCount()
                         ? new MethodReference(edge.callerClass(), edge.callerMethod(),
@@ -983,6 +985,7 @@ public class CallGraphBuilder {
                         .toList();
                 if (candidates.size() == 1) return candidates.getFirst();
             }
+            return reference;
         }
         return resolveRegistered(reference.className(), reference.methodName(),
                 reference.parameterCount());

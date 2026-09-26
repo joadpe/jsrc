@@ -55,14 +55,17 @@ public final class SemanticCallResolver {
                 .anyMatch(CallEdge.UNKNOWN_PARAMETER_TYPE::equals)
                 ? null
                 : edge.calleeParameterTypes();
-        Resolution<MethodSymbol> methodResolution = symbolResolver.resolveMethod(
-                receiverName, edge.calleeMethod(), argumentTypes, caller.context());
+        MethodLookup lookup = resolveMethod(
+                edge, receiverName, argumentTypes, caller.context());
+        Resolution<MethodSymbol> methodResolution = lookup.resolution();
+        argumentTypes = lookup.argumentTypes();
+        CallEdge resolvedEdge = lookup.edge();
         if (!(methodResolution instanceof Resolution.Found<MethodSymbol> method)) {
             return List.of(copy(
-                    edge,
+                    resolvedEdge,
                     caller.className(),
                     receiverName,
-                    edge.invocationKind(),
+                    resolvedEdge.invocationKind(),
                     ResolutionLevel.UNRESOLVED,
                     List.of(methodResolution instanceof Resolution.Ambiguous<?>
                             ? "AMBIGUOUS_TARGET"
@@ -73,17 +76,17 @@ public final class SemanticCallResolver {
         if (kind == InvocationKind.STATIC
                 || kind == InvocationKind.SPECIAL
                 || kind == InvocationKind.CONSTRUCTOR) {
-            return List.of(exact(edge, caller.className(), method.value(), kind));
+            return List.of(exact(resolvedEdge, caller.className(), method.value(), kind));
         }
 
         List<MethodSymbol> runtimeTargets = runtimeTargets(
                 receiver.value(), edge.calleeMethod(), argumentTypes, caller.context());
         if (runtimeTargets.isEmpty()) {
             if (isConcrete(method.value())) {
-                return List.of(exact(edge, caller.className(), method.value(), kind));
+                return List.of(exact(resolvedEdge, caller.className(), method.value(), kind));
             }
             return List.of(copy(
-                    edge,
+                    resolvedEdge,
                     caller.className(),
                     method.value().owner().canonicalName(),
                     kind,
@@ -117,7 +120,7 @@ public final class SemanticCallResolver {
                 level = ResolutionLevel.INFERRED;
             }
             resolved.add(copy(
-                    edge,
+                    resolvedEdge,
                     caller.className(),
                     target.owner().canonicalName(),
                     kind,
@@ -125,6 +128,76 @@ public final class SemanticCallResolver {
                     evidence));
         }
         return List.copyOf(resolved);
+    }
+
+    private MethodLookup resolveMethod(
+            CallEdge edge,
+            String receiverName,
+            List<String> argumentTypes,
+            Context callerContext) {
+        Resolution<MethodSymbol> direct = symbolResolver.resolveMethod(
+                receiverName, edge.calleeMethod(), argumentTypes, callerContext);
+        if (!edge.evidence().contains("TYPE_SCOPED_METHOD_REFERENCE")
+                || argumentTypes == null
+                || argumentTypes.isEmpty()
+                || !TypeId.namesMatch(argumentTypes.getFirst(), receiverName)) {
+            return new MethodLookup(direct, argumentTypes, edge);
+        }
+
+        List<String> unboundArguments = List.copyOf(
+                argumentTypes.subList(1, argumentTypes.size()));
+        Resolution<MethodSymbol> unbound = symbolResolver.resolveMethod(
+                receiverName, edge.calleeMethod(), unboundArguments, callerContext);
+        MethodSymbol staticTarget = direct instanceof Resolution.Found<MethodSymbol> found
+                && isStatic(found.value()) ? found.value() : null;
+        MethodSymbol instanceTarget = unbound instanceof Resolution.Found<MethodSymbol> found
+                && !isStatic(found.value()) ? found.value() : null;
+
+        if (staticTarget != null && instanceTarget != null) {
+            return new MethodLookup(
+                    new Resolution.Ambiguous<>(
+                            List.of(staticTarget, instanceTarget),
+                            List.of("Qualify the intended static or instance target")),
+                    argumentTypes,
+                    edge);
+        }
+        if (instanceTarget != null) {
+            return new MethodLookup(
+                    unbound,
+                    unboundArguments,
+                    withCalleeArguments(edge, unboundArguments));
+        }
+        if (staticTarget != null) {
+            return new MethodLookup(direct, argumentTypes, edge);
+        }
+        return new MethodLookup(
+                new Resolution.Unresolved<>(
+                        edge.calleeMethod(),
+                        "No matching static or unbound instance method",
+                        List.of()),
+                argumentTypes,
+                edge);
+    }
+
+    private boolean isStatic(MethodSymbol method) {
+        IndexedMethod indexedMethod = findMethod(method);
+        return indexedMethod != null && containsModifier(indexedMethod.signature(), "static");
+    }
+
+    private static CallEdge withCalleeArguments(CallEdge edge, List<String> argumentTypes) {
+        return new CallEdge(
+                edge.callerClass(),
+                edge.callerMethod(),
+                edge.callerParameterTypes(),
+                edge.callerParamCount(),
+                edge.calleeClass(),
+                edge.calleeMethod(),
+                argumentTypes,
+                edge.line(),
+                argumentTypes.size(),
+                edge.invocationKind(),
+                edge.resolutionLevel(),
+                edge.evidence());
     }
 
     private CallerContext resolveCaller(CallEdge edge) {
@@ -297,4 +370,9 @@ public final class SemanticCallResolver {
     }
 
     private record CallerContext(String className, Context context) {}
+
+    private record MethodLookup(
+            Resolution<MethodSymbol> resolution,
+            List<String> argumentTypes,
+            CallEdge edge) {}
 }

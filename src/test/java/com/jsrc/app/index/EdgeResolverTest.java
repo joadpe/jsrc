@@ -156,6 +156,65 @@ class EdgeResolverTest {
     }
 
     @Test
+    void methodReferencesDistinguishStaticBoundAndUnboundTargets() throws IOException {
+        Path clientFile = writeFile("Client.java", """
+                package com.example;
+                import java.util.function.Function;
+                class Client {
+                    Function<Widget, Integer> sizeFunction() {
+                        return Widget::size;
+                    }
+                    Function<String, Integer> boundParser(Widget widget) {
+                        return widget::parse;
+                    }
+                    Function<String, Integer> staticParser() {
+                        return Widget::parseStatic;
+                    }
+                }
+                """);
+        Path widgetFile = writeFile("Widget.java", """
+                package com.example;
+                class Widget {
+                    int size() { return 0; }
+                    int parse(String value) { return value.length(); }
+                    static int parseStatic(String value) { return value.length(); }
+                }
+                """);
+
+        var index = new CodebaseIndex();
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(clientFile, widgetFile), tempDir, List.of());
+
+        List<CallEdge> edges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerClass().equals("com.example.Client"))
+                .toList();
+        assertTrue(edges.stream().anyMatch(edge ->
+                        edge.callerMethod().equals("sizeFunction")
+                                && edge.calleeClass().equals("com.example.Widget")
+                                && edge.calleeMethod().equals("size")
+                                && edge.calleeParameterTypes().isEmpty()
+                                && edge.argCount() == 0
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Expected unbound receiver to be excluded from method parameters: " + edges);
+        assertTrue(edges.stream().anyMatch(edge ->
+                        edge.callerMethod().equals("boundParser")
+                                && edge.calleeMethod().equals("parse")
+                                && edge.calleeParameterTypes().equals(List.of("String"))
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Expected bound reference parameters to remain unchanged: " + edges);
+        assertTrue(edges.stream().anyMatch(edge ->
+                        edge.callerMethod().equals("staticParser")
+                                && edge.calleeMethod().equals("parseStatic")
+                                && edge.calleeParameterTypes().equals(List.of("String"))
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Expected static reference parameters to remain unchanged: " + edges);
+    }
+
+    @Test
     void constructorReferenceUsesCanonicalConstructorMethodName() throws IOException {
         Path file = writeFile("Client.java", """
                 package com.example;

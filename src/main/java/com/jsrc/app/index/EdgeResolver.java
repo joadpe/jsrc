@@ -467,7 +467,12 @@ public class EdgeResolver {
                 referencedParameterTypes == null ? -1 : referencedParameterTypes.size(),
                 com.jsrc.app.model.InvocationKind.METHOD_REFERENCE,
                 com.jsrc.app.model.ResolutionLevel.UNRESOLVED,
-                List.of("METHOD_REFERENCE_EXPRESSION")));
+                "new".equals(reference.getIdentifier())
+                        || !reference.getScope().isTypeExpr()
+                        ? List.of("METHOD_REFERENCE_EXPRESSION")
+                        : List.of(
+                                "METHOD_REFERENCE_EXPRESSION",
+                                "TYPE_SCOPED_METHOD_REFERENCE")));
     }
 
     private static void addObjectCreationEdge(

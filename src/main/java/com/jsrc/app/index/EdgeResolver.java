@@ -152,6 +152,9 @@ public class EdgeResolver {
                 method.getTypeAsString(),
                 method.getAnnotations().stream()
                         .map(annotation -> annotation.getNameAsString())
+                        .toList(),
+                method.getTypeParameters().stream()
+                        .map(typeParameter -> typeParameter.asString())
                         .toList());
     }
 

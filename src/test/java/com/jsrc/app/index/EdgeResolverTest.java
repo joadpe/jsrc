@@ -1461,6 +1461,78 @@ class EdgeResolverTest {
     }
 
     @Test
+    void anonymousMethodTypeParametersRemainScopedToTheirOverload()
+            throws IOException {
+        Path file = writeFile("AnonymousMethodTypeParameters.java", """
+                package app;
+                import java.util.function.Function;
+                class Base<T> {
+                    void accept(Function<T, String> function) {}
+                }
+                class Mid<U> extends Base<U> {}
+                class Other<U> extends Base<U> {}
+                class X {}
+                class Target {
+                    static <T> String parse(T value) { return value.toString(); }
+                    static String parse(X value) { return value.toString(); }
+                }
+                class Client {
+                    void build() {
+                        Object handler = new Object() {
+                            <X> void overloaded(Mid<X> api) {
+                                api.accept(Target::parse);
+                            }
+                            void overloaded(Other<X> api) {
+                                api.accept(Target::parse);
+                            }
+                        };
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> genericEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerMethod().equals("overloaded"))
+                .filter(edge -> edge.callerParameterTypes()
+                        .equals(List.of("Mid<X>")))
+                .filter(edge -> edge.calleeMethod().equals("parse"))
+                .toList();
+        assertTrue(genericEdges.stream().noneMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("X"))
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Anonymous generic overload must retain free X: "
+                        + genericEdges);
+
+        List<CallEdge> concreteEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerMethod().equals("overloaded"))
+                .filter(edge -> edge.callerParameterTypes()
+                        .equals(List.of("Other<X>")))
+                .filter(edge -> edge.calleeMethod().equals("parse"))
+                .toList();
+        assertTrue(concreteEdges.stream().anyMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("X"))
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Anonymous concrete overload must resolve class X: "
+                        + concreteEdges);
+
+        assertTrue(index.getEntries().stream()
+                        .flatMap(entry -> entry.classes().stream())
+                        .filter(indexedClass -> indexedClass.qualifiedName()
+                                .contains("anonymous"))
+                        .flatMap(indexedClass -> indexedClass.methods().stream())
+                        .anyMatch(method -> method.name().equals("overloaded")
+                                && method.typeParameters().equals(List.of("X"))),
+                "Anonymous generic method must retain its type parameters");
+    }
+
+    @Test
     void samePackageTypeDoesNotActivateWildcardJdkFallback() throws IOException {
         Path listFile = writeFile("List.java", """
                 package app;

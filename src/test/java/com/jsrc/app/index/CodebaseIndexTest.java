@@ -369,6 +369,65 @@ class CodebaseIndexTest {
         assertTrue(loaded.isEmpty());
     }
 
+    @Test
+    void nestedAnonymousOwnersRemainDistinctAfterBinaryRoundtrip() throws Exception {
+        Path javaFile = writeFile("NestedOwners.java", """
+                package app;
+                class Service {
+                    void first() {}
+                    void second() {}
+                }
+                class NestedOwners {
+                    void build(Service service) {
+                        Runnable first = new Runnable() {
+                            public void run() {
+                                Runnable nested = new Runnable() {
+                                    public void run() { service.first(); }
+                                };
+                            }
+                        };
+                        Runnable second = new Runnable() {
+                            public void run() {
+                                Runnable nested = new Runnable() {
+                                    public void run() { service.second(); }
+                                };
+                            }
+                        };
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new HybridJavaParser(), List.of(javaFile), tempDir, List.of());
+
+        java.util.Set<String> callerOwners = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> java.util.Set.of("first", "second")
+                        .contains(edge.calleeMethod()))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(2, callerOwners.size(), () -> "Colliding owners: " + callerOwners);
+        java.util.Set<String> indexedOwners = index.getEntries().stream()
+                .flatMap(entry -> entry.classes().stream())
+                .map(IndexedClass::qualifiedName)
+                .collect(java.util.stream.Collectors.toSet());
+        assertTrue(indexedOwners.containsAll(callerOwners));
+
+        var graphBuilder = new com.jsrc.app.analysis.CallGraphBuilder();
+        graphBuilder.loadFromIndex(index.getEntries());
+        Path binary = tempDir.resolve("nested-anonymous-owners.bin");
+        BinaryIndexV2Writer.write(
+                binary, index.getEntries(), graphBuilder.toCallGraph());
+        var loaded = BinaryIndexV2Reader.read(binary);
+        java.util.Set<String> loadedOwners = loaded.entries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> java.util.Set.of("first", "second")
+                        .contains(edge.calleeMethod()))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(callerOwners, loadedOwners);
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);

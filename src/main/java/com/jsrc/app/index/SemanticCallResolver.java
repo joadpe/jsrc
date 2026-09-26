@@ -168,17 +168,66 @@ public final class SemanticCallResolver {
         IndexedClass indexedClass = classesByName.get(owner.value().id().canonicalName());
         if (indexedClass == null) return null;
 
-        List<String> functionalTypes = indexedClass.methods().stream()
-                .filter(method -> method.name().equals(parts[2]))
+        var functionalTypes = new java.util.LinkedHashSet<String>();
+        collectFunctionalTypes(
+                indexedClass,
+                parts[2],
+                parameterCount,
+                argumentIndex,
+                false,
+                new HashSet<>(),
+                functionalTypes);
+        if (functionalTypes.size() != 1) return null;
+        return EdgeResolver.functionalInputTypes(
+                functionalTypes.iterator().next(), null);
+    }
+
+    private void collectFunctionalTypes(
+            IndexedClass indexedClass,
+            String methodName,
+            int parameterCount,
+            int argumentIndex,
+            boolean inherited,
+            Set<String> visited,
+            Set<String> functionalTypes) {
+        if (!visited.add(indexedClass.qualifiedName())) return;
+
+        indexedClass.methods().stream()
+                .filter(method -> method.name().equals(methodName))
                 .filter(method -> method.paramCount() == parameterCount)
+                .filter(method -> !inherited
+                        || !containsModifier(method.signature(), "private"))
                 .map(method -> com.jsrc.app.util.SignatureUtils
                         .extractParameterTypes(method.signature()))
                 .filter(parameters -> argumentIndex < parameters.size())
                 .map(parameters -> parameters.get(argumentIndex))
-                .distinct()
-                .toList();
-        if (functionalTypes.size() != 1) return null;
-        return EdgeResolver.functionalInputTypes(functionalTypes.getFirst(), null);
+                .forEach(functionalTypes::add);
+
+        TypeId ownerId = TypeId.from(
+                indexedClass.packageName(), indexedClass.name());
+        Context context = new Context(
+                indexedClass.packageName(), indexedClass.imports(), ownerId);
+        java.util.stream.Stream.concat(
+                        indexedClass.superClass().stream(),
+                        indexedClass.interfaces().stream())
+                .forEach(relation -> {
+                    Resolution<TypeSymbol> resolution = symbolResolver.resolveType(
+                            relation, context);
+                    if (resolution instanceof Resolution.Found<TypeSymbol> found) {
+                        IndexedClass parent = classesByName.get(
+                                found.value().id().canonicalName());
+                        if (parent != null) {
+                            collectFunctionalTypes(
+                                    parent,
+                                    methodName,
+                                    parameterCount,
+                                    argumentIndex,
+                                    true,
+                                    visited,
+                                    functionalTypes);
+                        }
+                    }
+                });
     }
 
     private MethodLookup resolveMethod(

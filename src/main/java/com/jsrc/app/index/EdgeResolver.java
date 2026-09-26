@@ -737,34 +737,66 @@ public class EdgeResolver {
     private static List<String> lambdaParameterTypes(
             com.github.javaparser.ast.expr.LambdaExpr lambda,
             Map<String, String> declaredTypes) {
-        String inferred = inferFunctionalParameterType(lambda, declaredTypes);
-        return lambda.getParameters().stream()
-                .map(parameter -> parameter.getType().isUnknownType()
-                        ? inferred
-                        : parameter.getTypeAsString())
+        List<String> inferred = inferFunctionalParameterTypes(lambda, declaredTypes);
+        return java.util.stream.IntStream.range(0, lambda.getParameters().size())
+                .mapToObj(index -> {
+                    Parameter parameter = lambda.getParameter(index);
+                    if (!parameter.getType().isUnknownType()) {
+                        return parameter.getTypeAsString();
+                    }
+                    return index < inferred.size()
+                            ? inferred.get(index)
+                            : CallEdge.UNKNOWN_PARAMETER_TYPE;
+                })
                 .map(type -> type == null || type.isBlank()
                         ? CallEdge.UNKNOWN_PARAMETER_TYPE
                         : com.jsrc.app.util.SignatureUtils.normalizeType(type))
                 .toList();
     }
 
-    private static String inferFunctionalParameterType(
+    private static List<String> inferFunctionalParameterTypes(
             com.github.javaparser.ast.expr.LambdaExpr lambda,
             Map<String, String> declaredTypes) {
-        var parent = lambda.getParentNode().orElse(null);
-        if (!(parent instanceof MethodCallExpr call) || call.getScope().isEmpty()) {
-            return CallEdge.UNKNOWN_PARAMETER_TYPE;
+        var callable = lambda.findAncestor(
+                        com.github.javaparser.ast.body.CallableDeclaration.class)
+                .map(value -> (com.github.javaparser.ast.body.CallableDeclaration<?>) value)
+                .orElse(null);
+        String functionalType = contextualFunctionalType(
+                lambda, callable, declaredTypes);
+        if (functionalType == null) {
+            return knownForEachParameterTypes(lambda, declaredTypes);
         }
-        var scope = call.getScope().get();
-        if (!(scope instanceof NameExpr name)) {
-            return CallEdge.UNKNOWN_PARAMETER_TYPE;
+        List<String> inferred = functionalInputTypes(functionalType, lambda);
+        return inferred == null ? List.of() : inferred;
+    }
+
+    private static List<String> knownForEachParameterTypes(
+            com.github.javaparser.ast.expr.LambdaExpr lambda,
+            Map<String, String> declaredTypes) {
+        if (!(lambda.getParentNode().orElse(null) instanceof MethodCallExpr call)
+                || !call.getNameAsString().equals("forEach")
+                || call.getScope().isEmpty()
+                || !(call.getScope().get() instanceof NameExpr name)) {
+            return List.of();
         }
-        String declaredType = declaredTypes.get(name.getNameAsString());
-        if (declaredType == null) return CallEdge.UNKNOWN_PARAMETER_TYPE;
-        int start = declaredType.indexOf('<');
-        int end = declaredType.lastIndexOf('>');
-        if (start < 0 || end <= start + 1) return CallEdge.UNKNOWN_PARAMETER_TYPE;
-        return declaredType.substring(start + 1, end).split(",", 2)[0].trim();
+        String receiverType = declaredTypes.get(name.getNameAsString());
+        if (receiverType == null) return List.of();
+        List<String> arguments = genericArguments(receiverType);
+        String rawType = receiverType.substring(
+                Math.max(receiverType.lastIndexOf('.') + 1, 0));
+        int genericStart = rawType.indexOf('<');
+        if (genericStart >= 0) rawType = rawType.substring(0, genericStart);
+        if (rawType.equals("Map") && lambda.getParameters().size() == 2
+                && arguments.size() >= 2) {
+            return List.of(arguments.get(0), arguments.get(1));
+        }
+        if (java.util.Set.of("Iterable", "Collection", "List", "Set", "Stream")
+                .contains(rawType)
+                && lambda.getParameters().size() == 1
+                && !arguments.isEmpty()) {
+            return List.of(arguments.getFirst());
+        }
+        return List.of();
     }
 
     private static void extractMethodReferenceEdges(
@@ -906,7 +938,14 @@ public class EdgeResolver {
             com.github.javaparser.ast.expr.MethodReferenceExpr reference,
             com.github.javaparser.ast.body.CallableDeclaration<?> callable,
             Map<String, String> declaredTypes) {
-        var parent = reference.getParentNode().orElse(null);
+        return contextualFunctionalType(reference, callable, declaredTypes);
+    }
+
+    private static String contextualFunctionalType(
+            com.github.javaparser.ast.expr.Expression expression,
+            com.github.javaparser.ast.body.CallableDeclaration<?> callable,
+            Map<String, String> declaredTypes) {
+        var parent = expression.getParentNode().orElse(null);
         if (parent instanceof VariableDeclarator variable) {
             return variable.getTypeAsString();
         }
@@ -922,7 +961,7 @@ public class EdgeResolver {
             return declaredTypes.get(assignment.getTarget().asNameExpr().getNameAsString());
         }
         if (parent instanceof MethodCallExpr call) {
-            int argumentIndex = call.getArguments().indexOf(reference);
+            int argumentIndex = call.getArguments().indexOf(expression);
             if (argumentIndex < 0) return null;
             String receiverType = invokedReceiverType(call, declaredTypes);
             if (receiverType == null) return null;
@@ -939,9 +978,39 @@ public class EdgeResolver {
                     .toList())
                     .orElse(List.of());
             if (candidates.size() != 1) return null;
-            return candidates.getFirst().getParameter(argumentIndex).getTypeAsString();
+            MethodDeclaration candidate = candidates.getFirst();
+            String functionalType = candidate.getParameter(argumentIndex).getTypeAsString();
+            return substituteOwnerTypeArguments(
+                    functionalType, candidate, receiverType);
         }
         return null;
+    }
+
+    private static String substituteOwnerTypeArguments(
+            String type,
+            MethodDeclaration method,
+            String receiverType) {
+        var owner = method.findAncestor(
+                        com.github.javaparser.ast.body.TypeDeclaration.class)
+                .map(value -> (com.github.javaparser.ast.body.TypeDeclaration<?>) value)
+                .orElse(null);
+        if (!(owner instanceof com.github.javaparser.ast.nodeTypes.NodeWithTypeParameters<?>
+                parameterizedOwner)
+                || parameterizedOwner.getTypeParameters().isEmpty()) {
+            return type;
+        }
+        List<String> arguments = genericArguments(receiverType);
+        if (arguments.size() != parameterizedOwner.getTypeParameters().size()) return type;
+
+        String resolved = type;
+        for (int index = 0; index < arguments.size(); index++) {
+            String parameter = parameterizedOwner.getTypeParameters()
+                    .get(index).getNameAsString();
+            resolved = resolved.replaceAll(
+                    "\\b" + java.util.regex.Pattern.quote(parameter) + "\\b",
+                    java.util.regex.Matcher.quoteReplacement(arguments.get(index)));
+        }
+        return resolved;
     }
 
     private static String invokedReceiverType(

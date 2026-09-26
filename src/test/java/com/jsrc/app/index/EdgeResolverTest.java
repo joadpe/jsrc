@@ -1207,6 +1207,73 @@ class EdgeResolverTest {
         assertTrue(resolved, "Nested ?field:?ret: chain should resolve to StringBuilder");
     }
 
+    @Test
+    void lambdaParametersUseSamTypesByPosition() throws IOException {
+        Path file = writeFile("LambdaParameters.java", """
+                package app;
+                import java.util.function.BiFunction;
+                class Count { String render() { return ""; } }
+                class Registry<A, B> {
+                    void use(BiFunction<A, B, String> function) {}
+                }
+                class Client {
+                    void run(Registry<String, Count> registry) {
+                        registry.use((key, count) -> count.render());
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        CallEdge render = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("render"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(List.of("String", "Count"), render.callerParameterTypes());
+        assertEquals("app.Count", render.calleeClass());
+        assertEquals(com.jsrc.app.model.ResolutionLevel.EXACT,
+                render.resolutionLevel());
+    }
+
+    @Test
+    void methodReferenceUsesInheritedFunctionalMethodContext() throws IOException {
+        Path file = writeFile("InheritedReference.java", """
+                package app;
+                import java.util.function.Function;
+                class BaseApi {
+                    void accept(Function<Integer, String> function) {}
+                }
+                class NumberApi extends BaseApi {}
+                class Target {
+                    static String parse(String value) { return value; }
+                    static String parse(Integer value) { return value.toString(); }
+                }
+                class Client {
+                    void run(NumberApi api) { api.accept(Target::parse); }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        List<CallEdge> parseEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("parse"))
+                .toList();
+        assertTrue(parseEdges.stream().anyMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("Integer"))
+                                && edge.resolutionLevel()
+                                == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Expected inherited Function<Integer, String>: " + parseEdges);
+        assertTrue(parseEdges.stream().noneMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("String"))),
+                () -> "Unexpected String overload: " + parseEdges);
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);

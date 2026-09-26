@@ -14,10 +14,10 @@ public final class JavaParserTypeNames {
     public static String binaryName(TypeDeclaration<?> declaration) {
         if (declaration.getParentNode().orElse(null)
                 instanceof com.github.javaparser.ast.stmt.LocalClassDeclarationStmt) {
-            var enclosingType = declaration.findAncestor(TypeDeclaration.class).orElse(null);
+            String enclosingOwner = enclosingBinaryOwner(declaration);
             var callable = declaration.findAncestor(
                     com.github.javaparser.ast.body.CallableDeclaration.class).orElse(null);
-            if (enclosingType != null && callable != null) {
+            if (enclosingOwner != null && callable != null) {
                 int ordinal = callable.findAll(TypeDeclaration.class).stream()
                         .filter(JavaParserTypeNames::isLocalType)
                         .filter(type -> type.findAncestor(
@@ -25,7 +25,7 @@ public final class JavaParserTypeNames {
                                 .orElse(null) == callable)
                         .toList()
                         .indexOf(declaration) + 1;
-                return binaryName(enclosingType) + "$" + callableSegment(callable)
+                return enclosingOwner + "$" + callableSegment(callable)
                         + "$" + declaration.getNameAsString() + "$" + ordinal;
             }
         }
@@ -48,12 +48,16 @@ public final class JavaParserTypeNames {
 
     public static String anonymousBinaryName(
             com.github.javaparser.ast.expr.ObjectCreationExpr creation) {
-        var enclosingType = creation.findAncestor(TypeDeclaration.class).orElse(null);
-        if (enclosingType == null) return "anonymous$1";
+        String enclosingOwner = enclosingBinaryOwner(creation);
+        if (enclosingOwner == null) return "anonymous$1";
 
         var callable = creation.findAncestor(
                 com.github.javaparser.ast.body.CallableDeclaration.class).orElse(null);
-        Node scope = callable == null ? enclosingType : callable;
+        Node scope = callable == null
+                ? creation.findAncestor(TypeDeclaration.class)
+                        .map(value -> (Node) value)
+                        .orElse(creation)
+                : callable;
         int ordinal = scope.findAll(
                         com.github.javaparser.ast.expr.ObjectCreationExpr.class).stream()
                 .filter(candidate -> candidate.getAnonymousClassBody().isPresent())
@@ -63,7 +67,7 @@ public final class JavaParserTypeNames {
                 .toList()
                 .indexOf(creation) + 1;
         String callableName = callable == null ? "initializer" : callableSegment(callable);
-        return binaryName(enclosingType) + "$" + callableName
+        return enclosingOwner + "$" + callableName
                 + "$anonymous$" + ordinal;
     }
 
@@ -79,6 +83,19 @@ public final class JavaParserTypeNames {
 
     private static String callableSegment(
             com.github.javaparser.ast.body.CallableDeclaration<?> callable) {
+        if (callable.getParentNode().orElse(null)
+                instanceof com.github.javaparser.ast.expr.ObjectCreationExpr creation
+                && creation.getAnonymousClassBody().isPresent()) {
+            var overloads = creation.getAnonymousClassBody().orElseThrow().stream()
+                    .filter(com.github.javaparser.ast.body.CallableDeclaration.class::isInstance)
+                    .map(member -> (com.github.javaparser.ast.body.CallableDeclaration<?>) member)
+                    .filter(member -> member.getNameAsString()
+                            .equals(callable.getNameAsString()))
+                    .toList();
+            int ordinal = overloads.indexOf(callable) + 1;
+            return callable.getNameAsString() + "$" + Math.max(ordinal, 1);
+        }
+
         TypeDeclaration<?> owner = callable.findAncestor(TypeDeclaration.class)
                 .map(type -> (TypeDeclaration<?>) type)
                 .orElse(null);
@@ -89,7 +106,21 @@ public final class JavaParserTypeNames {
                 .filter(member -> member.getNameAsString()
                         .equals(callable.getNameAsString()))
                 .toList();
-        return callable.getNameAsString() + "$" + (overloads.indexOf(callable) + 1);
+        int ordinal = overloads.indexOf(callable) + 1;
+        return callable.getNameAsString() + "$" + Math.max(ordinal, 1);
+    }
+
+    private static String enclosingBinaryOwner(Node node) {
+        var anonymous = node.findAncestor(
+                        com.github.javaparser.ast.expr.ObjectCreationExpr.class)
+                .filter(creation -> creation.getAnonymousClassBody().isPresent())
+                .orElse(null);
+        if (anonymous != null) return anonymousBinaryName(anonymous);
+
+        TypeDeclaration<?> type = node.findAncestor(TypeDeclaration.class)
+                .map(value -> (TypeDeclaration<?>) value)
+                .orElse(null);
+        return type == null ? null : binaryName(type);
     }
 
     private static String qualifiedName(String binaryName, Node node) {

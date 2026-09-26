@@ -284,9 +284,15 @@ public class EdgeResolver {
                             ? List.of("SUPER_INVOCATION")
                             : List.of()));
         }
+        List<com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt>
+                constructorInvocations = callable instanceof ConstructorDeclaration constructor
+                ? constructor.getBody().getStatements().stream()
+                        .filter(com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt.class::isInstance)
+                        .map(com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt.class::cast)
+                        .toList()
+                : List.of();
         for (com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt invocation
-                : callable.findAll(
-                        com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt.class)) {
+                : constructorInvocations) {
             String calleeClass = invocation.isThis()
                     ? className
                     : directSuperType(invocation);

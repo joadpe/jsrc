@@ -126,6 +126,36 @@ class EdgeResolverTest {
     }
 
     @Test
+    void localClassConstructorInvocationBelongsOnlyToLocalConstructor() throws IOException {
+        Path file = writeFile("Outer.java", """
+                package app;
+                class Base {
+                    Base() {}
+                }
+                class Outer {
+                    void work() {
+                        class Local extends Base {
+                            Local() { super(); }
+                        }
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        List<CallEdge> constructorEdges = resolver.extractCallEdges(file, new JavaParser())
+                .stream()
+                .filter(edge -> edge.evidence().contains("SUPER_CONSTRUCTOR_INVOCATION"))
+                .toList();
+
+        assertTrue(constructorEdges.size() == 1,
+                () -> "Expected only the local constructor edge but got " + constructorEdges);
+        assertTrue(constructorEdges.stream().allMatch(edge ->
+                        edge.callerMethod().equals("Local")
+                                && edge.calleeMethod().equals("Base")),
+                () -> "Expected Local.Local -> Base.Base but got " + constructorEdges);
+    }
+
+    @Test
     void extractCallEdgesIncludesRecordAndEnumMethods() throws IOException {
         Path file = writeFile("Types.java", """
                 package app;

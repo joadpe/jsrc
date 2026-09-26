@@ -162,6 +162,11 @@ public final class SemanticCallResolver {
             return null;
         }
 
+        if (containsTypeParameter(
+                parts[1], List.copyOf(callerTypeParameters(edge)))) {
+            return null;
+        }
+
         Resolution<TypeSymbol> ownerResolution = symbolResolver.resolveType(
                 parts[1], callerContext);
         if (!(ownerResolution instanceof Resolution.Found<TypeSymbol> owner)) return null;
@@ -184,6 +189,18 @@ public final class SemanticCallResolver {
         if (functionalTypes.size() != 1) return null;
         return EdgeResolver.functionalInputTypes(
                 functionalTypes.iterator().next(), null);
+    }
+
+    private Set<String> callerTypeParameters(CallEdge edge) {
+        IndexedClass caller = classesByName.get(edge.callerClass());
+        if (caller == null) return Set.of();
+        Set<String> parameters = new HashSet<>(caller.typeParameters());
+        caller.methods().stream()
+                .filter(method -> method.name().equals(edge.callerMethod()))
+                .filter(method -> method.paramCount() == edge.callerParamCount())
+                .map(method -> methodTypeParameters(method.signature()))
+                .forEach(parameters::addAll);
+        return Set.copyOf(parameters);
     }
 
     private void collectFunctionalTypes(
@@ -290,13 +307,20 @@ public final class SemanticCallResolver {
     private static boolean containsMethodTypeParameter(
             String type,
             String signature) {
+        return methodTypeParameters(signature).stream()
+                .anyMatch(parameter -> containsTypeParameter(type, List.of(parameter)));
+    }
+
+    private static List<String> methodTypeParameters(String signature) {
         int start = signature.indexOf('<');
         int end = signature.indexOf('>');
-        if (start < 0 || end <= start || start > signature.indexOf('(')) return false;
+        if (start < 0 || end <= start || start > signature.indexOf('(')) {
+            return List.of();
+        }
         return java.util.Arrays.stream(signature.substring(start + 1, end).split(","))
                 .map(String::trim)
                 .map(declaration -> declaration.split("\\s+", 2)[0])
-                .anyMatch(parameter -> containsTypeParameter(type, List.of(parameter)));
+                .toList();
     }
 
     private MethodLookup resolveMethod(

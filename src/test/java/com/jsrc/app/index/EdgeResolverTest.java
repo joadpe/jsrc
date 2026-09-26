@@ -1363,6 +1363,7 @@ class EdgeResolverTest {
                 class Client {
                     void exact(Mid<Integer> api) { api.accept(Target::parse); }
                     void raw(Raw api) { api.accept(Target::parse); }
+                    <X> void generic(Mid<X> api) { api.accept(Target::parse); }
                 }
                 """);
         var index = new CodebaseIndex();
@@ -1389,6 +1390,16 @@ class EdgeResolverTest {
         assertTrue(rawEdges.stream().noneMatch(edge -> edge.resolutionLevel()
                         == com.jsrc.app.model.ResolutionLevel.EXACT),
                 () -> "Raw inheritance must not fabricate an exact edge: " + rawEdges);
+
+        List<CallEdge> genericEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerMethod().equals("generic"))
+                .filter(edge -> edge.calleeMethod().equals("parse"))
+                .toList();
+        assertTrue(genericEdges.stream().noneMatch(edge -> edge.resolutionLevel()
+                        == com.jsrc.app.model.ResolutionLevel.EXACT),
+                () -> "Free caller type variable must not create an exact edge: "
+                        + genericEdges);
     }
 
     @Test

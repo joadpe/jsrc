@@ -34,7 +34,7 @@ public class CodebaseIndex {
     private static final String EDGES_FILE = "edges.json";
     private static final String SMELLS_FILE = "smells.json";
     private static final String CALL_EDGE_SCHEMA_KEY = "callEdgeSchemaVersion";
-    private static final int CALL_EDGE_SCHEMA_VERSION = 2;
+    private static final int CALL_EDGE_SCHEMA_VERSION = 3;
     private static final String SPLIT_ENTRIES_KEY = "entries";
 
     private final List<IndexEntry> entries;

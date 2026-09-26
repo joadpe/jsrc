@@ -291,10 +291,37 @@ public class EdgeResolver {
     private static boolean isVisibleCapturedVariable(
             VariableDeclarator variable,
             com.github.javaparser.ast.body.CallableDeclaration<?> callable) {
+        return isVisibleVariableAt(variable, callable);
+    }
+
+    private static boolean isVisibleVariableAt(
+            VariableDeclarator variable,
+            com.github.javaparser.ast.Node node) {
         com.github.javaparser.ast.Node scope = lexicalScope(variable);
         return scope != null
-                && isAncestor(scope, callable)
-                && startsBefore(variable, callable);
+                && isAncestor(scope, node)
+                && startsBefore(variable, node);
+    }
+
+    private static LexicalTypes lexicalTypesAt(
+            com.github.javaparser.ast.Node node,
+            Map<String, String> baseLocalTypes,
+            Map<String, String> baseDeclaredTypes) {
+        Map<String, String> localTypes = new HashMap<>(baseLocalTypes);
+        Map<String, String> declaredTypes = new HashMap<>(baseDeclaredTypes);
+        var callable = node.findAncestor(
+                com.github.javaparser.ast.body.CallableDeclaration.class).orElse(null);
+        if (callable == null) {
+            return new LexicalTypes(localTypes, declaredTypes);
+        }
+        for (VariableDeclarator variable : callable.findAll(VariableDeclarator.class)) {
+            if (belongsToOwner(variable, callable)
+                    && isVisibleVariableAt(variable, node)) {
+                putType(localTypes, declaredTypes,
+                        variable.getNameAsString(), variable.getTypeAsString());
+            }
+        }
+        return new LexicalTypes(localTypes, declaredTypes);
     }
 
     private static com.github.javaparser.ast.Node lexicalScope(
@@ -367,29 +394,20 @@ public class EdgeResolver {
             if (gi > 0) pType = pType.substring(0, gi);
             localTypes.put(param.getNameAsString(), pType);
         }
-        for (VariableDeclarator var : callable.findAll(VariableDeclarator.class)) {
-            if (!belongsToOwner(var, callable)) continue;
-            var parent = var.getParentNode().orElse(null);
-            if (parent != null && !(parent instanceof FieldDeclaration)) {
-                String vType = var.getTypeAsString();
-                declaredTypes.put(var.getNameAsString(), vType);
-                int gi = vType.indexOf('<');
-                if (gi > 0) vType = vType.substring(0, gi);
-                localTypes.put(var.getNameAsString(), vType);
-            }
-        }
         for (MethodCallExpr call : callable.findAll(MethodCallExpr.class)) {
             if (!belongsToOwner(call, callable)
                     || call.findAncestor(
                             com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
                 continue;
             }
+            LexicalTypes callTypes = lexicalTypesAt(call, localTypes, declaredTypes);
             String calleeMethod = call.getNameAsString();
-            String calleeClass = resolveCalleeClass(call, className, fieldTypes, localTypes);
+            String calleeClass = resolveCalleeClass(
+                    call, className, fieldTypes, callTypes.local());
             int line = call.getBegin().map(p -> p.line).orElse(-1);
             int argCount = call.getArguments().size();
             List<String> calleeParameterTypes = argumentTypes(
-                    call.getArguments(), fieldTypes, localTypes);
+                    call.getArguments(), fieldTypes, callTypes.local());
             var invocationKind = extractedInvocationKind(call);
             edges.add(new CallEdge(
                     className, callerMethod, callerParameterTypes, callerParamCount,
@@ -409,11 +427,13 @@ public class EdgeResolver {
                 : List.of();
         for (com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt invocation
                 : constructorInvocations) {
+            LexicalTypes invocationTypes = lexicalTypesAt(
+                    invocation, localTypes, declaredTypes);
             String calleeClass = invocation.isThis()
                     ? className
                     : directSuperType(invocation);
             List<String> calleeParameterTypes = argumentTypes(
-                    invocation.getArguments(), fieldTypes, localTypes);
+                    invocation.getArguments(), fieldTypes, invocationTypes.local());
             edges.add(new CallEdge(
                     className,
                     callerMethod,
@@ -440,8 +460,10 @@ public class EdgeResolver {
                             com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
                 continue;
             }
+            LexicalTypes creationTypes = lexicalTypesAt(
+                    newExpr, localTypes, declaredTypes);
             addObjectCreationEdge(edges, newExpr, className, callerMethod,
-                    callerParameterTypes, fieldTypes, localTypes);
+                    callerParameterTypes, fieldTypes, creationTypes.local());
         }
     }
 
@@ -460,8 +482,11 @@ public class EdgeResolver {
             if (!belongsToOwner(lambda, callable)) continue;
             ordinal++;
             String syntheticName = callerMethod + "$lambda$" + ordinal;
-            Map<String, String> lambdaTypes = new HashMap<>(enclosingLocalTypes);
-            Map<String, String> lambdaDeclaredTypes = new HashMap<>(declaredTypes);
+            LexicalTypes lambdaScope = lexicalTypesAt(
+                    lambda, enclosingLocalTypes, declaredTypes);
+            Map<String, String> lambdaTypes = new HashMap<>(lambdaScope.local());
+            Map<String, String> lambdaDeclaredTypes =
+                    new HashMap<>(lambdaScope.declared());
             addEnclosingLambdaTypes(lambda, lambdaTypes, lambdaDeclaredTypes);
             List<String> parameterTypes = lambdaParameterTypes(
                     lambda, lambdaDeclaredTypes);
@@ -483,11 +508,13 @@ public class EdgeResolver {
             for (MethodCallExpr call : lambda.findAll(MethodCallExpr.class)) {
                 if (!belongsToLambda(call, lambda)) continue;
 
+                LexicalTypes callTypes = lexicalTypesAt(
+                        call, lambdaTypes, lambdaDeclaredTypes);
                 String calleeClass = resolveCalleeClass(
-                        call, className, fieldTypes, lambdaTypes);
+                        call, className, fieldTypes, callTypes.local());
                 int line = call.getBegin().map(position -> position.line).orElse(-1);
                 List<String> calleeParameterTypes = argumentTypes(
-                        call.getArguments(), fieldTypes, lambdaTypes);
+                        call.getArguments(), fieldTypes, callTypes.local());
                 var invocationKind = extractedInvocationKind(call);
                 edges.add(new CallEdge(
                         className,
@@ -508,14 +535,18 @@ public class EdgeResolver {
             for (com.github.javaparser.ast.expr.MethodReferenceExpr reference
                     : lambda.findAll(com.github.javaparser.ast.expr.MethodReferenceExpr.class)) {
                 if (!belongsToLambda(reference, lambda)) continue;
+                LexicalTypes referenceTypes = lexicalTypesAt(
+                        reference, lambdaTypes, lambdaDeclaredTypes);
                 addMethodReferenceEdge(edges, reference, className, syntheticName,
-                        parameterTypes, fieldTypes, lambdaTypes,
-                        lambdaDeclaredTypes, callable);
+                        parameterTypes, fieldTypes, referenceTypes.local(),
+                        referenceTypes.declared(), callable);
             }
             for (ObjectCreationExpr newExpr : lambda.findAll(ObjectCreationExpr.class)) {
                 if (!belongsToLambda(newExpr, lambda)) continue;
+                LexicalTypes creationTypes = lexicalTypesAt(
+                        newExpr, lambdaTypes, lambdaDeclaredTypes);
                 addObjectCreationEdge(edges, newExpr, className, syntheticName,
-                        parameterTypes, fieldTypes, lambdaTypes);
+                        parameterTypes, fieldTypes, creationTypes.local());
             }
         }
     }
@@ -636,8 +667,11 @@ public class EdgeResolver {
                             com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
                 continue;
             }
+            LexicalTypes referenceTypes = lexicalTypesAt(
+                    reference, localTypes, declaredTypes);
             addMethodReferenceEdge(edges, reference, className, callerMethod,
-                    callerParameterTypes, fieldTypes, localTypes, declaredTypes, callable);
+                    callerParameterTypes, fieldTypes, referenceTypes.local(),
+                    referenceTypes.declared(), callable);
         }
     }
 

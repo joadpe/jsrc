@@ -182,7 +182,8 @@ public class IndexedCodebase {
             if (prev != null && !forceRefresh) {
                 try {
                     long currentModified = Files.getLastModifiedTime(file).toMillis();
-                    if (currentModified <= prev.lastModified()
+                    if (!prev.contentHash().isEmpty()
+                            && currentModified <= prev.lastModified()
                             && prev.sourceSet() == sourceSet) {
                         refreshed.add(prev);
                         continue;

@@ -144,4 +144,47 @@ class AutoRefreshTest {
                     "Migrations must not be wiped when saving after auto-refresh");
         }
     }
+
+    @Test
+    void refreshesSplitIndexWithoutCurrentCallEdgeSchema() throws Exception {
+        Path sourceFile = tempDir.resolve("Legacy.java");
+        Files.writeString(sourceFile, """
+                class Legacy {
+                    void call() { target(); }
+                    void target() {}
+                }
+                """);
+        long lastModified = Files.getLastModifiedTime(sourceFile).toMillis();
+        Path indexDir = tempDir.resolve(".jsrc");
+        Files.createDirectories(indexDir);
+        Files.writeString(indexDir.resolve("classes.json"), """
+                [{
+                  "path": "Legacy.java",
+                  "contentHash": "legacy-hash",
+                  "lastModified": %d,
+                  "classes": []
+                }]
+                """.formatted(lastModified));
+        Files.writeString(indexDir.resolve("edges.json"), """
+                [{
+                  "path": "Legacy.java",
+                  "callEdges": [{
+                    "callerClass": "Legacy",
+                    "callerMethod": "call",
+                    "callerParamCount": 0,
+                    "calleeClass": "Legacy",
+                    "calleeMethod": "target",
+                    "line": 2,
+                    "argCount": 0
+                  }]
+                }]
+                """);
+
+        IndexedCodebase indexed = IndexedCodebase.tryLoad(
+                tempDir, List.of(sourceFile));
+
+        assertNotNull(indexed);
+        assertTrue(indexed.hasCallEdges());
+        assertFalse(indexed.getEntries().getFirst().contentHash().isEmpty());
+    }
 }

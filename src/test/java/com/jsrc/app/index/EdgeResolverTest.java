@@ -423,6 +423,59 @@ class EdgeResolverTest {
     }
 
     @Test
+    void siblingBlocksResolveNearestVariableTypes() throws IOException {
+        Path file = writeFile("Caller.java", """
+                class Alpha { void ping() {} }
+                class Beta { void ping() {} }
+                class Caller {
+                    void work() {
+                        { Alpha target = new Alpha(); target.ping(); }
+                        { Beta target = new Beta(); target.ping(); }
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        List<String> calleeClasses = resolver.extractCallEdges(file, new JavaParser()).stream()
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .sorted(java.util.Comparator.comparingInt(CallEdge::line))
+                .map(CallEdge::calleeClass)
+                .toList();
+
+        assertEquals(List.of("Alpha", "Beta"), calleeClasses);
+    }
+
+    @Test
+    void siblingLambdasResolveOwnVariableTypes() throws IOException {
+        Path file = writeFile("Caller.java", """
+                class Alpha { void ping() {} }
+                class Beta { void ping() {} }
+                class Caller {
+                    void work() {
+                        Runnable first = () -> {
+                            Alpha target = new Alpha();
+                            target.ping();
+                        };
+                        Runnable second = () -> {
+                            Beta target = new Beta();
+                            target.ping();
+                        };
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        java.util.Map<String, String> calleesByLambda = resolver
+                .extractCallEdges(file, new JavaParser()).stream()
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .collect(java.util.stream.Collectors.toMap(
+                        CallEdge::callerMethod, CallEdge::calleeClass));
+
+        assertEquals("Alpha", calleesByLambda.get("work$lambda$1"));
+        assertEquals("Beta", calleesByLambda.get("work$lambda$2"));
+    }
+
+    @Test
     void extractCallEdgesIncludesRecordAndEnumMethods() throws IOException {
         Path file = writeFile("Types.java", """
                 package app;

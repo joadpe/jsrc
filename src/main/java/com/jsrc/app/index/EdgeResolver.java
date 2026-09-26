@@ -255,6 +255,7 @@ public class EdgeResolver {
             localTypes.put(param.getNameAsString(), pType);
         }
         for (VariableDeclarator var : callable.findAll(VariableDeclarator.class)) {
+            if (!belongsToOwner(var, callable)) continue;
             var parent = var.getParentNode().orElse(null);
             if (parent != null && !(parent instanceof FieldDeclaration)) {
                 String vType = var.getTypeAsString();
@@ -265,7 +266,9 @@ public class EdgeResolver {
             }
         }
         for (MethodCallExpr call : callable.findAll(MethodCallExpr.class)) {
-            if (call.findAncestor(com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
+            if (!belongsToOwner(call, callable)
+                    || call.findAncestor(
+                            com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
                 continue;
             }
             String calleeMethod = call.getNameAsString();
@@ -319,8 +322,9 @@ public class EdgeResolver {
         extractMethodReferenceEdges(edges, callable, className, callerMethod,
                 callerParameterTypes, fieldTypes, localTypes, declaredTypes);
         for (ObjectCreationExpr newExpr : callable.findAll(ObjectCreationExpr.class)) {
-            if (newExpr.findAncestor(
-                    com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
+            if (!belongsToOwner(newExpr, callable)
+                    || newExpr.findAncestor(
+                            com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
                 continue;
             }
             addObjectCreationEdge(edges, newExpr, className, callerMethod,
@@ -340,6 +344,7 @@ public class EdgeResolver {
         int ordinal = 0;
         for (com.github.javaparser.ast.expr.LambdaExpr lambda
                 : callable.findAll(com.github.javaparser.ast.expr.LambdaExpr.class)) {
+            if (!belongsToOwner(lambda, callable)) continue;
             ordinal++;
             String syntheticName = callerMethod + "$lambda$" + ordinal;
             List<String> parameterTypes = lambdaParameterTypes(lambda, declaredTypes);
@@ -359,9 +364,7 @@ public class EdgeResolver {
             }
 
             for (MethodCallExpr call : lambda.findAll(MethodCallExpr.class)) {
-                var nearestLambda = call.findAncestor(
-                        com.github.javaparser.ast.expr.LambdaExpr.class);
-                if (nearestLambda.isEmpty() || nearestLambda.get() != lambda) continue;
+                if (!belongsToLambda(call, lambda)) continue;
 
                 String calleeClass = resolveCalleeClass(
                         call, className, fieldTypes, lambdaTypes);
@@ -402,9 +405,44 @@ public class EdgeResolver {
     private static boolean belongsToLambda(
             com.github.javaparser.ast.Node node,
             com.github.javaparser.ast.expr.LambdaExpr lambda) {
-        return node.findAncestor(com.github.javaparser.ast.expr.LambdaExpr.class)
+        return belongsToOwner(node, lambda)
+                && node.findAncestor(com.github.javaparser.ast.expr.LambdaExpr.class)
                 .filter(lambda::equals)
                 .isPresent();
+    }
+
+    private static boolean belongsToOwner(
+            com.github.javaparser.ast.Node node,
+            com.github.javaparser.ast.Node owner) {
+        com.github.javaparser.ast.Node expectedCallable =
+                owner instanceof com.github.javaparser.ast.body.CallableDeclaration<?> callable
+                        ? callable
+                        : owner.findAncestor(
+                                com.github.javaparser.ast.body.CallableDeclaration.class)
+                                .orElse(null);
+        if (node.findAncestor(com.github.javaparser.ast.body.CallableDeclaration.class)
+                .orElse(null) != expectedCallable) {
+            return false;
+        }
+
+        com.github.javaparser.ast.Node expectedType = owner.findAncestor(
+                com.github.javaparser.ast.body.TypeDeclaration.class).orElse(null);
+        if (node.findAncestor(com.github.javaparser.ast.body.TypeDeclaration.class)
+                .orElse(null) != expectedType) {
+            return false;
+        }
+
+        com.github.javaparser.ast.Node ancestor = node.getParentNode().orElse(null);
+        while (ancestor != null && ancestor != owner) {
+            if (ancestor instanceof com.github.javaparser.ast.body.BodyDeclaration<?> declaration
+                    && declaration.getParentNode().orElse(null)
+                    instanceof ObjectCreationExpr anonymousCreation
+                    && anonymousCreation.getAnonymousClassBody().isPresent()) {
+                return false;
+            }
+            ancestor = ancestor.getParentNode().orElse(null);
+        }
+        return ancestor == owner;
     }
 
     private static List<String> lambdaParameterTypes(
@@ -451,8 +489,9 @@ public class EdgeResolver {
             Map<String, String> declaredTypes) {
         for (com.github.javaparser.ast.expr.MethodReferenceExpr reference
                 : callable.findAll(com.github.javaparser.ast.expr.MethodReferenceExpr.class)) {
-            if (reference.findAncestor(
-                    com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
+            if (!belongsToOwner(reference, callable)
+                    || reference.findAncestor(
+                            com.github.javaparser.ast.expr.LambdaExpr.class).isPresent()) {
                 continue;
             }
             addMethodReferenceEdge(edges, reference, className, callerMethod,

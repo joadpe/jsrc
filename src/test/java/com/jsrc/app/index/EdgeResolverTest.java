@@ -156,6 +156,200 @@ class EdgeResolverTest {
     }
 
     @Test
+    void localClassObjectCreationBelongsOnlyToLocalConstructor() throws IOException {
+        Path file = writeFile("Outer.java", """
+                class Made {}
+                class Outer {
+                    void work() {
+                        class Local {
+                            Local() { new Made(); }
+                        }
+                        new Local();
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        List<CallEdge> madeEdges = resolver.extractCallEdges(file, new JavaParser())
+                .stream()
+                .filter(edge -> edge.calleeMethod().equals("Made"))
+                .toList();
+
+        assertTrue(madeEdges.size() == 1 && madeEdges.getFirst().callerMethod().equals("Local"),
+                () -> "Expected only Local.Local -> Made.Made but got " + madeEdges);
+    }
+
+    @Test
+    void localClassConstructorReferenceBelongsOnlyToLocalConstructor() throws IOException {
+        Path file = writeFile("Outer.java", """
+                class Made {}
+                class Outer {
+                    void work() {
+                        class Local {
+                            Local() {
+                                java.util.function.Supplier<Made> factory = Made::new;
+                            }
+                        }
+                        new Local();
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        List<CallEdge> madeEdges = resolver.extractCallEdges(file, new JavaParser())
+                .stream()
+                .filter(edge -> edge.calleeMethod().equals("Made"))
+                .toList();
+
+        assertTrue(madeEdges.size() == 1 && madeEdges.getFirst().callerMethod().equals("Local"),
+                () -> "Expected only Local.Local -> Made::new but got " + madeEdges);
+    }
+
+    @Test
+    void anonymousClassObjectCreationIsNotAttributedToEnclosingMethod() throws IOException {
+        Path file = writeFile("Outer.java", """
+                class Made {}
+                class Outer {
+                    void work() {
+                        Runnable task = new Runnable() {
+                            public void run() { new Made(); }
+                        };
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        List<CallEdge> outerEdges = resolver.extractCallEdges(file, new JavaParser())
+                .stream()
+                .filter(edge -> edge.callerMethod().equals("work"))
+                .toList();
+
+        assertTrue(outerEdges.stream().noneMatch(edge -> edge.calleeMethod().equals("Made")),
+                () -> "Anonymous body edge leaked into Outer.work: " + outerEdges);
+    }
+
+    @Test
+    void anonymousClassConstructorReferenceIsNotAttributedToEnclosingMethod() throws IOException {
+        Path file = writeFile("Outer.java", """
+                class Made {}
+                class Outer {
+                    void work() {
+                        Runnable task = new Runnable() {
+                            java.util.function.Supplier<Made> factory = Made::new;
+                            public void run() {}
+                        };
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        List<CallEdge> outerEdges = resolver.extractCallEdges(file, new JavaParser())
+                .stream()
+                .filter(edge -> edge.callerMethod().equals("work"))
+                .toList();
+
+        assertTrue(outerEdges.stream().noneMatch(edge -> edge.calleeMethod().equals("Made")),
+                () -> "Anonymous body reference leaked into Outer.work: " + outerEdges);
+    }
+
+    @Test
+    void localClassMethodCallBelongsOnlyToLocalMethod() throws IOException {
+        Path file = writeFile("Outer.java", """
+                class Service { void ping() {} }
+                class Outer {
+                    void work() {
+                        class Local {
+                            void run(Service service) { service.ping(); }
+                        }
+                        new Local().run(new Service());
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        List<CallEdge> pingEdges = resolver.extractCallEdges(file, new JavaParser())
+                .stream()
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .toList();
+
+        assertTrue(pingEdges.size() == 1 && pingEdges.getFirst().callerMethod().equals("run"),
+                () -> "Expected only Local.run -> Service.ping but got " + pingEdges);
+    }
+
+    @Test
+    void anonymousClassMethodCallIsNotAttributedToEnclosingMethod() throws IOException {
+        Path file = writeFile("Outer.java", """
+                class Service { void ping() {} }
+                class Outer {
+                    void work(Service service) {
+                        Runnable task = new Runnable() {
+                            public void run() { service.ping(); }
+                        };
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        List<CallEdge> outerEdges = resolver.extractCallEdges(file, new JavaParser())
+                .stream()
+                .filter(edge -> edge.callerMethod().equals("work"))
+                .toList();
+
+        assertTrue(outerEdges.stream().noneMatch(edge -> edge.calleeMethod().equals("ping")),
+                () -> "Anonymous body call leaked into Outer.work: " + outerEdges);
+    }
+
+    @Test
+    void localClassLambdaBelongsOnlyToLocalMethod() throws IOException {
+        Path file = writeFile("Outer.java", """
+                class Made {}
+                class Outer {
+                    void work() {
+                        class Local {
+                            void run() { Runnable task = () -> new Made(); }
+                        }
+                        new Local().run();
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        List<CallEdge> madeEdges = resolver.extractCallEdges(file, new JavaParser())
+                .stream()
+                .filter(edge -> edge.calleeMethod().equals("Made"))
+                .toList();
+
+        assertTrue(madeEdges.size() == 1
+                        && madeEdges.getFirst().callerMethod().equals("run$lambda$1"),
+                () -> "Expected only Local.run$lambda$1 -> Made.Made but got " + madeEdges);
+    }
+
+    @Test
+    void anonymousClassLambdaIsNotAttributedToEnclosingMethod() throws IOException {
+        Path file = writeFile("Outer.java", """
+                class Made {}
+                class Outer {
+                    void work() {
+                        Runnable task = new Runnable() {
+                            public void run() {
+                                Runnable nested = () -> new Made();
+                            }
+                        };
+                    }
+                }
+                """);
+        var resolver = new EdgeResolver();
+
+        List<CallEdge> outerEdges = resolver.extractCallEdges(file, new JavaParser())
+                .stream()
+                .filter(edge -> edge.callerMethod().startsWith("work"))
+                .toList();
+
+        assertTrue(outerEdges.stream().noneMatch(edge -> edge.calleeMethod().equals("Made")),
+                () -> "Anonymous body lambda leaked into Outer.work: " + outerEdges);
+    }
+
+    @Test
     void extractCallEdgesIncludesRecordAndEnumMethods() throws IOException {
         Path file = writeFile("Types.java", """
                 package app;

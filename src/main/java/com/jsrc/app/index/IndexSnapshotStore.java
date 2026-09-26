@@ -69,6 +69,8 @@ final class IndexSnapshotStore {
                 return BinaryIndexV2Reader.readLazy(currentBinary(projectRoot, checkGitTree));
             } catch (IOException ex) {
                 lastFailure = ex;
+            } catch (RuntimeException ex) {
+                lastFailure = new IOException("Invalid binary index structure", ex);
             }
         }
         throw lastFailure;

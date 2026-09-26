@@ -174,6 +174,51 @@ class IndexSnapshotStoreTest {
     }
 
     @Test
+    void publicationWaitsForAnotherJvmWriter(@TempDir Path projectRoot) throws Exception {
+        Path indexDir = projectRoot.resolve(".jsrc");
+        Files.createDirectories(indexDir);
+        Path java = Path.of(System.getProperty("java.home"), "bin", "java");
+        Process holder = new ProcessBuilder(java.toString(), "-cp",
+                System.getProperty("java.class.path"), LockHolder.class.getName(),
+                indexDir.resolve("index.lock").toString())
+                .redirectErrorStream(true).start();
+        try (var output = new java.io.BufferedReader(
+                new java.io.InputStreamReader(holder.getInputStream()));
+             var executor = Executors.newSingleThreadExecutor()) {
+            assertEquals("LOCKED", output.readLine());
+            var entry = new IndexEntry("A.java", "hash", 0L, SourceSet.UNKNOWN,
+                    List.of(), List.of(), List.of(), 0);
+            var publication = executor.submit(() -> {
+                new CodebaseIndex(List.of(entry)).saveWithGraph(projectRoot, null);
+                return null;
+            });
+            assertThrows(TimeoutException.class,
+                    () -> publication.get(250, TimeUnit.MILLISECONDS));
+            holder.getOutputStream().close();
+            assertTrue(holder.waitFor(5, TimeUnit.SECONDS));
+            assertEquals(0, holder.exitValue());
+            publication.get(5, TimeUnit.SECONDS);
+        } finally {
+            holder.destroyForcibly();
+        }
+        assertTrue(Files.isRegularFile(indexDir.resolve("current")));
+    }
+
+    public static final class LockHolder {
+        private LockHolder() {
+        }
+
+        public static void main(String[] args) throws Exception {
+            try (var channel = FileChannel.open(Path.of(args[0]),
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                 var lock = channel.lock()) {
+                System.out.println("LOCKED");
+                System.in.read();
+            }
+        }
+    }
+
+    @Test
     void normalLoadRebuildsCorruptPublishedGeneration(@TempDir Path projectRoot) throws Exception {
         Path source = projectRoot.resolve("A.java");
         Files.writeString(source, "class A {}");
@@ -263,6 +308,25 @@ class IndexSnapshotStoreTest {
         try (var generations = Files.list(projectRoot.resolve(".jsrc/generations"))) {
             assertEquals(2, generations.filter(path -> path.toString().endsWith(".bin")).count());
         }
+    }
+
+    @Test
+    void mappedReaderKeepsItsGenerationAcrossPublicationAndGc(@TempDir Path projectRoot)
+            throws Exception {
+        var graph = com.jsrc.app.analysis.CallGraph.empty();
+        var oldEntry = new IndexEntry("Old.java", "hash", 0L, SourceSet.UNKNOWN,
+                List.of(), List.of(), List.of(), 0);
+        new CodebaseIndex(List.of(oldEntry)).saveWithGraph(projectRoot, graph);
+        var oldReader = IndexSnapshotStore.readCurrent(projectRoot, false);
+        var newEntry = new IndexEntry("New.java", "hash", 0L, SourceSet.UNKNOWN,
+                List.of(), List.of(), List.of(), 0);
+
+        new CodebaseIndex(List.of(newEntry)).saveWithGraph(projectRoot, graph);
+        new CodebaseIndex(List.of(newEntry)).saveWithGraph(projectRoot, graph);
+
+        assertEquals("Old.java", oldReader.getData().entries().getFirst().path());
+        assertNotNull(oldReader.ensureGraph());
+        assertEquals("New.java", CodebaseIndex.loadPublished(projectRoot).getFirst().path());
     }
 
     @Test

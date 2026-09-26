@@ -28,9 +28,9 @@ class BinaryIndexV2RoundtripTest {
         var allMethods = new HashSet<MethodReference>();
         var methodsByName = new HashMap<String, Set<MethodReference>>();
 
-        var fooBar = new MethodReference("Foo", "bar", 1, null);
-        var bazQux = new MethodReference("Baz", "qux", 2, null);
-        var mainMethod = new MethodReference("App", "main", 1, null);
+        var fooBar = new MethodReference("Foo", "bar", List.of("int"), null);
+        var bazQux = new MethodReference("Baz", "qux", List.of("String", "int"), null);
+        var mainMethod = new MethodReference("App", "main", List.of("String[]"), null);
 
         allMethods.addAll(List.of(fooBar, bazQux, mainMethod));
         methodsByName.put("bar", Set.of(fooBar));
@@ -38,7 +38,13 @@ class BinaryIndexV2RoundtripTest {
         methodsByName.put("main", Set.of(mainMethod));
 
         // main calls bar, bar calls qux
-        var call1 = new MethodCall(mainMethod, fooBar, 10);
+        var call1 = new MethodCall(
+                mainMethod,
+                fooBar,
+                10,
+                com.jsrc.app.model.InvocationKind.INTERFACE,
+                com.jsrc.app.model.ResolutionLevel.INFERRED,
+                List.of("CHA_IMPLEMENTATION"));
         var call2 = new MethodCall(fooBar, bazQux, 25);
 
         callerIndex.put(fooBar, Set.of(call1));      // fooBar is called by main
@@ -53,9 +59,15 @@ class BinaryIndexV2RoundtripTest {
                 new IndexEntry("Foo.java", "abc123", 1000L,
                         List.of(new IndexedClass("Foo", "com.example", 1, 50,
                                 false, false, List.of(), List.of(), List.of(
-                                new IndexedMethod("bar", "void bar(int x)", 10, 20, "void", List.of(), (short) 2, (byte) 1)
+                                new IndexedMethod("bar", "void bar(int x)", 10, 20,
+                                        "void", List.of(), List.of("T extends Number"),
+                                        (short) 2, (byte) 1)
                         ), List.of(), List.of(), List.of())),
-                        List.of(new CallEdge("Foo", "bar", 1, "Baz", "qux", 2, 25)),
+                        List.of(new CallEdge("Foo", "bar", List.of("int"), 1,
+                                "Baz", "qux", List.of("String", "int"), 25, 2,
+                                com.jsrc.app.model.InvocationKind.VIRTUAL,
+                                com.jsrc.app.model.ResolutionLevel.EXACT,
+                                List.of("SYMBOL_RESOLVER"))),
                         List.of()),
                 new IndexEntry("App.java", "def456", 2000L,
                         List.of(new IndexedClass("App", "com.example", 1, 30,
@@ -86,10 +98,18 @@ class BinaryIndexV2RoundtripTest {
         assertEquals("Foo", result.entries().get(0).classes().get(0).name());
         assertEquals(1, result.entries().get(0).classes().get(0).methods().size());
         assertEquals("bar", result.entries().get(0).classes().get(0).methods().get(0).name());
+        assertEquals(List.of("T extends Number"),
+                result.entries().get(0).classes().get(0).methods().get(0).typeParameters());
 
         // Verify edges preserved
         assertEquals(1, result.entries().get(0).callEdges().size());
-        assertEquals("Baz", result.entries().get(0).callEdges().get(0).calleeClass());
+        CallEdge loadedEdge = result.entries().get(0).callEdges().get(0);
+        assertEquals("Baz", loadedEdge.calleeClass());
+        assertEquals(List.of("int"), loadedEdge.callerParameterTypes());
+        assertEquals(List.of("String", "int"), loadedEdge.calleeParameterTypes());
+        assertEquals(com.jsrc.app.model.InvocationKind.VIRTUAL, loadedEdge.invocationKind());
+        assertEquals(com.jsrc.app.model.ResolutionLevel.EXACT, loadedEdge.resolutionLevel());
+        assertEquals(List.of("SYMBOL_RESOLVER"), loadedEdge.evidence());
 
         // Verify smells preserved
         assertEquals(1, result.entries().get(1).smells().size());
@@ -104,20 +124,28 @@ class BinaryIndexV2RoundtripTest {
                 "Should have same number of methods");
 
         // Verify callers of fooBar — MUST find main as caller
-        var fooBarLoaded = new MethodReference("Foo", "bar", 1, null);
+        var fooBarLoaded = new MethodReference("Foo", "bar", List.of("int"), null);
         Set<MethodCall> fooBarCallers = loaded.getCallersOf(fooBarLoaded);
         assertEquals(1, fooBarCallers.size(),
                 "Foo.bar should have 1 caller (main). This tests MethodReference equals/hashCode roundtrip.");
         assertEquals("App", fooBarCallers.iterator().next().caller().className());
+        assertEquals(com.jsrc.app.model.InvocationKind.INTERFACE,
+                fooBarCallers.iterator().next().invocationKind());
+        assertEquals(com.jsrc.app.model.ResolutionLevel.INFERRED,
+                fooBarCallers.iterator().next().resolutionLevel());
+        assertEquals(List.of("CHA_IMPLEMENTATION"),
+                fooBarCallers.iterator().next().evidence());
 
         // Verify callers of bazQux — MUST find fooBar as caller
-        var bazQuxLoaded = new MethodReference("Baz", "qux", 2, null);
+        var bazQuxLoaded = new MethodReference(
+                "Baz", "qux", List.of("String", "int"), null);
         Set<MethodCall> bazQuxCallers = loaded.getCallersOf(bazQuxLoaded);
         assertEquals(1, bazQuxCallers.size(), "Baz.qux should have 1 caller (Foo.bar)");
         assertEquals("Foo", bazQuxCallers.iterator().next().caller().className());
 
         // Verify callees of main — MUST find fooBar
-        var mainLoaded = new MethodReference("App", "main", 1, null);
+        var mainLoaded = new MethodReference(
+                "App", "main", List.of("String[]"), null);
         Set<MethodCall> mainCallees = loaded.getCalleesOf(mainLoaded);
         assertEquals(1, mainCallees.size(), "App.main should call 1 method (Foo.bar)");
         assertEquals("Foo", mainCallees.iterator().next().callee().className());
@@ -129,6 +157,36 @@ class BinaryIndexV2RoundtripTest {
         // Verify isRoot
         assertTrue(loaded.isRoot(mainLoaded), "main should be a root (nobody calls it)");
         assertFalse(loaded.isRoot(fooBarLoaded), "Foo.bar should NOT be a root (main calls it)");
+    }
+
+    @Test
+    void roundtripPreservesCalleesOutsideProjectDeclarations(@TempDir Path tempDir)
+            throws Exception {
+        var caller = new MethodReference("app.Reader", "read", List.of(), null);
+        var externalCallee = new MethodReference(
+                "java.nio.file.Files", "readString", List.of("Path"), null);
+        var call = new MethodCall(
+                caller,
+                externalCallee,
+                12,
+                com.jsrc.app.model.InvocationKind.METHOD_REFERENCE,
+                com.jsrc.app.model.ResolutionLevel.EXACT,
+                List.of(
+                        "TYPE_SCOPED_METHOD_REFERENCE",
+                        "UNBOUND_INSTANCE_METHOD_REFERENCE"));
+        CallGraph graph = CallGraph.of(
+                Map.of(externalCallee, Set.of(call)),
+                Map.of(caller, Set.of(call)),
+                Set.of(caller),
+                Map.of("read", Set.of(caller)));
+        Path indexFile = tempDir.resolve("index.bin");
+
+        BinaryIndexV2Writer.write(indexFile, List.of(), graph);
+        CallGraph loaded = BinaryIndexV2Reader.read(indexFile).callGraph();
+
+        assertTrue(loaded.getAllMethods().contains(externalCallee));
+        assertEquals(Set.of(call), loaded.getCalleesOf(caller));
+        assertEquals(Set.of(call), loaded.getCallersOf(externalCallee));
     }
 
     @Test

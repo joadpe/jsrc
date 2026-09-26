@@ -64,29 +64,35 @@ public class CallGraphBuilder {
      * </ol>
      */
     public void build(List<Path> javaFiles) {
-        callerIndex.clear();
-        calleeIndex.clear();
-        allMethods.clear();
-        methodsByName.clear();
-
-        Map<String, ClassContext> classContexts = new HashMap<>();
-
-        for (Path file : javaFiles) {
-            CompilationUnit cu = parseFile(file);
-            if (cu == null) continue;
-            registerClasses(cu, file, classContexts);
-        }
-        for (Path file : javaFiles) {
-            CompilationUnit cu = parseFile(file);
-            if (cu == null) continue;
-            analyzeMethodCalls(cu, file, classContexts);
+        if (javaFiles.isEmpty()) {
+            callerIndex.clear();
+            calleeIndex.clear();
+            allMethods.clear();
+            methodsByName.clear();
+            return;
         }
 
-        resolveUnknownCallees(semanticMetadata(classContexts.values()));
-        canonicalizeRegisteredEdges();
+        List<Path> normalizedFiles = javaFiles.stream()
+                .map(path -> path.toAbsolutePath().normalize())
+                .toList();
+        Path sourceRoot = commonSourceRoot(normalizedFiles);
+        var index = new com.jsrc.app.index.CodebaseIndex();
+        index.build(
+                new com.jsrc.app.parser.HybridJavaParser(),
+                normalizedFiles,
+                sourceRoot,
+                List.of());
+        loadFromIndex(index.getEntries());
+    }
 
-        logger.info("Call graph built: {} methods, {} call edges",
-                allMethods.size(), callerIndex.values().stream().mapToInt(Set::size).sum());
+    private static Path commonSourceRoot(List<Path> files) {
+        Path common = files.getFirst().getParent();
+        for (Path file : files) {
+            while (common != null && !file.startsWith(common)) {
+                common = common.getParent();
+            }
+        }
+        return common == null ? Path.of("").toAbsolutePath().normalize() : common;
     }
 
     /**
@@ -99,8 +105,9 @@ public class CallGraphBuilder {
         allMethods.clear();
         methodsByName.clear();
 
+        // Register every method before resolving any persisted edge. Index entry order
+        // must not affect whether a typed callee can be canonicalized.
         for (var entry : entries) {
-            // Register methods from classes
             for (var ic : entry.classes()) {
                 for (var im : ic.methods()) {
                     var parameterTypes = com.jsrc.app.util.SignatureUtils
@@ -111,8 +118,9 @@ public class CallGraphBuilder {
                     methodsByName.computeIfAbsent(im.name(), k -> new HashSet<>()).add(ref);
                 }
             }
+        }
 
-            // Load call edges
+        for (var entry : entries) {
             for (var edge : entry.callEdges()) {
                 MethodReference caller = edge.callerParameterTypes().size() == edge.callerParamCount()
                         ? new MethodReference(edge.callerClass(), edge.callerMethod(),
@@ -126,13 +134,15 @@ public class CallGraphBuilder {
                                 edge.calleeParameterTypes(), null))
                         : resolveRegistered(
                                 edge.calleeClass(), edge.calleeMethod(), edge.argCount());
-                MethodCall call = new MethodCall(caller, callee, edge.line());
+                MethodCall call = new MethodCall(
+                        caller,
+                        callee,
+                        edge.line(),
+                        edge.invocationKind(),
+                        edge.resolutionLevel(),
+                        edge.evidence());
 
-                allMethods.add(caller);
-                methodsByName.computeIfAbsent(edge.callerMethod(), k -> new HashSet<>()).add(caller);
-
-                calleeIndex.computeIfAbsent(caller, k -> new HashSet<>()).add(call);
-                callerIndex.computeIfAbsent(callee, k -> new HashSet<>()).add(call);
+                addEdge(call);
             }
         }
 
@@ -479,7 +489,13 @@ public class CallGraphBuilder {
             for (MethodCall call : calls) {
                 MethodReference caller = resolveRegistered(call.caller());
                 MethodReference callee = resolveRegistered(call.callee());
-                MethodCall canonicalCall = new MethodCall(caller, callee, call.line());
+                MethodCall canonicalCall = new MethodCall(
+                        caller,
+                        callee,
+                        call.line(),
+                        call.invocationKind(),
+                        call.resolutionLevel(),
+                        call.evidence());
                 canonicalCalleeIndex.computeIfAbsent(caller, ignored -> new HashSet<>())
                         .add(canonicalCall);
                 canonicalCallerIndex.computeIfAbsent(callee, ignored -> new HashSet<>())
@@ -969,6 +985,7 @@ public class CallGraphBuilder {
                         .toList();
                 if (candidates.size() == 1) return candidates.getFirst();
             }
+            return reference;
         }
         return resolveRegistered(reference.className(), reference.methodName(),
                 reference.parameterCount());

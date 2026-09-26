@@ -91,12 +91,21 @@ class OutputFormatterTest {
             OutputFormatter fmt = new JsonFormatter();
             MethodReference app = new MethodReference("App", "main", 0, null);
             MethodReference svc = new MethodReference("Service", "process", 1, null);
-            CallChain chain = new CallChain(List.of(new MethodCall(app, svc, 10)));
+            CallChain chain = new CallChain(List.of(new MethodCall(
+                    app,
+                    svc,
+                    10,
+                    com.jsrc.app.model.InvocationKind.INTERFACE,
+                    com.jsrc.app.model.ResolutionLevel.INFERRED,
+                    List.of("CHA_IMPLEMENTATION"))));
             fmt.printCallChains(new com.jsrc.app.model.CallChainOutput(List.of(chain), "process"));
         });
         assertTrue(out.startsWith("["), "Call chain JSON should be an array");
         assertTrue(out.contains("\"summary\":"));
         assertTrue(out.contains("\"depth\":1"));
+        assertTrue(out.contains("\"dispatch\":\"interface\""));
+        assertTrue(out.contains("\"resolution\":\"inferred\""));
+        assertTrue(out.contains("\"evidence\":[\"CHA_IMPLEMENTATION\"]"));
     }
 
     @Test

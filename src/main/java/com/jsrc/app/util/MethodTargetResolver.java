@@ -80,10 +80,53 @@ public final class MethodTargetResolver {
                     .collect(Collectors.toSet());
         }
 
+        filtered = collapseEquivalentTargets(filtered);
+
         // Check ambiguity: multiple targets and no params specified to disambiguate
         boolean ambiguous = filtered.size() > 1;
 
         return new Result(filtered, ambiguous);
+    }
+
+    private static Set<MethodReference> collapseEquivalentTargets(
+            Set<MethodReference> targets) {
+        List<MethodReference> canonical = new java.util.ArrayList<>();
+        for (MethodReference candidate : targets) {
+            int existingIndex = -1;
+            for (int index = 0; index < canonical.size(); index++) {
+                if (sameTarget(canonical.get(index), candidate)) {
+                    existingIndex = index;
+                    break;
+                }
+            }
+            if (existingIndex < 0) {
+                canonical.add(candidate);
+            } else if (!canonical.get(existingIndex).hasKnownParameterTypes()
+                    && candidate.hasKnownParameterTypes()) {
+                canonical.set(existingIndex, candidate);
+            }
+        }
+        return new LinkedHashSet<>(canonical);
+    }
+
+    private static boolean sameTarget(MethodReference left, MethodReference right) {
+        if (!left.className().equals(right.className())
+                || !left.methodName().equals(right.methodName())) {
+            return false;
+        }
+        if (left.hasKnownParameterTypes() && right.hasKnownParameterTypes()) {
+            if (left.parameterTypes().size() != right.parameterTypes().size()) return false;
+            for (int index = 0; index < left.parameterTypes().size(); index++) {
+                if (!SignatureUtils.sameErasedType(
+                        left.parameterTypes().get(index),
+                        right.parameterTypes().get(index))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return left.parameterCount() >= 0
+                && left.parameterCount() == right.parameterCount();
     }
 
     private static boolean classMatches(String actual, String expected) {

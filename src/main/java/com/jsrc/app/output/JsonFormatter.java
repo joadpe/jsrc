@@ -430,6 +430,13 @@ public class JsonFormatter implements OutputFormatter {
         map.put("caller", refToMap(step.caller()));
         map.put("callee", refToMap(step.callee()));
         map.put("line", step.line());
+        map.put("dispatch", step.invocationKind().name()
+                .toLowerCase(java.util.Locale.ROOT));
+        map.put("resolution", step.resolutionLevel().name()
+                .toLowerCase(java.util.Locale.ROOT));
+        if (!step.evidence().isEmpty()) {
+            map.put("evidence", step.evidence());
+        }
         return map;
     }
 

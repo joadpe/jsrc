@@ -174,7 +174,10 @@ public class HybridJavaParser implements CodeParser {
                 .toList();
 
         return new ClassInfo(name, packageName, startLine, endLine,
-                modifiers, methods, "", interfaces, annotations, false, fields);
+                modifiers, methods, "", interfaces, annotations, false,
+                rd.getTypeParameters().stream()
+                        .map(parameter -> parameter.getNameAsString()).toList(),
+                fields);
     }
 
     private ClassInfo enumToClassInfo(com.github.javaparser.ast.body.EnumDeclaration ed,
@@ -341,7 +344,10 @@ public class HybridJavaParser implements CodeParser {
                 .toList();
 
         return new ClassInfo(name, packageName, startLine, endLine,
-                modifiers, methods, superClass, interfaces, annotations, isInterface, fields);
+                modifiers, methods, superClass, interfaces, annotations, isInterface,
+                cid.getTypeParameters().stream()
+                        .map(parameter -> parameter.getNameAsString()).toList(),
+                fields);
     }
 
     private AnnotationInfo toAnnotationInfo(AnnotationExpr ae) {
@@ -428,30 +434,17 @@ public class HybridJavaParser implements CodeParser {
     private String findEnclosingClassName(MethodDeclaration md) {
         Node current = md.getParentNode().orElse(null);
         while (current != null) {
-            if (current instanceof ClassOrInterfaceDeclaration
-                    || current instanceof com.github.javaparser.ast.body.RecordDeclaration
-                    || current instanceof com.github.javaparser.ast.body.EnumDeclaration) {
-                return binaryTypeName(current);
+            if (current instanceof com.github.javaparser.ast.body.TypeDeclaration<?> type) {
+                return binaryTypeName(type);
             }
             current = current.getParentNode().orElse(null);
         }
         return "";
     }
 
-    private String binaryTypeName(Node declaration) {
-        var names = new java.util.ArrayDeque<String>();
-        Node current = declaration;
-        while (current != null) {
-            if (current instanceof ClassOrInterfaceDeclaration cid) {
-                names.addFirst(cid.getNameAsString());
-            } else if (current instanceof com.github.javaparser.ast.body.RecordDeclaration rd) {
-                names.addFirst(rd.getNameAsString());
-            } else if (current instanceof com.github.javaparser.ast.body.EnumDeclaration ed) {
-                names.addFirst(ed.getNameAsString());
-            }
-            current = current.getParentNode().orElse(null);
-        }
-        return String.join("$", names);
+    private String binaryTypeName(
+            com.github.javaparser.ast.body.TypeDeclaration<?> declaration) {
+        return com.jsrc.app.util.JavaParserTypeNames.binaryName(declaration);
     }
 
     private boolean isValidPath(Path path) {

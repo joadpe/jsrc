@@ -1,5 +1,8 @@
 package com.jsrc.app.index;
 
+import com.jsrc.app.model.InvocationKind;
+import com.jsrc.app.model.ResolutionLevel;
+
 import java.util.List;
 
 /**
@@ -20,13 +23,31 @@ public record CallEdge(
         String calleeMethod,
         List<String> calleeParameterTypes,
         int line,
-        int argCount
+        int argCount,
+        InvocationKind invocationKind,
+        ResolutionLevel resolutionLevel,
+        List<String> evidence
 ) {
     public static final String UNKNOWN_PARAMETER_TYPE = "?";
 
     public CallEdge {
         callerParameterTypes = List.copyOf(callerParameterTypes);
         calleeParameterTypes = List.copyOf(calleeParameterTypes);
+        invocationKind = invocationKind == null ? InvocationKind.UNKNOWN : invocationKind;
+        resolutionLevel = resolutionLevel == null
+                ? ResolutionLevel.UNRESOLVED
+                : resolutionLevel;
+        evidence = evidence == null ? List.of() : List.copyOf(evidence);
+    }
+
+    /** Backward-compatible constructor without semantic resolution metadata. */
+    public CallEdge(String callerClass, String callerMethod,
+                    List<String> callerParameterTypes, int callerParamCount,
+                    String calleeClass, String calleeMethod,
+                    List<String> calleeParameterTypes, int line, int argCount) {
+        this(callerClass, callerMethod, callerParameterTypes, callerParamCount,
+                calleeClass, calleeMethod, calleeParameterTypes, line, argCount,
+                InvocationKind.UNKNOWN, ResolutionLevel.UNRESOLVED, List.of());
     }
 
     /** Backward-compatible constructor without callee parameter types. */

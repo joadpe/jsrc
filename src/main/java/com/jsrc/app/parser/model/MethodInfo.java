@@ -77,6 +77,9 @@ public record MethodInfo(
         if (!modifiers.isEmpty()) {
             sb.append(String.join(" ", modifiers)).append(" ");
         }
+        if (!typeParameters.isEmpty()) {
+            sb.append("<").append(String.join(", ", typeParameters)).append("> ");
+        }
         if (returnType != null && !returnType.isEmpty()) {
             sb.append(returnType).append(" ");
         }

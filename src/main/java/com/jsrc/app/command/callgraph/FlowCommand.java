@@ -34,15 +34,14 @@ public class FlowCommand implements Command {
     @Override
     public int execute(CommandContext ctx) {
         final String className;
-        final String methodName;
+        final com.jsrc.app.util.MethodResolver.MethodRef requested;
         if (target.contains(".")) {
-            int dot = target.lastIndexOf('.');
-            className = target.substring(0, dot);
-            methodName = target.substring(dot + 1);
+            requested = com.jsrc.app.util.MethodResolver.parse(target);
+            className = requested.className();
         } else {
             // Treat as class — use first public method or main
             className = target;
-            methodName = null;
+            requested = null;
         }
 
         var allClasses = ctx.getAllClasses();
@@ -51,16 +50,40 @@ public class FlowCommand implements Command {
 
         CallGraph graph = ctx.callGraph();
 
-        // Resolve method
-        String resolvedMethod = methodName;
-        if (resolvedMethod == null) {
+        com.jsrc.app.util.MethodResolver.MethodRef effectiveTarget = requested;
+        if (effectiveTarget == null) {
             // Find first public non-constructor method, prefer main
-            resolvedMethod = ci.methods().stream()
+            var selected = ci.methods().stream()
                     .filter(m -> !m.name().equals(ci.name())) // skip constructors
-                    .map(m -> m.name())
                     .findFirst().orElse(null);
-            if (resolvedMethod == null) return 0;
+            if (selected == null) return 0;
+            effectiveTarget = new com.jsrc.app.util.MethodResolver.MethodRef(
+                    ci.qualifiedName(),
+                    selected.name(),
+                    selected.parameters().stream().map(parameter -> parameter.type()).toList());
         }
+
+        var resolved = com.jsrc.app.util.MethodTargetResolver.resolve(
+                effectiveTarget, graph);
+        if (resolved.isAmbiguous()) {
+            var signatures = com.jsrc.app.util.MethodTargetResolver
+                    .buildSignatureMap(ctx.indexed());
+            var packages = com.jsrc.app.util.MethodTargetResolver
+                    .buildClassPackageMap(ctx.indexed());
+            var candidates = com.jsrc.app.util.MethodTargetResolver.buildCandidates(
+                    resolved.targets(), signatures, packages);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("ambiguous", true);
+            result.put("method", target);
+            result.put("candidates", candidates);
+            result.put("suggestions", candidates);
+            result.put("message",
+                    "Multiple methods found. Use Class.method(Type1,Type2) to disambiguate.");
+            ctx.formatter().printResult(result);
+            return Math.max(1, candidates.size());
+        }
+        if (!resolved.isResolved()) return 0;
+        MethodReference entryMethod = resolved.targets().iterator().next();
 
         // Build layer resolver if config available
         LayerResolver layerResolver = null;
@@ -75,12 +98,12 @@ public class FlowCommand implements Command {
         List<String> boundaries = new ArrayList<>();
         int[] dbQueries = {0};
 
-        traceFlow(ci.name(), resolvedMethod, graph, ctx, allClasses, layerResolver,
+        traceFlow(entryMethod, null, graph, ctx, allClasses, layerResolver,
                 flowSteps, visited, layers, boundaries, dbQueries, 0);
 
         // Build result
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("entry", ci.name() + "." + resolvedMethod);
+        result.put("entry", entryMethod.className() + "." + entryMethod.methodName());
         result.put("totalDepth", flowSteps.size());
         result.put("flow", flowSteps);
         result.put("layers", List.copyOf(layers));
@@ -101,27 +124,39 @@ public class FlowCommand implements Command {
         );
     }
 
-    private void traceFlow(String className, String methodName, CallGraph graph,
+    private void traceFlow(MethodReference method, MethodCall incomingCall,
+                            CallGraph graph,
                             CommandContext ctx, List<ClassInfo> allClasses,
                             LayerResolver layerResolver,
                             List<Map<String, Object>> flowSteps, Set<String> visited,
                             Set<String> layers, List<String> boundaries,
                             int[] dbQueries, int depth) {
         if (depth > maxDepth) return;
-        String key = className + "." + methodName;
-        if (visited.contains(key)) return;
-        visited.add(key);
+        String className = method.className();
+        String methodName = method.methodName();
+        String visitKey = className + "." + methodName
+                + "(" + String.join(",", method.parameterTypes()) + ")";
+        if (!visited.add(visitKey)) return;
+        String displayName = className + "." + methodName;
 
         // Build step
         Map<String, Object> step = new LinkedHashMap<>();
         step.put("step", flowSteps.size() + 1);
-        step.put("method", key);
+        step.put("method", displayName);
+        if (incomingCall != null) {
+            step.put("dispatch", incomingCall.invocationKind().name().toLowerCase(Locale.ROOT));
+            step.put("resolution", incomingCall.resolutionLevel().name().toLowerCase(Locale.ROOT));
+            if (!incomingCall.evidence().isEmpty()) {
+                step.put("evidence", incomingCall.evidence());
+            }
+        }
 
         // Resolve layer
         String layer = null;
         if (layerResolver != null) {
             ClassInfo ci = allClasses.stream()
-                    .filter(c -> c.name().equals(className) || c.qualifiedName().equals(className))
+                    .filter(c -> com.jsrc.app.model.TypeId.namesMatch(
+                            c.qualifiedName(), className))
                     .findFirst().orElse(null);
             if (ci != null) {
                 layer = layerResolver.resolve(ci).orElse(null);
@@ -152,24 +187,14 @@ public class FlowCommand implements Command {
         flowSteps.add(step);
 
         // Follow callees
-        Set<MethodReference> refs = graph.findMethodsByName(methodName);
-        for (MethodReference ref : refs) {
-            if (ref.className().equals(className)) {
-                Set<MethodCall> callees = graph.getCalleesOf(ref);
-                // Sort by line number for natural flow
-                var sorted = new ArrayList<>(callees);
-                sorted.sort(Comparator.comparingInt(MethodCall::line));
-
-                for (MethodCall call : sorted) {
-                    String calleeClass = call.callee().className();
-                    String calleeMethod = call.callee().methodName();
-                    // Skip self-calls and common framework methods
-                    if (!calleeClass.equals(className) || !calleeMethod.equals(methodName)) {
-                        traceFlow(calleeClass, calleeMethod, graph, ctx, allClasses,
-                                layerResolver, flowSteps, visited, layers, boundaries, dbQueries, depth + 1);
-                    }
-                }
-                break;
+        Set<MethodCall> callees = graph.getCalleesOf(method);
+        var sorted = new ArrayList<>(callees);
+        sorted.sort(Comparator.comparingInt(MethodCall::line));
+        for (MethodCall call : sorted) {
+            if (!call.callee().equals(method)) {
+                traceFlow(call.callee(), call, graph, ctx, allClasses,
+                        layerResolver, flowSteps, visited, layers, boundaries,
+                        dbQueries, depth + 1);
             }
         }
     }

@@ -115,6 +115,84 @@ class CodebaseIndexTest {
     }
 
     @Test
+    void incrementalBuildRecomputesDispatchTargetsFromDeclaredReceiver() throws IOException {
+        Path contract = writeFile("Engine.java", """
+                interface Engine { void run(); }
+                """);
+        Path initialImplementation = writeFile("BaseEngine.java", """
+                class BaseEngine implements Engine {
+                    public void run() {}
+                }
+                """);
+        Path client = writeFile("Client.java", """
+                class Client {
+                    Engine engine;
+                    void execute() { engine.run(); }
+                }
+                """);
+        var parser = new HybridJavaParser();
+        var initial = new CodebaseIndex();
+        initial.build(parser,
+                List.of(contract, initialImplementation, client), tempDir, List.of());
+
+        Path addedImplementation = writeFile("NewEngine.java", """
+                class NewEngine implements Engine {
+                    public void run() {}
+                }
+                """);
+        var added = new CodebaseIndex();
+        added.build(parser,
+                List.of(contract, initialImplementation, addedImplementation, client),
+                tempDir, initial.getEntries());
+
+        assertEquals(java.util.Set.of("BaseEngine", "NewEngine"),
+                dispatchTargets(added, "Client", "execute", "run"));
+
+        var removed = new CodebaseIndex();
+        removed.build(parser,
+                List.of(contract, addedImplementation, client),
+                tempDir, added.getEntries());
+
+        assertEquals(java.util.Set.of("NewEngine"),
+                dispatchTargets(removed, "Client", "execute", "run"));
+    }
+
+    @Test
+    void noOpIncrementalBuildPreservesResolvedEdges() throws IOException {
+        Path contract = writeFile("Engine.java", """
+                interface Engine { void run(); }
+                """);
+        Path implementation = writeFile("BaseEngine.java", """
+                class BaseEngine implements Engine {
+                    public void run() {}
+                }
+                """);
+        Path client = writeFile("Client.java", """
+                class Client {
+                    Engine engine;
+                    void execute() { engine.run(); }
+                }
+                """);
+        List<Path> files = List.of(contract, implementation, client);
+        var parser = new HybridJavaParser();
+        var initial = new CodebaseIndex();
+        initial.build(parser, files, tempDir, List.of());
+        List<CallEdge> initialEdges = initial.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .toList();
+
+        var unchanged = new CodebaseIndex();
+        int reindexed = unchanged.build(parser, files, tempDir, initial.getEntries());
+        List<CallEdge> unchangedEdges = unchanged.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .toList();
+
+        assertEquals(0, reindexed);
+        assertEquals(initialEdges, unchangedEdges,
+                "A no-op refresh must preserve targets, resolution, and evidence");
+    }
+
+    @Test
     @DisplayName("Incremental: should reindex unchanged entries with legacy call edges")
     void shouldReindexLegacyCallEdges() throws IOException {
         Path javaFile = writeFile("Legacy.java", """
@@ -144,6 +222,114 @@ class CodebaseIndexTest {
                 rebuilt.getEntries().getFirst().callEdges().getFirst().callerParameterTypes());
         assertEquals(List.of("String"),
                 rebuilt.getEntries().getFirst().callEdges().getFirst().calleeParameterTypes());
+    }
+
+    @Test
+    void shouldReindexJsonWithoutCurrentCallEdgeSchema() throws IOException {
+        Path javaFile = writeFile("Legacy.java", """
+                public class Legacy {
+                    public void call() { target(); }
+                    private void target() {}
+                }
+                """);
+        String contentHash = com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(javaFile));
+        Files.createDirectories(tempDir.resolve(".jsrc"));
+        Files.writeString(tempDir.resolve(".jsrc/index.json"), """
+                [{
+                  "path": "Legacy.java",
+                  "contentHash": "%s",
+                  "lastModified": 0,
+                  "classes": [],
+                  "callEdges": [{
+                    "callerClass": "Legacy",
+                    "callerMethod": "call",
+                    "callerParameterTypes": [],
+                    "callerParamCount": 0,
+                    "calleeClass": "Legacy",
+                    "calleeMethod": "target",
+                    "calleeParameterTypes": [],
+                    "line": 2,
+                    "argCount": 0,
+                    "invocationKind": "UNKNOWN",
+                    "resolutionLevel": "UNRESOLVED",
+                    "evidence": []
+                  }]
+                }]
+                """.formatted(contentHash));
+
+        List<IndexEntry> legacy = CodebaseIndex.load(tempDir);
+        var rebuilt = new CodebaseIndex();
+        int reindexed = rebuilt.build(
+                new HybridJavaParser(), List.of(javaFile), tempDir, legacy);
+
+        assertEquals(1, reindexed);
+        assertTrue(rebuilt.getEntries().getFirst().callEdges().stream().anyMatch(edge ->
+                edge.calleeMethod().equals("target")
+                        && edge.resolutionLevel()
+                        == com.jsrc.app.model.ResolutionLevel.EXACT));
+    }
+
+    @Test
+    void localClassIdentityMatchesEdgesSyntheticMethodsAndBinaryRoundtrip() throws Exception {
+        Path javaFile = writeFile("Owners.java", """
+                package app;
+                class Service { void ping() {} }
+                class First {
+                    void create() {
+                        class Local {
+                            void run(Service service) {
+                                Runnable task = () -> service.ping();
+                            }
+                        }
+                    }
+                }
+                class Second {
+                    void create() {
+                        class Local {
+                            void run(Service service) {
+                                Runnable task = () -> service.ping();
+                            }
+                        }
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new HybridJavaParser(), List.of(javaFile), tempDir, List.of());
+
+        java.util.Set<String> localClasses = index.getEntries().stream()
+                .flatMap(entry -> entry.classes().stream())
+                .map(IndexedClass::qualifiedName)
+                .filter(name -> name.contains("$Local$"))
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(java.util.Set.of(
+                "app.First$create$1$Local$1",
+                "app.Second$create$1$Local$1"), localClasses);
+        assertTrue(index.getEntries().stream()
+                .flatMap(entry -> entry.classes().stream())
+                .filter(indexedClass -> localClasses.contains(indexedClass.qualifiedName()))
+                .allMatch(indexedClass -> indexedClass.methods().stream()
+                        .anyMatch(method -> method.name().equals("run$lambda$1"))));
+
+        java.util.Set<String> callerClasses = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(localClasses, callerClasses);
+
+        var graphBuilder = new com.jsrc.app.analysis.CallGraphBuilder();
+        graphBuilder.loadFromIndex(index.getEntries());
+        Path binary = tempDir.resolve("local-owners.bin");
+        BinaryIndexV2Writer.write(
+                binary, index.getEntries(), graphBuilder.toCallGraph());
+        var loaded = BinaryIndexV2Reader.read(binary);
+        java.util.Set<String> loadedCallers = loaded.entries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(localClasses, loadedCallers);
     }
 
     @Test
@@ -183,10 +369,179 @@ class CodebaseIndexTest {
         assertTrue(loaded.isEmpty());
     }
 
+    @Test
+    void nestedAnonymousOwnersRemainDistinctAfterBinaryRoundtrip() throws Exception {
+        Path javaFile = writeFile("NestedOwners.java", """
+                package app;
+                class Service {
+                    void first() {}
+                    void second() {}
+                }
+                class NestedOwners {
+                    void build(Service service) {
+                        Runnable first = new Runnable() {
+                            public void run() {
+                                Runnable nested = new Runnable() {
+                                    public void run() { service.first(); }
+                                };
+                            }
+                        };
+                        Runnable second = new Runnable() {
+                            public void run() {
+                                Runnable nested = new Runnable() {
+                                    public void run() { service.second(); }
+                                };
+                            }
+                        };
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new HybridJavaParser(), List.of(javaFile), tempDir, List.of());
+
+        java.util.Set<String> callerOwners = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> java.util.Set.of("first", "second")
+                        .contains(edge.calleeMethod()))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(2, callerOwners.size(), () -> "Colliding owners: " + callerOwners);
+        java.util.Set<String> indexedOwners = index.getEntries().stream()
+                .flatMap(entry -> entry.classes().stream())
+                .map(IndexedClass::qualifiedName)
+                .collect(java.util.stream.Collectors.toSet());
+        assertTrue(indexedOwners.containsAll(callerOwners));
+
+        var graphBuilder = new com.jsrc.app.analysis.CallGraphBuilder();
+        graphBuilder.loadFromIndex(index.getEntries());
+        Path binary = tempDir.resolve("nested-anonymous-owners.bin");
+        BinaryIndexV2Writer.write(
+                binary, index.getEntries(), graphBuilder.toCallGraph());
+        var loaded = BinaryIndexV2Reader.read(binary);
+        java.util.Set<String> loadedOwners = loaded.entries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> java.util.Set.of("first", "second")
+                        .contains(edge.calleeMethod()))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(callerOwners, loadedOwners);
+    }
+
+    @Test
+    void localTypesInsideSiblingAnonymousOwnersRemainDistinctAfterRoundtrip()
+            throws Exception {
+        Path javaFile = writeFile("AnonymousLocalOwners.java", """
+                package app;
+                class Service {
+                    void ping() {}
+                }
+                class AnonymousLocalOwners {
+                    void build(Service service) {
+                        class Local {
+                            void open() {
+                                Runnable first = new Runnable() {
+                                    public void run() {
+                                        class Deep {
+                                            void call() { service.ping(); }
+                                        }
+                                        new Deep().call();
+                                    }
+                                };
+                                Runnable second = new Runnable() {
+                                    public void run() {
+                                        class Deep {
+                                            void call() { service.ping(); }
+                                        }
+                                        new Deep().call();
+                                    }
+                                };
+                            }
+                        }
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new HybridJavaParser(), List.of(javaFile), tempDir, List.of());
+
+        java.util.Set<String> callerOwners = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(2, callerOwners.size(), () -> "Colliding owners: " + callerOwners);
+
+        var graphBuilder = new com.jsrc.app.analysis.CallGraphBuilder();
+        graphBuilder.loadFromIndex(index.getEntries());
+        Path binary = tempDir.resolve("anonymous-local-owners.bin");
+        BinaryIndexV2Writer.write(
+                binary, index.getEntries(), graphBuilder.toCallGraph());
+        var loaded = BinaryIndexV2Reader.read(binary);
+        java.util.Set<String> loadedOwners = loaded.entries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("ping"))
+                .map(CallEdge::callerClass)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(callerOwners, loadedOwners);
+    }
+
+    @Test
+    void genericTypeParametersSurviveJsonAndBinaryRoundtrip() throws Exception {
+        Path javaFile = writeFile("GenericOwner.java", """
+                package app;
+                import java.util.Map;
+                class GenericOwner<Key, Value> {
+                    <Entry extends Map<Key, Value>> Value find(Key key) { return null; }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new HybridJavaParser(), List.of(javaFile), tempDir, List.of());
+        index.save(tempDir);
+
+        IndexedClass jsonClass = CodebaseIndex.load(tempDir).stream()
+                .flatMap(entry -> entry.classes().stream())
+                .filter(indexedClass -> indexedClass.name().equals("GenericOwner"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(List.of("Key", "Value"), jsonClass.typeParameters());
+        assertEquals(List.of("Entry extends Map<Key,Value>"),
+                jsonClass.methods().getFirst().typeParameters());
+
+        var graphBuilder = new com.jsrc.app.analysis.CallGraphBuilder();
+        graphBuilder.loadFromIndex(index.getEntries());
+        Path binary = tempDir.resolve("generic-owner.bin");
+        BinaryIndexV2Writer.write(
+                binary, index.getEntries(), graphBuilder.toCallGraph());
+        IndexedClass binaryClass = BinaryIndexV2Reader.read(binary).entries().stream()
+                .flatMap(entry -> entry.classes().stream())
+                .filter(indexedClass -> indexedClass.name().equals("GenericOwner"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(List.of("Key", "Value"), binaryClass.typeParameters());
+        assertEquals(List.of("Entry extends Map<Key,Value>"),
+                binaryClass.methods().getFirst().typeParameters());
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);
         return file;
+    }
+
+    private static java.util.Set<String> dispatchTargets(
+            CodebaseIndex index,
+            String callerClass,
+            String callerMethod,
+            String calleeMethod) {
+        return index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerClass().equals(callerClass)
+                        && edge.callerMethod().equals(callerMethod)
+                        && edge.calleeMethod().equals(calleeMethod))
+                .map(CallEdge::calleeClass)
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     // ---- Call edge extraction ----
@@ -279,7 +634,17 @@ class CodebaseIndexTest {
 
         var index = new CodebaseIndex();
         index.build(new HybridJavaParser(), List.of(file), tempDir, List.of());
+        CallEdge builtEdge = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.callerMethod().equals("a")
+                        && edge.calleeMethod().equals("b"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(com.jsrc.app.model.InvocationKind.VIRTUAL,
+                builtEdge.invocationKind(), () -> index.getEntries().toString());
         index.save(tempDir);
+        String edgeJson = Files.readString(tempDir.resolve(".jsrc/edges.json"));
+        assertTrue(edgeJson.contains("\"invocationKind\":\"VIRTUAL\""), edgeJson);
 
         // Load from disk
         List<IndexEntry> loaded = CodebaseIndex.load(tempDir);
@@ -292,6 +657,12 @@ class CodebaseIndexTest {
                     hasEdge = true;
                     assertEquals(List.of("String"), edge.callerParameterTypes());
                     assertEquals(List.of("String"), edge.calleeParameterTypes());
+                    assertEquals(com.jsrc.app.model.InvocationKind.VIRTUAL,
+                            edge.invocationKind());
+                    assertEquals(com.jsrc.app.model.ResolutionLevel.EXACT,
+                            edge.resolutionLevel());
+                    assertEquals(List.of("SYMBOL_RESOLVER", "EXACT_SIGNATURE"),
+                            edge.evidence());
                 }
             }
         }

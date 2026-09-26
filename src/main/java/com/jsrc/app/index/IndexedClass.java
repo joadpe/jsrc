@@ -27,11 +27,23 @@ public record IndexedClass(
         boolean isAbstract,
         List<String> superClass,
         List<String> interfaces,
+        List<String> typeParameters,
         List<IndexedMethod> methods,
         List<String> annotations,
         List<String> imports,
         List<IndexedField> fields
 ) {
+    /** Backward-compatible constructor without type parameters. */
+    public IndexedClass(
+            String name, String packageName, int startLine, int endLine,
+            boolean isInterface, boolean isAbstract,
+            List<String> superClass, List<String> interfaces,
+            List<IndexedMethod> methods, List<String> annotations,
+            List<String> imports, List<IndexedField> fields) {
+        this(name, packageName, startLine, endLine, isInterface, isAbstract,
+                superClass, interfaces, List.of(), methods, annotations, imports, fields);
+    }
+
     /** Backward-compatible constructor without fields. */
     public IndexedClass(
             String name, String packageName, int startLine, int endLine,
@@ -40,7 +52,7 @@ public record IndexedClass(
             List<IndexedMethod> methods, List<String> annotations,
             List<String> imports) {
         this(name, packageName, startLine, endLine, isInterface, isAbstract,
-                superClass, interfaces, methods, annotations, imports, List.of());
+                superClass, interfaces, List.of(), methods, annotations, imports, List.of());
     }
 
     public String qualifiedName() {

@@ -27,7 +27,7 @@ import com.jsrc.app.parser.model.MethodReference;
 public class BinaryIndexV2Writer {
 
     static final byte[] MAGIC = {'J', 'S', 'R', '2'};
-    static final int VERSION = 4;
+    static final int VERSION = 8;
 
     /**
      * Writes the unified index to disk.
@@ -57,8 +57,17 @@ public class BinaryIndexV2Writer {
             for (var edge : entry.callEdges()) {
                 intern(edge.callerClass(), stringTable, strings);
                 intern(edge.callerMethod(), stringTable, strings);
+                for (String type : edge.callerParameterTypes()) {
+                    intern(type, stringTable, strings);
+                }
                 intern(edge.calleeClass(), stringTable, strings);
                 intern(edge.calleeMethod(), stringTable, strings);
+                for (String type : edge.calleeParameterTypes()) {
+                    intern(type, stringTable, strings);
+                }
+                for (String evidence : edge.evidence()) {
+                    intern(evidence, stringTable, strings);
+                }
             }
             for (var smell : entry.smells()) {
                 intern(smell.ruleId(), stringTable, strings);
@@ -78,9 +87,20 @@ public class BinaryIndexV2Writer {
 
         // Intern strings from call graph
         if (callGraph != null) {
-            for (MethodReference ref : callGraph.getAllMethods()) {
+            Set<MethodReference> graphMethods = graphMethods(callGraph);
+            for (MethodReference ref : graphMethods) {
                 intern(ref.className(), stringTable, strings);
                 intern(ref.methodName(), stringTable, strings);
+                for (String type : ref.parameterTypes()) {
+                    intern(type, stringTable, strings);
+                }
+            }
+            for (MethodReference caller : graphMethods) {
+                for (MethodCall call : callGraph.getCalleesOf(caller)) {
+                    for (String evidence : call.evidence()) {
+                        intern(evidence, stringTable, strings);
+                    }
+                }
             }
         }
 
@@ -112,11 +132,16 @@ public class BinaryIndexV2Writer {
             for (var edge : entry.callEdges()) {
                 out.writeInt(ref(edge.callerClass(), stringTable));
                 out.writeInt(ref(edge.callerMethod(), stringTable));
+                writeStringRefs(out, edge.callerParameterTypes(), stringTable);
                 out.writeInt(edge.callerParamCount());
                 out.writeInt(ref(edge.calleeClass(), stringTable));
                 out.writeInt(ref(edge.calleeMethod(), stringTable));
+                writeStringRefs(out, edge.calleeParameterTypes(), stringTable);
                 out.writeInt(edge.argCount());
                 out.writeInt(edge.line());
+                out.writeByte(edge.invocationKind().ordinal());
+                out.writeByte(edge.resolutionLevel().ordinal());
+                writeStringRefs(out, edge.evidence(), stringTable);
             }
         }
 
@@ -182,7 +207,7 @@ public class BinaryIndexV2Writer {
     private static void writeGraph(DataOutputStream out, CallGraph graph,
                                     Map<String, Integer> stringTable) throws IOException {
         // All methods
-        Set<MethodReference> allMethods = graph.getAllMethods();
+        Set<MethodReference> allMethods = graphMethods(graph);
         out.writeInt(allMethods.size());
 
         // Assign numeric IDs to methods
@@ -192,6 +217,7 @@ public class BinaryIndexV2Writer {
             methodIds.put(ref, id);
             out.writeInt(ref(ref.className(), stringTable));
             out.writeInt(ref(ref.methodName(), stringTable));
+            writeStringRefs(out, ref.parameterTypes(), stringTable);
             out.writeInt(ref.parameterCount());
             id++;
         }
@@ -212,6 +238,9 @@ public class BinaryIndexV2Writer {
                 int callerId = methodIds.getOrDefault(call.caller(), -1);
                 out.writeInt(callerId);
                 out.writeInt(call.line());
+                out.writeByte(call.invocationKind().ordinal());
+                out.writeByte(call.resolutionLevel().ordinal());
+                writeStringRefs(out, call.evidence(), stringTable);
             }
         }
 
@@ -229,8 +258,23 @@ public class BinaryIndexV2Writer {
                 int calleeId = methodIds.getOrDefault(call.callee(), -1);
                 out.writeInt(calleeId);
                 out.writeInt(call.line());
+                out.writeByte(call.invocationKind().ordinal());
+                out.writeByte(call.resolutionLevel().ordinal());
+                writeStringRefs(out, call.evidence(), stringTable);
             }
         }
+    }
+
+    private static Set<MethodReference> graphMethods(CallGraph graph) {
+        Set<MethodReference> methods = new LinkedHashSet<>(graph.getAllMethods());
+        for (MethodReference callee : graph.getAllCallerIndexKeys()) {
+            methods.add(callee);
+            for (MethodCall call : graph.getCallersOf(callee)) {
+                methods.add(call.caller());
+                methods.add(call.callee());
+            }
+        }
+        return Set.copyOf(methods);
     }
 
     private static void writeEntry(DataOutputStream out, IndexEntry entry,
@@ -250,6 +294,7 @@ public class BinaryIndexV2Writer {
 
             writeStringRefs(out, ic.superClass(), stringTable);
             writeStringRefs(out, ic.interfaces(), stringTable);
+            writeStringRefs(out, ic.typeParameters(), stringTable);
             writeStringRefs(out, ic.annotations(), stringTable);
             writeStringRefs(out, ic.imports(), stringTable);
 
@@ -270,6 +315,7 @@ public class BinaryIndexV2Writer {
                 out.writeShort(m.complexity());
                 out.writeByte(m.paramCount());
                 writeStringRefs(out, m.annotations(), stringTable);
+                writeStringRefs(out, m.typeParameters(), stringTable);
             }
         }
     }
@@ -279,6 +325,7 @@ public class BinaryIndexV2Writer {
         intern(ic.packageName(), table, list);
         for (String s : ic.superClass()) intern(s, table, list);
         for (String s : ic.interfaces()) intern(s, table, list);
+        for (String s : ic.typeParameters()) intern(s, table, list);
         for (String s : ic.annotations()) intern(s, table, list);
         for (String s : ic.imports()) intern(s, table, list);
         for (var f : ic.fields()) {
@@ -291,6 +338,7 @@ public class BinaryIndexV2Writer {
             intern(safe(m.signature()), table, list);
             intern(safe(m.returnType()), table, list);
             for (String a : m.annotations()) intern(a, table, list);
+            for (String parameter : m.typeParameters()) intern(parameter, table, list);
         }
     }
 

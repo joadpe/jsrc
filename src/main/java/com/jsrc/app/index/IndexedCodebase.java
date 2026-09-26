@@ -155,6 +155,10 @@ public class IndexedCodebase {
         } else {
             existing = CodebaseIndex.loadClassesOnly(sourceRoot);
         }
+        if (!existing.isEmpty() && lazyData == null
+                && !CodebaseIndex.hasCurrentSplitCallEdgeSchema(sourceRoot)) {
+            forceRefresh = true;
+        }
         if (existing.isEmpty() && !forceRefresh) {
             return null;
         }
@@ -164,62 +168,38 @@ public class IndexedCodebase {
             byPath.put(e.path(), e);
         }
 
-        List<IndexEntry> refreshed = new ArrayList<>();
-        Set<String> currentPaths = new HashSet<>();
-        int staleCount = 0;
-        CodeParser parser = null;
+        var parser = new HybridJavaParser();
+        var updatedIndex = new CodebaseIndex();
+        List<IndexEntry> incrementalBase = forceRefresh ? List.of() : existing;
+        int reindexed = updatedIndex.build(
+                parser, currentFiles, sourceRoot, incrementalBase, List.of(), sourceSets);
+        List<IndexEntry> refreshed = new ArrayList<>(updatedIndex.getEntries());
+        Set<String> currentPaths = refreshed.stream()
+                .map(IndexEntry::path)
+                .collect(java.util.stream.Collectors.toSet());
+        boolean fileSetChanged = !byPath.keySet().equals(currentPaths);
+        boolean indexChanged = forceRefresh || reindexed > 0 || fileSetChanged;
 
-        for (Path file : currentFiles) {
-            String relativePath = sourceRoot.relativize(file).toString();
-            currentPaths.add(relativePath);
-
-            IndexEntry prev = byPath.get(relativePath);
-            var sourceSet = sourceSets.getOrDefault(
-                    file,
-                    prev == null
-                            ? com.jsrc.app.project.SourceSet.UNKNOWN
-                            : prev.sourceSet());
-            if (prev != null && !forceRefresh) {
-                try {
-                    long currentModified = Files.getLastModifiedTime(file).toMillis();
-                    if (currentModified <= prev.lastModified()
-                            && prev.sourceSet() == sourceSet) {
-                        refreshed.add(prev);
-                        continue;
-                    }
-                } catch (IOException e) {
+        if (indexChanged) {
+            for (int index = 0; index < refreshed.size(); index++) {
+                IndexEntry entry = refreshed.get(index);
+                IndexEntry previous = byPath.get(entry.path());
+                if (!forceRefresh && previous != null
+                        && previous.contentHash().equals(entry.contentHash())
+                        && previous.sourceSet() == entry.sourceSet()) {
+                    continue;
                 }
-            }
-
-            if (parser == null) parser = new HybridJavaParser();
-            staleCount++;
-            try {
-                byte[] content = Files.readAllBytes(file);
-                String hash = com.jsrc.app.util.Hashing.sha256(content);
-                long lastModified = Files.getLastModifiedTime(file).toMillis();
-                List<ClassInfo> classes = parser.parseClasses(file);
-                List<IndexedClass> indexed = classes.stream()
-                        .map(ci -> classInfoToIndexed(ci))
-                        .toList();
-                var edgeResolver = new EdgeResolver();
-                var edgeParser = new com.github.javaparser.JavaParser();
-                List<CallEdge> edges = edgeResolver.extractCallEdges(file, edgeParser);
+                Path file = sourceRoot.resolve(entry.path());
                 var smells = parser.detectSmells(file).stream()
-                        .map(s -> new CachedSmell(s.ruleId(), s.severity().name(),
-                                s.line(), s.methodName(), s.className(), s.message()))
+                        .map(smell -> new CachedSmell(
+                                smell.ruleId(), smell.severity().name(), smell.line(),
+                                smell.methodName(), smell.className(), smell.message()))
                         .toList();
-                refreshed.add(new IndexEntry(
-                        relativePath, hash, lastModified, sourceSet,
-                        indexed, edges, smells));
-            } catch (IOException e) {
-                logger.error("Error refreshing {}: {}", file, e.getMessage());
-                if (prev != null) refreshed.add(prev);
+                refreshed.set(index, entry.withSmells(smells));
             }
-        }
-
-        if (staleCount > 0) {
-            logger.info("Auto-refreshed {} stale/new file(s), {} cached", staleCount, refreshed.size() - staleCount);
-            var updatedIndex = new CodebaseIndex(refreshed);
+            updatedIndex = new CodebaseIndex(refreshed);
+            logger.info("Auto-refreshed {} stale/new file(s), {} cached",
+                    reindexed, refreshed.size() - reindexed);
             try {
                 var builder = new com.jsrc.app.analysis.CallGraphBuilder();
                 builder.loadFromIndex(refreshed);

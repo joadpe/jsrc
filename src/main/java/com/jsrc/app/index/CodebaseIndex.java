@@ -33,6 +33,9 @@ public class CodebaseIndex {
     private static final String CLASSES_BIN = "classes.bin"; // legacy — cleaned up on re-index
     private static final String EDGES_FILE = "edges.json";
     private static final String SMELLS_FILE = "smells.json";
+    private static final String CALL_EDGE_SCHEMA_KEY = "callEdgeSchemaVersion";
+    private static final int CALL_EDGE_SCHEMA_VERSION = 4;
+    private static final String SPLIT_ENTRIES_KEY = "entries";
 
     private final List<IndexEntry> entries;
     private final EdgeResolver edgeResolver;
@@ -83,6 +86,11 @@ public class CodebaseIndex {
         for (IndexEntry e : existing) {
             existingByPath.put(e.path(), e);
         }
+        java.util.Set<String> currentPaths = files.stream()
+                .map(file -> sourceRoot.relativize(file).toString())
+                .collect(java.util.stream.Collectors.toSet());
+        boolean fileSetChanged = !existingByPath.keySet().equals(currentPaths);
+        Map<String, Path> unchangedFiles = new LinkedHashMap<>();
 
         entries.clear();
         int reindexed = 0;
@@ -102,6 +110,7 @@ public class CodebaseIndex {
                         && prev.sourceSet() == sourceSet
                         && hasCanonicalCallEdgeSchema(prev)) {
                     entries.add(prev);
+                    unchangedFiles.put(relativePath, file);
                     continue;
                 }
 
@@ -111,12 +120,23 @@ public class CodebaseIndex {
                 // Extract imports from file for return type resolution
                 List<String> fileImports = extractImports(file, edgeParser);
 
-                List<IndexedClass> indexed = classes.stream()
+                EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser);
+
+                List<IndexedClass> indexed = new ArrayList<>(classes.stream()
                         .map(ci -> toIndexedClass(ci, file, parser, fileImports))
-                        .toList();
+                        .map(indexedClass -> withSyntheticMethods(
+                                indexedClass, extraction.syntheticMethods()))
+                        .toList());
+                extraction.syntheticMethods().forEach((owner, methods) -> {
+                    boolean ownerIndexed = indexed.stream()
+                            .anyMatch(indexedClass -> indexedClass.qualifiedName().equals(owner));
+                    if (!ownerIndexed) {
+                        indexed.add(syntheticIndexedClass(owner, methods, fileImports));
+                    }
+                });
 
                 // Extract call edges (direct + reflective) via EdgeResolver
-                List<CallEdge> edges = new ArrayList<>(edgeResolver.extractCallEdges(file, edgeParser));
+                List<CallEdge> edges = new ArrayList<>(extraction.edges());
                 if (!invokers.isEmpty()) {
                     edges.addAll(edgeResolver.extractReflectiveEdges(file, edgeParser, invokers));
                 }
@@ -130,9 +150,29 @@ public class CodebaseIndex {
             }
         }
 
-        // Post-build: resolve ?field:/?ret: markers using cross-class type info
-        edgeResolver.resolveMarkers(entries);
-        edgeResolver.resolveSymbols(entries);
+        boolean semanticRefreshRequired = fileSetChanged
+                || reindexed > 0
+                || !invokers.isEmpty();
+        if (semanticRefreshRequired && !unchangedFiles.isEmpty()) {
+            for (int index = 0; index < entries.size(); index++) {
+                IndexEntry entry = entries.get(index);
+                Path file = unchangedFiles.get(entry.path());
+                if (file == null) continue;
+                EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser);
+                List<CallEdge> edges = new ArrayList<>(extraction.edges());
+                if (!invokers.isEmpty()) {
+                    edges.addAll(edgeResolver.extractReflectiveEdges(
+                            file, edgeParser, invokers));
+                }
+                entries.set(index, entry.withEdges(edges));
+            }
+        }
+
+        if (semanticRefreshRequired) {
+            // Resolve raw edges only when sources or the type universe changed.
+            edgeResolver.resolveMarkers(entries);
+            edgeResolver.resolveSymbols(entries);
+        }
 
         return reindexed;
     }
@@ -199,6 +239,7 @@ public class CodebaseIndex {
         for (var entry : entries) {
             // Classes: everything except callEdges and smells
             Map<String, Object> classEntry = new LinkedHashMap<>();
+            classEntry.put(CALL_EDGE_SCHEMA_KEY, CALL_EDGE_SCHEMA_VERSION);
             classEntry.put("path", entry.path());
             classEntry.put("contentHash", entry.contentHash());
             classEntry.put("lastModified", entry.lastModified());
@@ -208,6 +249,7 @@ public class CodebaseIndex {
             // Edges: path + callEdges only (if non-empty)
             if (!entry.callEdges().isEmpty()) {
                 Map<String, Object> edgeEntry = new LinkedHashMap<>();
+                edgeEntry.put(CALL_EDGE_SCHEMA_KEY, CALL_EDGE_SCHEMA_VERSION);
                 edgeEntry.put("path", entry.path());
                 edgeEntry.put("callEdges", entry.callEdges().stream().map(this::edgeToMap).toList());
                 edgesData.add(edgeEntry);
@@ -224,14 +266,11 @@ public class CodebaseIndex {
 
         Files.writeString(indexDir.resolve(CLASSES_FILE),
                 JsonWriter.toJson(classesData), StandardCharsets.UTF_8);
-        // Only overwrite edges/smells if we have data — auto-refresh doesn't
-        // regenerate these, so writing empty would destroy existing data
-        if (!edgesData.isEmpty()) {
-            Files.writeString(indexDir.resolve(EDGES_FILE),
-                    JsonWriter.toJson(edgesData), StandardCharsets.UTF_8);
-        } else if (!Files.exists(indexDir.resolve(EDGES_FILE))) {
-            Files.writeString(indexDir.resolve(EDGES_FILE), "[]", StandardCharsets.UTF_8);
-        }
+        Map<String, Object> edgesDocument = new LinkedHashMap<>();
+        edgesDocument.put(CALL_EDGE_SCHEMA_KEY, CALL_EDGE_SCHEMA_VERSION);
+        edgesDocument.put(SPLIT_ENTRIES_KEY, edgesData);
+        Files.writeString(indexDir.resolve(EDGES_FILE),
+                JsonWriter.toJson(edgesDocument), StandardCharsets.UTF_8);
         if (!smellsData.isEmpty()) {
             Files.writeString(indexDir.resolve(SMELLS_FILE),
                     JsonWriter.toJson(smellsData), StandardCharsets.UTF_8);
@@ -328,19 +367,62 @@ public class CodebaseIndex {
     }
 
     /** Loads edges from split file and merges into existing entries. */
+    public static boolean hasCurrentSplitCallEdgeSchema(Path projectRoot) {
+        Path edgesFile = projectRoot.resolve(INDEX_DIR).resolve(EDGES_FILE);
+        if (!Files.exists(edgesFile)) {
+            return false;
+        }
+        try {
+            String json = Files.readString(
+                    edgesFile, java.nio.charset.StandardCharsets.UTF_8);
+            Object parsed = com.jsrc.app.output.JsonReader.parse(json);
+            if (!(parsed instanceof Map<?, ?> document)
+                    || intVal(document, CALL_EDGE_SCHEMA_KEY)
+                    != CALL_EDGE_SCHEMA_VERSION
+                    || !(document.get(SPLIT_ENTRIES_KEY) instanceof List<?> rawList)) {
+                return false;
+            }
+            return rawList.stream().allMatch(item -> {
+                if (!(item instanceof Map<?, ?> map)) {
+                    return false;
+                }
+                @SuppressWarnings("unchecked")
+                Map<String, Object> entry = (Map<String, Object>) map;
+                return intVal(entry, CALL_EDGE_SCHEMA_KEY)
+                        == CALL_EDGE_SCHEMA_VERSION;
+            });
+        } catch (Exception e) {
+            logger.debug("Failed to validate split edge schema: {}", e.getMessage());
+            return false;
+        }
+    }
+
     public static void loadEdgesInto(Path projectRoot, List<IndexEntry> entries) {
         Path edgesFile = projectRoot.resolve(INDEX_DIR).resolve(EDGES_FILE);
         if (!Files.exists(edgesFile)) return;
         try {
             String json = Files.readString(edgesFile, java.nio.charset.StandardCharsets.UTF_8);
             Object parsed = com.jsrc.app.output.JsonReader.parse(json);
-            if (!(parsed instanceof List<?> rawList)) return;
+            List<?> rawList;
+            if (parsed instanceof Map<?, ?> document
+                    && intVal(document, CALL_EDGE_SCHEMA_KEY)
+                    == CALL_EDGE_SCHEMA_VERSION
+                    && document.get(SPLIT_ENTRIES_KEY) instanceof List<?> currentEntries) {
+                rawList = currentEntries;
+            } else if (parsed instanceof List<?> legacyEntries) {
+                rawList = legacyEntries;
+            } else {
+                return;
+            }
 
             Map<String, List<CallEdge>> edgesByPath = new LinkedHashMap<>();
             for (Object item : rawList) {
                 if (item instanceof Map<?, ?> map) {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> m = (Map<String, Object>) map;
+                    if (intVal(m, CALL_EDGE_SCHEMA_KEY) != CALL_EDGE_SCHEMA_VERSION) {
+                        continue;
+                    }
                     String path = (String) m.getOrDefault("path", "");
                     List<CallEdge> edges = parseCallEdges(m);
                     if (!edges.isEmpty()) edgesByPath.put(path, edges);
@@ -410,11 +492,22 @@ public class CodebaseIndex {
                     List<String> calleeParameterTypes = edgeMap.containsKey("calleeParameterTypes")
                             ? strList(edgeMap.get("calleeParameterTypes")) : List.of();
                     int argCount = edgeMap.containsKey("argCount") ? intVal(edgeMap, "argCount") : -1;
+                    var invocationKind = edgeMap.containsKey("invocationKind")
+                            ? com.jsrc.app.model.InvocationKind.valueOf(
+                                    str(edgeMap, "invocationKind"))
+                            : com.jsrc.app.model.InvocationKind.UNKNOWN;
+                    var resolutionLevel = edgeMap.containsKey("resolutionLevel")
+                            ? com.jsrc.app.model.ResolutionLevel.valueOf(
+                                    str(edgeMap, "resolutionLevel"))
+                            : com.jsrc.app.model.ResolutionLevel.UNRESOLVED;
+                    List<String> evidence = edgeMap.containsKey("evidence")
+                            ? strList(edgeMap.get("evidence")) : List.of();
                     edges.add(new CallEdge(
                             str(edgeMap, "callerClass"), str(edgeMap, "callerMethod"),
                             callerParameterTypes, callerParamCount,
                             str(edgeMap, "calleeClass"), str(edgeMap, "calleeMethod"),
-                            calleeParameterTypes, intVal(edgeMap, "line"), argCount));
+                            calleeParameterTypes, intVal(edgeMap, "line"), argCount,
+                            invocationKind, resolutionLevel, evidence));
                 }
             }
         }
@@ -443,8 +536,12 @@ public class CodebaseIndex {
 
     @SuppressWarnings("unchecked")
     private static IndexEntry mapToEntry(Map<String, Object> map) {
+        boolean currentCallEdgeSchema =
+                intVal(map, CALL_EDGE_SCHEMA_KEY) == CALL_EDGE_SCHEMA_VERSION;
         String path = (String) map.getOrDefault("path", "");
-        String hash = (String) map.getOrDefault("contentHash", "");
+        String hash = currentCallEdgeSchema
+                ? (String) map.getOrDefault("contentHash", "")
+                : "";
         long lastModified = map.get("lastModified") instanceof Number n ? n.longValue() : 0;
         com.jsrc.app.project.SourceSet sourceSet = map.get("sourceSet") instanceof String value
                 ? com.jsrc.app.project.SourceSet.fromExternalName(value)
@@ -459,27 +556,9 @@ public class CodebaseIndex {
                 }
             }
         }
-        List<CallEdge> callEdges = new ArrayList<>();
-        Object edgesRaw = map.get("callEdges");
-        if (edgesRaw instanceof List<?> edgeList) {
-            for (Object e : edgeList) {
-                if (e instanceof Map<?, ?> em) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> edgeMap = (Map<String, Object>) em;
-                    int callerParamCount = edgeMap.containsKey("callerParamCount") ? intVal(edgeMap, "callerParamCount") : -1;
-                    List<String> callerParameterTypes = edgeMap.containsKey("callerParameterTypes")
-                            ? strList(edgeMap.get("callerParameterTypes")) : List.of();
-                    List<String> calleeParameterTypes = edgeMap.containsKey("calleeParameterTypes")
-                            ? strList(edgeMap.get("calleeParameterTypes")) : List.of();
-                    int argCount = edgeMap.containsKey("argCount") ? intVal(edgeMap, "argCount") : -1;
-                    callEdges.add(new CallEdge(
-                            str(edgeMap, "callerClass"), str(edgeMap, "callerMethod"),
-                            callerParameterTypes, callerParamCount,
-                            str(edgeMap, "calleeClass"), str(edgeMap, "calleeMethod"),
-                            calleeParameterTypes, intVal(edgeMap, "line"), argCount));
-                }
-            }
-        }
+        List<CallEdge> callEdges = currentCallEdgeSchema
+                ? parseCallEdges(map)
+                : List.of();
         // Deserialize cached smells
         List<CachedSmell> smells = new ArrayList<>();
         Object smellsRaw = map.get("smells");
@@ -509,6 +588,7 @@ public class CodebaseIndex {
         boolean isAbstract = bool(map, "isAbstract");
         List<String> superClass = strList(map.get("superClass"));
         List<String> interfaces = strList(map.get("interfaces"));
+        List<String> typeParameters = strList(map.get("typeParameters"));
         List<String> annotations = strList(map.get("annotations"));
         List<String> imports = strList(map.get("imports"));
 
@@ -536,7 +616,7 @@ public class CodebaseIndex {
         }
 
         return new IndexedClass(name, pkg, startLine, endLine,
-                isInterface, isAbstract, superClass, interfaces,
+                isInterface, isAbstract, superClass, interfaces, typeParameters,
                 methods, annotations, imports, fields);
     }
 
@@ -546,6 +626,7 @@ public class CodebaseIndex {
                 str(map, "name"), str(map, "signature"),
                 intVal(map, "startLine"), intVal(map, "endLine"),
                 str(map, "returnType"), strList(map.get("annotations")),
+                strList(map.get("typeParameters")),
                 intVal(map, "complexity"), intVal(map, "paramCount"));
     }
 
@@ -554,7 +635,7 @@ public class CodebaseIndex {
         return v instanceof String s ? s : "";
     }
 
-    private static int intVal(Map<String, Object> map, String key) {
+    private static int intVal(Map<?, ?> map, String key) {
         Object v = map.get(key);
         return v instanceof Number n ? n.intValue() : 0;
     }
@@ -582,7 +663,8 @@ public class CodebaseIndex {
                 .map(m -> new IndexedMethod(
                         m.name(), m.signature(), m.startLine(), m.endLine(),
                         m.returnType(),
-                        m.annotations().stream().map(a -> a.name()).toList()))
+                        m.annotations().stream().map(a -> a.name()).toList(),
+                        m.typeParameters()))
                 .toList();
 
         List<String> annotations = ci.annotations().stream()
@@ -596,7 +678,47 @@ public class CodebaseIndex {
                 ci.name(), ci.packageName(), ci.startLine(), ci.endLine(),
                 ci.isInterface(), ci.isAbstract(),
                 ci.superClass().isEmpty() ? List.of() : List.of(ci.superClass()),
-                ci.interfaces(), methods, annotations, fileImports, fields);
+                ci.interfaces(), ci.typeParameters(), methods, annotations, fileImports, fields);
+    }
+
+    private static IndexedClass withSyntheticMethods(
+            IndexedClass indexedClass,
+            Map<String, List<IndexedMethod>> syntheticMethods) {
+        List<IndexedMethod> additional = syntheticMethods.get(indexedClass.qualifiedName());
+        if (additional == null || additional.isEmpty()) return indexedClass;
+
+        List<IndexedMethod> methods = new ArrayList<>(indexedClass.methods());
+        methods.addAll(additional);
+        return new IndexedClass(
+                indexedClass.name(),
+                indexedClass.packageName(),
+                indexedClass.startLine(),
+                indexedClass.endLine(),
+                indexedClass.isInterface(),
+                indexedClass.isAbstract(),
+                indexedClass.superClass(),
+                indexedClass.interfaces(),
+                methods,
+                indexedClass.annotations(),
+                indexedClass.imports(),
+                indexedClass.fields());
+    }
+
+    private static IndexedClass syntheticIndexedClass(
+            String qualifiedName,
+            List<IndexedMethod> methods,
+            List<String> imports) {
+        int separator = qualifiedName.lastIndexOf('.');
+        String packageName = separator < 0 ? "" : qualifiedName.substring(0, separator);
+        String name = separator < 0 ? qualifiedName : qualifiedName.substring(separator + 1);
+        int startLine = methods.stream().mapToInt(IndexedMethod::startLine)
+                .min().orElse(-1);
+        int endLine = methods.stream().mapToInt(IndexedMethod::endLine)
+                .max().orElse(startLine);
+        return new IndexedClass(
+                name, packageName, startLine, endLine,
+                false, false, List.of(), List.of(), methods,
+                List.of(), imports, List.of());
     }
 
     // extractFields removed — fields now come from ClassInfo.fields() via HybridJavaParser
@@ -621,6 +743,7 @@ public class CodebaseIndex {
 
     private Map<String, Object> entryToMap(IndexEntry entry) {
         Map<String, Object> map = new LinkedHashMap<>();
+        map.put(CALL_EDGE_SCHEMA_KEY, CALL_EDGE_SCHEMA_VERSION);
         map.put("path", entry.path());
         map.put("contentHash", entry.contentHash());
         map.put("lastModified", entry.lastModified());
@@ -665,6 +788,11 @@ public class CodebaseIndex {
         if (edge.argCount() >= 0) {
             map.put("argCount", edge.argCount());
         }
+        map.put("invocationKind", edge.invocationKind().name());
+        map.put("resolutionLevel", edge.resolutionLevel().name());
+        if (!edge.evidence().isEmpty()) {
+            map.put("evidence", edge.evidence());
+        }
         return map;
     }
 
@@ -679,6 +807,9 @@ public class CodebaseIndex {
         map.put("isAbstract", ic.isAbstract());
         map.put("superClass", ic.superClass());
         map.put("interfaces", ic.interfaces());
+        if (!ic.typeParameters().isEmpty()) {
+            map.put("typeParameters", ic.typeParameters());
+        }
         map.put("methods", ic.methods().stream().map(this::methodToMap).toList());
         map.put("annotations", ic.annotations());
         if (!ic.imports().isEmpty()) {
@@ -706,6 +837,7 @@ public class CodebaseIndex {
         map.put("endLine", im.endLine());
         map.put("returnType", im.returnType());
         map.put("annotations", im.annotations());
+        map.put("typeParameters", im.typeParameters());
         if (im.complexity() > 0) map.put("complexity", im.complexity());
         if (im.paramCount() > 0) map.put("paramCount", im.paramCount());
         return map;

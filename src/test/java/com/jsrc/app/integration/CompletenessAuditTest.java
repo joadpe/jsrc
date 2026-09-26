@@ -116,7 +116,9 @@ class CompletenessAuditTest {
     @Test
     void methodCount_matchesGroundTruth() {
         int jsrcMethods = jsrcClasses.stream()
-                .mapToInt(ci -> ci.methods().size())
+                .mapToInt(ci -> (int) ci.methods().stream()
+                        .filter(method -> !method.name().contains("$lambda$"))
+                        .count())
                 .sum();
         assertEquals(groundTruthMethods, jsrcMethods,
                 "Method count: ground truth=" + groundTruthMethods + " jsrc=" + jsrcMethods);

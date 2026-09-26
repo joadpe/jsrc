@@ -62,6 +62,13 @@ public class CalleesCommand implements Command {
 
                 entry.put("line", call.line());
                 entry.put("type", "direct");
+                entry.put("dispatch", call.invocationKind().name()
+                        .toLowerCase(java.util.Locale.ROOT));
+                entry.put("resolution", call.resolutionLevel().name()
+                        .toLowerCase(java.util.Locale.ROOT));
+                if (!call.evidence().isEmpty()) {
+                    entry.put("evidence", call.evidence());
+                }
                 callees.add(entry);
             }
         }

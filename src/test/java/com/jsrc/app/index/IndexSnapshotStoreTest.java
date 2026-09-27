@@ -23,6 +23,101 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class IndexSnapshotStoreTest {
 
     @Test
+    void killedWriterNeverExposesPartialGeneration(@TempDir Path tempDir) throws Exception {
+        Path java = Path.of(System.getProperty("java.home"), "bin", "java");
+        for (IndexSnapshotStore.PublicationPhase phase
+                : IndexSnapshotStore.PublicationPhase.values()) {
+            Path projectRoot = Files.createDirectories(tempDir.resolve(phase.name()));
+            var oldEntry = new IndexEntry("Old.java", "old", 0L, SourceSet.UNKNOWN,
+                    List.of(), List.of(), List.of(), 0);
+            new CodebaseIndex(List.of(oldEntry)).saveWithGraph(projectRoot, null);
+            Process writer = new ProcessBuilder(java.toString(), "-cp",
+                    System.getProperty("java.class.path"),
+                    PausedPublisher.class.getName(), projectRoot.toString(), phase.name())
+                    .start();
+            try (var lines = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(writer.getInputStream()));
+                 var executor = Executors.newSingleThreadExecutor()) {
+                var signal = executor.submit(lines::readLine);
+                assertEquals("PAUSED", signal.get(10, TimeUnit.SECONDS), phase.name());
+                writer.destroyForcibly();
+                assertTrue(writer.waitFor(5, TimeUnit.SECONDS));
+            } finally {
+                writer.destroyForcibly();
+            }
+            String expected = phase == IndexSnapshotStore.PublicationPhase.GENERATION_DURABLE
+                    || phase == IndexSnapshotStore.PublicationPhase.MANIFEST_DURABLE
+                    ? "Old.java" : "New.java";
+            assertEquals(expected, CodebaseIndex.loadPublished(projectRoot)
+                    .getFirst().path(), phase.name());
+        }
+    }
+
+    public static final class PausedPublisher {
+        private PausedPublisher() {
+        }
+
+        public static void main(String[] args) throws Exception {
+            Path root = Path.of(args[0]);
+            var requested = IndexSnapshotStore.PublicationPhase.valueOf(args[1]);
+            var entry = new IndexEntry("New.java", "new", 0L, SourceSet.UNKNOWN,
+                    List.of(), List.of(), List.of(), 0);
+            IndexSnapshotStore.publish(root.resolve(".jsrc"), List.of(entry),
+                    null, java.util.Map.of(), false, null, phase -> {
+                        if (phase == requested) {
+                            System.out.println("PAUSED");
+                            System.in.read();
+                        }
+                    });
+        }
+    }
+
+    @Test
+    void otherJvmReaderKeepsMappedGenerationAcrossWriterGc(@TempDir Path projectRoot)
+            throws Exception {
+        var oldEntry = new IndexEntry("Old.java", "old", 0L, SourceSet.UNKNOWN,
+                List.of(), List.of(), List.of(), 0);
+        var graph = com.jsrc.app.analysis.CallGraph.empty();
+        new CodebaseIndex(List.of(oldEntry)).saveWithGraph(projectRoot, graph);
+        Path java = Path.of(System.getProperty("java.home"), "bin", "java");
+        Process reader = new ProcessBuilder(java.toString(), "-cp",
+                System.getProperty("java.class.path"),
+                MappedReader.class.getName(), projectRoot.toString()).start();
+        try (var lines = new java.io.BufferedReader(
+                new java.io.InputStreamReader(reader.getInputStream()));
+             var executor = Executors.newSingleThreadExecutor()) {
+            assertEquals("READY", executor.submit(lines::readLine).get(10, TimeUnit.SECONDS));
+            var next = new IndexEntry("New.java", "new", 0L, SourceSet.UNKNOWN,
+                    List.of(), List.of(), List.of(), 0);
+            new CodebaseIndex(List.of(next)).saveWithGraph(projectRoot, graph);
+            new CodebaseIndex(List.of(next)).saveWithGraph(projectRoot, graph);
+            reader.getOutputStream().write(1);
+            reader.getOutputStream().flush();
+            assertEquals("Old.java", executor.submit(lines::readLine)
+                    .get(10, TimeUnit.SECONDS));
+            assertTrue(reader.waitFor(5, TimeUnit.SECONDS));
+            assertEquals(0, reader.exitValue());
+        } finally {
+            reader.destroyForcibly();
+        }
+        assertEquals("New.java", CodebaseIndex.loadPublished(projectRoot)
+                .getFirst().path());
+    }
+
+    public static final class MappedReader {
+        private MappedReader() {
+        }
+
+        public static void main(String[] args) throws Exception {
+            var reader = IndexSnapshotStore.readCurrent(Path.of(args[0]), false);
+            System.out.println("READY");
+            System.in.read();
+            reader.ensureGraph();
+            System.out.println(reader.getData().entries().getFirst().path());
+        }
+    }
+
+    @Test
     void filteredQueryDoesNotReplaceCanonicalGeneration(@TempDir Path projectRoot)
             throws Exception {
         Path main = projectRoot.resolve("src/main/java/Main.java");

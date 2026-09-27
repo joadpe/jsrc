@@ -20,6 +20,17 @@ import java.util.concurrent.locks.ReentrantLock;
 
 final class IndexSnapshotStore {
 
+    enum PublicationPhase {
+        GENERATION_DURABLE, MANIFEST_DURABLE, PUBLISHED, GC_DONE
+    }
+
+    @FunctionalInterface
+    interface PublicationProbe {
+        void reached(PublicationPhase phase) throws IOException;
+    }
+
+    private static final PublicationProbe NOOP_PROBE = phase -> { };
+
     private static final org.slf4j.Logger logger =
             org.slf4j.LoggerFactory.getLogger(IndexSnapshotStore.class);
     private static final String MANIFEST_VERSION = "JSRC-SNAPSHOT-1";
@@ -90,9 +101,17 @@ final class IndexSnapshotStore {
     static void publish(Path indexDir, List<IndexEntry> entries, CallGraph graph,
                         Map<String, List<CachedMigration>> migrations,
                         boolean validateSources, SourceSnapshot sourceSnapshot) throws IOException {
+        publish(indexDir, entries, graph, migrations, validateSources,
+                sourceSnapshot, NOOP_PROBE);
+    }
+
+    static void publish(Path indexDir, List<IndexEntry> entries, CallGraph graph,
+                        Map<String, List<CachedMigration>> migrations,
+                        boolean validateSources, SourceSnapshot sourceSnapshot,
+                        PublicationProbe probe) throws IOException {
         withWriterLock(indexDir, locked ->
                 publishLocked(locked, entries, graph, migrations, validateSources,
-                        sourceSnapshot));
+                        sourceSnapshot, probe));
     }
 
     static void updateSmells(Path projectRoot, List<IndexEntry> updates) throws IOException {
@@ -123,7 +142,7 @@ final class IndexSnapshotStore {
             }
             if (changed) {
                 publishLocked(locked, merged, snapshot.callGraph(),
-                        snapshot.migrations(), true, null);
+                        snapshot.migrations(), true, null, NOOP_PROBE);
             }
         });
     }
@@ -184,7 +203,8 @@ final class IndexSnapshotStore {
     private static void publishLocked(Path indexDir, List<IndexEntry> entries, CallGraph graph,
                                       Map<String, List<CachedMigration>> migrations,
                                       boolean validateSources,
-                                      SourceSnapshot sourceSnapshot) throws IOException {
+                                      SourceSnapshot sourceSnapshot,
+                                      PublicationProbe probe) throws IOException {
         Path generations = indexDir.resolve("generations");
         Files.createDirectories(generations);
         String previous = "-";
@@ -214,12 +234,14 @@ final class IndexSnapshotStore {
             if (sourceSnapshot != null) {
                 sourceSnapshot.verify(entries);
             }
+            probe.reached(PublicationPhase.GENERATION_DURABLE);
 
             String manifest = MANIFEST_VERSION + "\n" + generation + "\n"
                     + Files.size(binary) + "\n" + gitTree(indexDir.getParent()) + "\n"
                     + previous + "\n";
             Files.writeString(temporary, manifest, StandardCharsets.UTF_8);
             forceFile(temporary);
+            probe.reached(PublicationPhase.MANIFEST_DURABLE);
             Files.move(temporary, currentPath,
                     StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException | RuntimeException ex) {
@@ -232,11 +254,13 @@ final class IndexSnapshotStore {
             throw ex;
         }
         forceDirectory(indexDir);
+        probe.reached(PublicationPhase.PUBLISHED);
         try {
             pruneGenerations(generations, generation, previous, false);
         } catch (IOException ex) {
             logger.warn("Could not clean old index generations: {}", ex.getMessage());
         }
+        probe.reached(PublicationPhase.GC_DONE);
     }
 
     private static void pruneGenerations(Path generations, String current, String previous,

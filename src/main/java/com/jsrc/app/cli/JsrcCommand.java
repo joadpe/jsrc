@@ -122,16 +122,36 @@ public class JsrcCommand implements Runnable {
                 "skill", "describe", "version", "help").contains(commandName);
         var compatibility = sourceIndependent
                 ? new com.jsrc.app.project.SourceCompatibilityScanner.Result(
-                        projectSources.files(), java.util.List.of())
+                        projectSources.allFiles(), java.util.List.of())
                 : new com.jsrc.app.project.SourceCompatibilityScanner()
-                        .scan(projectSources.files(), projectModel, config);
-        var javaFiles = new ArrayList<>(compatibility.files());
-        compatibility.diagnostics().forEach(diagnostic -> System.err.printf(
+                        .scan(projectSources.allFiles(), projectModel, config);
+        var selectedPaths = new java.util.HashSet<>(projectSources.files());
+        boolean indexCommand = "index".equals(commandName);
+        var javaFiles = new ArrayList<>(compatibility.files().stream()
+                .filter(file -> indexCommand || selectedPaths.contains(file))
+                .toList());
+        var diagnostics = compatibility.diagnostics().stream()
+                .filter(diagnostic -> indexCommand || selectedPaths.contains(diagnostic.file()))
+                .toList();
+        diagnostics.forEach(diagnostic -> System.err.printf(
                 "%s: %s: %s%n",
                 diagnostic.code(), diagnostic.file(), diagnostic.message()));
 
         var sourceLevels = com.jsrc.app.project.SourceLevel.resolveFiles(
-                projectSources.files(), projectModel, config);
+                projectSources.allFiles(), projectModel, config);
+        com.jsrc.app.index.SourceSnapshot sourceSnapshot;
+        try {
+            Path configPath = globalOptions.configPath() == null
+                    || globalOptions.configPath().isBlank()
+                    ? null : Path.of(globalOptions.configPath());
+            sourceSnapshot = sourceIndependent ? null
+                    : com.jsrc.app.index.SourceSnapshot.capture(
+                            projectModel.root(), configPath, config,
+                            projectSources, compatibility.files());
+        } catch (java.io.IOException ex) {
+            throw new com.jsrc.app.exception.JsrcIOException(
+                    "Cannot capture source snapshot: " + ex.getMessage(), ex);
+        }
         var parser = new HybridJavaParser(sourceLevels);
         OutputFormatter formatter = OutputFormatter.create(
                 effectiveJson,
@@ -141,13 +161,14 @@ public class JsrcCommand implements Runnable {
                 budgetContext,
                 globalOptions.jsonProtocol(),
                 commandName,
-                compatibility.diagnostics());
-        var sourceSets = projectSources.sourceSets();
+                diagnostics);
+        var sourceSets = projectSources.allSourceSets();
         IndexedCodebase indexed = skipIndex != null
                 ? null
                 : IndexedCodebase.tryLoad(
                         projectModel.root(), javaFiles, globalOptions.frozenIndex(), sourceSets,
-                        sourceLevels, projectSources.files());
+                        sourceLevels, projectSources.allFiles(), compatibility.files(),
+                        sourceSnapshot);
 
         return new CommandContext(
                 javaFiles,
@@ -165,6 +186,7 @@ public class JsrcCommand implements Runnable {
                 projectModel,
                 globalOptions.sourceSets(),
                 sourceSets,
-                compatibility.diagnostics());
+                diagnostics,
+                sourceSnapshot);
     }
 }

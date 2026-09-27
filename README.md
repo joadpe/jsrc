@@ -402,7 +402,10 @@ The small `.jsrc/current` manifest selects the complete generation used by reade
 writers serialize publication with `.jsrc/index.lock` and replace the manifest
 atomically. The previous generation is retained for recovery while older ones
 are cleaned up. Legacy `.jsrc/index.bin`/JSON indexes are rebuilt on the next
-explicit `jsrc index` rather than reused as a trusted snapshot.
+normal index access or explicit `jsrc index`, never reused as trusted snapshots.
+Publication checks source hashes, the complete discovered file set, source
+levels and build configuration before switching the manifest. Query filters
+such as `--no-test` select a result view; they do not shrink the canonical index.
 
 ```bash
 jsrc index                    # First run: ~60s for 8K files

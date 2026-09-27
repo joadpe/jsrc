@@ -220,11 +220,18 @@ public class CodebaseIndex {
     public void saveWithGraph(Path projectRoot, com.jsrc.app.analysis.CallGraph callGraph,
                               java.util.Map<String, java.util.List<CachedMigration>> migrations,
                               boolean validateSources) throws IOException {
+        saveWithGraph(projectRoot, callGraph, migrations, validateSources, null);
+    }
+
+    public void saveWithGraph(Path projectRoot, com.jsrc.app.analysis.CallGraph callGraph,
+                              java.util.Map<String, java.util.List<CachedMigration>> migrations,
+                              boolean validateSources, SourceSnapshot sourceSnapshot) throws IOException {
         Path indexDir = projectRoot.resolve(INDEX_DIR);
         Files.createDirectories(indexDir);
 
         // Write unified V2 binary (primary format)
-        IndexSnapshotStore.publish(indexDir, entries, callGraph, migrations, validateSources);
+        IndexSnapshotStore.publish(indexDir, entries, callGraph, migrations,
+                validateSources, sourceSnapshot);
 
         // Clean up legacy files if they exist
         deleteLegacyFiles(indexDir);
@@ -329,6 +336,11 @@ public class CodebaseIndex {
     /** Returns the published binary path, or the legacy path during migration. */
     public static Path currentBinary(Path projectRoot) throws IOException {
         return IndexSnapshotStore.currentBinary(projectRoot);
+    }
+
+    /** Validates the published snapshot identity for a cached frozen reader. */
+    public static Path currentBinary(Path projectRoot, boolean checkGitTree) throws IOException {
+        return IndexSnapshotStore.currentBinary(projectRoot, checkGitTree);
     }
 
     /**

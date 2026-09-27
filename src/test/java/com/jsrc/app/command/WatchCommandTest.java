@@ -23,6 +23,115 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class WatchCommandTest {
 
+    @Test
+    void frozenWatchRejectsBranchSwitchAfterFirstCommand(@TempDir Path tempDir)
+            throws Exception {
+        Path source = createSimpleJavaFile(tempDir);
+        runGit(tempDir, "init", "-q", "-b", "main");
+        runGit(tempDir, "add", "App.java");
+        runGit(tempDir, "-c", "user.name=Test", "-c", "user.email=test@example.org",
+                "commit", "-qm", "main");
+        runGit(tempDir, "switch", "-qc", "feature");
+        Files.writeString(source, "class App { void changed() {} }");
+        runGit(tempDir, "add", "App.java");
+        runGit(tempDir, "-c", "user.name=Test", "-c", "user.email=test@example.org",
+                "commit", "-qm", "feature");
+        runGit(tempDir, "switch", "-q", "main");
+        assertEquals(0, com.jsrc.app.cli.JsrcCliFactory.create().execute(
+                "--dir", tempDir.toString(), "index"));
+
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var output = new ByteArrayOutputStream();
+        System.setIn(new ByteArrayInputStream(
+                "{\"command\":\"overview\"}\n{\"command\":\"overview\"}\n".getBytes()));
+        System.setOut(new PrintStream(output, true) {
+            private boolean switched;
+
+            @Override
+            public void println(String line) {
+                super.println(line);
+                if (!switched && line.startsWith("{")) {
+                    switched = true;
+                    try {
+                        runGit(tempDir, "switch", "-q", "feature");
+                    } catch (Exception ex) {
+                        throw new IllegalStateException(ex);
+                    }
+                }
+            }
+        });
+        try {
+            var context = new CommandContext(List.of(source), tempDir.toString(), null,
+                    OutputFormatter.create(true, false, null), null,
+                    new com.jsrc.app.parser.HybridJavaParser(), false, null,
+                    false, false, null, true);
+            new WatchCommand().execute(context);
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+        var responses = output.toString().lines().filter(line -> line.startsWith("{"))
+                .map(com.jsrc.app.output.JsonReader::parse).toList();
+        assertEquals(2, responses.size());
+        assertEquals(0, ((Number) ((Map<?, ?>) responses.get(0)).get("exit")).intValue());
+        assertNotEquals(0, ((Number) ((Map<?, ?>) responses.get(1)).get("exit")).intValue());
+    }
+
+    @Test
+    void frozenWatchRejectsReplacementDuringLoad(@TempDir Path tempDir) throws Exception {
+        Path source = createSimpleJavaFile(tempDir);
+        assertEquals(0, com.jsrc.app.cli.JsrcCliFactory.create().execute(
+                "--dir", tempDir.toString(), "index"));
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var output = new ByteArrayOutputStream();
+        System.setIn(new ByteArrayInputStream(
+                "{\"command\":\"overview\"}\n{\"command\":\"overview\"}\n".getBytes()));
+        System.setOut(new PrintStream(output, true));
+        try {
+            var context = new CommandContext(List.of(source), tempDir.toString(), null,
+                    OutputFormatter.create(true, false, null), null,
+                    new com.jsrc.app.parser.HybridJavaParser(), false, null,
+                    false, false, null, true);
+            new WatchCommand() {
+                private boolean replaced;
+
+                @Override
+                protected IndexedCodebase callTryLoad(Path root, List<Path> files,
+                                                      boolean frozenIndex) {
+                    IndexedCodebase loaded = super.callTryLoad(root, files, frozenIndex);
+                    if (!replaced) {
+                        replaced = true;
+                        try {
+                            new com.jsrc.app.index.CodebaseIndex(
+                                    com.jsrc.app.index.CodebaseIndex.loadPublished(root))
+                                    .saveWithGraph(root, null);
+                        } catch (IOException ex) {
+                            throw new java.io.UncheckedIOException(ex);
+                        }
+                    }
+                    return loaded;
+                }
+            }.execute(context);
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+        var responses = output.toString().lines().filter(line -> line.startsWith("{"))
+                .map(com.jsrc.app.output.JsonReader::parse).toList();
+        assertEquals(2, responses.size());
+        assertNotEquals(0, ((Number) ((Map<?, ?>) responses.get(0)).get("exit")).intValue());
+    }
+
+    private static void runGit(Path root, String... args) throws Exception {
+        var command = new java.util.ArrayList<String>(List.of("git", "-C", root.toString()));
+        command.addAll(List.of(args));
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+        String output = new String(process.getInputStream().readAllBytes());
+        assertEquals(0, process.waitFor(), output);
+    }
+
     private static final AtomicInteger tryLoadCounter = new AtomicInteger(0);
 
     /**

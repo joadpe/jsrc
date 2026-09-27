@@ -59,7 +59,7 @@ public class IndexCommand implements Command {
                         .toList());
             }
 
-            index.saveWithGraph(root, callGraph, migrations, true);
+            index.saveWithGraph(root, callGraph, migrations, true, ctx.sourceSnapshot());
             System.err.printf("Done. Indexed %d files (%d re-indexed, %d cached).%n",
                     ctx.javaFiles().size(), reindexed, ctx.javaFiles().size() - reindexed);
         } catch (IOException ex) {

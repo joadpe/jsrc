@@ -52,16 +52,18 @@ public final class ProjectSourceDiscovery {
                             : current));
             files = filterExcludes(files, config.excludes());
         }
-        List<DiscoveredSource> sources = files.stream()
+        List<DiscoveredSource> allSources = files.stream()
                 .distinct()
                 .sorted()
                 .map(file -> new DiscoveredSource(
                         file, sourceSets.getOrDefault(file.normalize(), SourceSet.UNKNOWN)))
+                .toList();
+        List<DiscoveredSource> sources = allSources.stream()
                 .filter(source -> includedSourceSets.isEmpty()
                         || includedSourceSets.contains(source.sourceSet()))
                 .filter(source -> !excludeTests || !source.sourceSet().isTest())
                 .toList();
-        return new Result(model, sources);
+        return new Result(model, sources, allSources);
     }
 
     private List<Path> addConfiguredRoots(
@@ -94,17 +96,32 @@ public final class ProjectSourceDiscovery {
     }
 
     /** Canonical model and source files produced by one discovery pass. */
-    public record Result(ProjectModel model, List<DiscoveredSource> sources) {
+    public record Result(ProjectModel model, List<DiscoveredSource> sources,
+                         List<DiscoveredSource> allSources) {
         public Result {
             sources = List.copyOf(sources);
+            allSources = List.copyOf(allSources);
+        }
+
+        public Result(ProjectModel model, List<DiscoveredSource> sources) {
+            this(model, sources, sources);
         }
 
         public List<Path> files() {
             return sources.stream().map(DiscoveredSource::path).toList();
         }
 
+        public List<Path> allFiles() {
+            return allSources.stream().map(DiscoveredSource::path).toList();
+        }
+
         public java.util.Map<Path, SourceSet> sourceSets() {
             return sources.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                    DiscoveredSource::path, DiscoveredSource::sourceSet));
+        }
+
+        public java.util.Map<Path, SourceSet> allSourceSets() {
+            return allSources.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
                     DiscoveredSource::path, DiscoveredSource::sourceSet));
         }
     }

@@ -23,6 +23,89 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class IndexSnapshotStoreTest {
 
     @Test
+    void filteredQueryDoesNotReplaceCanonicalGeneration(@TempDir Path projectRoot)
+            throws Exception {
+        Path main = projectRoot.resolve("src/main/java/Main.java");
+        Path test = projectRoot.resolve("src/test/java/MainTest.java");
+        Files.createDirectories(main.getParent());
+        Files.createDirectories(test.getParent());
+        Files.writeString(main, "class Main {}");
+        Files.writeString(test, "class MainTest {}");
+        assertEquals(0, com.jsrc.app.cli.JsrcCliFactory.create().execute(
+                "--dir", projectRoot.toString(), "index"));
+
+        assertEquals(0, com.jsrc.app.cli.JsrcCliFactory.create().execute(
+                "--dir", projectRoot.toString(), "--no-test", "overview"));
+
+        assertEquals(java.util.Set.of("src/main/java/Main.java", "src/test/java/MainTest.java"),
+                CodebaseIndex.loadPublished(projectRoot).stream()
+                        .map(IndexEntry::path).collect(java.util.stream.Collectors.toSet()));
+    }
+
+    @Test
+    void splitLegacyJsonIsRebuiltEvenWhenHashesMatch(@TempDir Path projectRoot)
+            throws Exception {
+        Path source = projectRoot.resolve("A.java");
+        Files.writeString(source, "class A { void current() {} }");
+        var entry = new IndexEntry("A.java",
+                com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(source)),
+                0L, SourceSet.UNKNOWN, List.of(), List.of(), List.of(), 0);
+        new CodebaseIndex(List.of(entry)).save(projectRoot);
+        assertTrue(Files.exists(projectRoot.resolve(".jsrc/classes.json")));
+
+        var rebuilt = IndexedCodebase.tryLoad(projectRoot, List.of(source), false);
+
+        assertNotNull(rebuilt);
+        assertTrue(Files.isRegularFile(projectRoot.resolve(".jsrc/current")));
+        assertTrue(!rebuilt.getAllClasses().isEmpty());
+    }
+
+    @Test
+    void addedSourceBeforePublicationRejectsIncompleteGeneration(@TempDir Path projectRoot)
+            throws Exception {
+        Path source = projectRoot.resolve("A.java");
+        Files.writeString(source, "class A {}");
+        var discovery = new com.jsrc.app.project.ProjectSourceDiscovery()
+                .discover(projectRoot, null);
+        var snapshot = SourceSnapshot.capture(projectRoot, null, null,
+                discovery, discovery.allFiles());
+        var entry = new IndexEntry("A.java",
+                com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(source)),
+                0L, SourceSet.UNKNOWN, List.of(), List.of(), List.of(), 0);
+        Files.writeString(projectRoot.resolve("B.java"), "class B {}");
+
+        assertThrows(IOException.class, () -> new CodebaseIndex(List.of(entry))
+                .saveWithGraph(projectRoot, null, null, true, snapshot));
+        assertTrue(Files.notExists(projectRoot.resolve(".jsrc/current")));
+    }
+
+    @Test
+    void buildLevelChangeBeforePublicationRejectsGeneration(@TempDir Path projectRoot)
+            throws Exception {
+        Path source = projectRoot.resolve("src/main/java/A.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, "class A {}");
+        Path pom = projectRoot.resolve("pom.xml");
+        String template = "<project><modelVersion>4.0.0</modelVersion>"
+                + "<groupId>test</groupId><artifactId>sample</artifactId><version>1</version>"
+                + "<properties><maven.compiler.release>%s</maven.compiler.release>"
+                + "</properties></project>";
+        Files.writeString(pom, template.formatted("8"));
+        var discovery = new com.jsrc.app.project.ProjectSourceDiscovery()
+                .discover(projectRoot, null);
+        var snapshot = SourceSnapshot.capture(projectRoot, null, null,
+                discovery, discovery.allFiles());
+        var entry = new IndexEntry("src/main/java/A.java",
+                com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(source)),
+                0L, SourceSet.MAIN, List.of(), List.of(), List.of(), 8);
+        Files.writeString(pom, template.formatted("17"));
+
+        assertThrows(IOException.class, () -> new CodebaseIndex(List.of(entry))
+                .saveWithGraph(projectRoot, null, null, true, snapshot));
+        assertTrue(Files.notExists(projectRoot.resolve(".jsrc/current")));
+    }
+
+    @Test
     void publishedIndexIsAuthorityEvenWhenLegacyJsonExists(@TempDir Path projectRoot)
             throws Exception {
         var entry = new IndexEntry("A.java", "hash", 0L, SourceSet.UNKNOWN,

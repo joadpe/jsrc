@@ -84,8 +84,15 @@ final class IndexSnapshotStore {
     static void publish(Path indexDir, List<IndexEntry> entries, CallGraph graph,
                         Map<String, List<CachedMigration>> migrations,
                         boolean validateSources) throws IOException {
+        publish(indexDir, entries, graph, migrations, validateSources, null);
+    }
+
+    static void publish(Path indexDir, List<IndexEntry> entries, CallGraph graph,
+                        Map<String, List<CachedMigration>> migrations,
+                        boolean validateSources, SourceSnapshot sourceSnapshot) throws IOException {
         withWriterLock(indexDir, locked ->
-                publishLocked(locked, entries, graph, migrations, validateSources));
+                publishLocked(locked, entries, graph, migrations, validateSources,
+                        sourceSnapshot));
     }
 
     static void updateSmells(Path projectRoot, List<IndexEntry> updates) throws IOException {
@@ -116,7 +123,7 @@ final class IndexSnapshotStore {
             }
             if (changed) {
                 publishLocked(locked, merged, snapshot.callGraph(),
-                        snapshot.migrations(), true);
+                        snapshot.migrations(), true, null);
             }
         });
     }
@@ -176,7 +183,8 @@ final class IndexSnapshotStore {
 
     private static void publishLocked(Path indexDir, List<IndexEntry> entries, CallGraph graph,
                                       Map<String, List<CachedMigration>> migrations,
-                                      boolean validateSources) throws IOException {
+                                      boolean validateSources,
+                                      SourceSnapshot sourceSnapshot) throws IOException {
         Path generations = indexDir.resolve("generations");
         Files.createDirectories(generations);
         String previous = "-";
@@ -202,6 +210,9 @@ final class IndexSnapshotStore {
             BinaryIndexV2Reader.read(binary);
             if (validateSources) {
                 verifySources(indexDir.getParent(), entries);
+            }
+            if (sourceSnapshot != null) {
+                sourceSnapshot.verify(entries);
             }
 
             String manifest = MANIFEST_VERSION + "\n" + generation + "\n"

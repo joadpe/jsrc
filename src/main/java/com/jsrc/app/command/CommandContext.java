@@ -37,6 +37,7 @@ public final class CommandContext {
     private final java.util.Set<com.jsrc.app.project.SourceSet> sourceSets;
     private final java.util.Map<Path, com.jsrc.app.project.SourceSet> fileSourceSets;
     private final List<com.jsrc.app.project.SourceDiagnostic> sourceDiagnostics;
+    private final com.jsrc.app.index.SourceSnapshot sourceSnapshot;
 
     private CallGraph callGraphCache;
     private DependencyAnalyzer dependencyAnalyzerCache;
@@ -120,6 +121,20 @@ public final class CommandContext {
                           java.util.Set<com.jsrc.app.project.SourceSet> sourceSets,
                           java.util.Map<Path, com.jsrc.app.project.SourceSet> fileSourceSets,
                           List<com.jsrc.app.project.SourceDiagnostic> sourceDiagnostics) {
+        this(javaFiles, rootPath, config, formatter, indexed, parser, mdOutput, outDir,
+                fullOutput, noTest, budgetContext, frozenIndex, projectModel, sourceSets,
+                fileSourceSets, sourceDiagnostics, null);
+    }
+
+    public CommandContext(List<Path> javaFiles, String rootPath, ProjectConfig config,
+                          OutputFormatter formatter, IndexedCodebase indexed, CodeParser parser,
+                          boolean mdOutput, String outDir, boolean fullOutput, boolean noTest,
+                          com.jsrc.app.cli.BudgetContext budgetContext, boolean frozenIndex,
+                          com.jsrc.app.project.ProjectModel projectModel,
+                          java.util.Set<com.jsrc.app.project.SourceSet> sourceSets,
+                          java.util.Map<Path, com.jsrc.app.project.SourceSet> fileSourceSets,
+                          List<com.jsrc.app.project.SourceDiagnostic> sourceDiagnostics,
+                          com.jsrc.app.index.SourceSnapshot sourceSnapshot) {
         this.javaFiles = javaFiles;
         this.rootPath = rootPath;
         this.config = config;
@@ -136,6 +151,7 @@ public final class CommandContext {
         this.sourceSets = java.util.Set.copyOf(sourceSets);
         this.fileSourceSets = java.util.Map.copyOf(fileSourceSets);
         this.sourceDiagnostics = List.copyOf(sourceDiagnostics);
+        this.sourceSnapshot = sourceSnapshot;
     }
 
     public List<Path> javaFiles() { return javaFiles; }
@@ -158,6 +174,7 @@ public final class CommandContext {
     public List<com.jsrc.app.project.SourceDiagnostic> sourceDiagnostics() {
         return sourceDiagnostics;
     }
+    public com.jsrc.app.index.SourceSnapshot sourceSnapshot() { return sourceSnapshot; }
 
     public com.jsrc.app.project.SourceSet sourceSet(Path file) {
         return fileSourceSets.getOrDefault(

@@ -118,6 +118,46 @@ public class IndexedCodebase {
             Map<Path, com.jsrc.app.project.SourceSet> sourceSets,
             Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels,
             List<Path> discoveredFiles) {
+        return tryLoad(sourceRoot, currentFiles, frozenIndex, sourceSets, sourceLevels,
+                discoveredFiles, currentFiles, null, false);
+    }
+
+    /** Refreshes the complete canonical snapshot, then selects the requested view. */
+    public static IndexedCodebase tryLoad(
+            Path sourceRoot,
+            List<Path> currentFiles,
+            boolean frozenIndex,
+            Map<Path, com.jsrc.app.project.SourceSet> sourceSets,
+            Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels,
+            List<Path> discoveredFiles,
+            List<Path> canonicalFiles) {
+        return tryLoad(sourceRoot, currentFiles, frozenIndex, sourceSets, sourceLevels,
+                discoveredFiles, canonicalFiles, null);
+    }
+
+    public static IndexedCodebase tryLoad(
+            Path sourceRoot,
+            List<Path> currentFiles,
+            boolean frozenIndex,
+            Map<Path, com.jsrc.app.project.SourceSet> sourceSets,
+            Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels,
+            List<Path> discoveredFiles,
+            List<Path> canonicalFiles,
+            SourceSnapshot sourceSnapshot) {
+        return tryLoad(sourceRoot, currentFiles, frozenIndex, sourceSets, sourceLevels,
+                discoveredFiles, canonicalFiles, sourceSnapshot, true);
+    }
+
+    private static IndexedCodebase tryLoad(
+            Path sourceRoot,
+            List<Path> currentFiles,
+            boolean frozenIndex,
+            Map<Path, com.jsrc.app.project.SourceSet> sourceSets,
+            Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels,
+            List<Path> discoveredFiles,
+            List<Path> canonicalFiles,
+            SourceSnapshot sourceSnapshot,
+            boolean filterView) {
         Path v2File = sourceRoot.resolve(".jsrc/index.bin");
         IOException snapshotFailure = null;
         try {
@@ -127,8 +167,9 @@ public class IndexedCodebase {
         }
         if (!frozenIndex && snapshotFailure == null
                 && !Files.exists(sourceRoot.resolve(".jsrc/current"))
-                && (Files.exists(v2File)
-                    || Files.exists(sourceRoot.resolve(".jsrc/index.json")))) {
+                && java.util.stream.Stream.of("index.bin", "index.json", "classes.json",
+                        "classes.bin", "edges.json", "smells.json")
+                        .anyMatch(name -> Files.exists(sourceRoot.resolve(".jsrc").resolve(name)))) {
             snapshotFailure = new IOException("Legacy index has no snapshot identity");
         }
         
@@ -150,8 +191,9 @@ public class IndexedCodebase {
                 BinaryIndexV2Reader.LazyIndexData lazyData =
                         IndexSnapshotStore.readCurrent(sourceRoot, true);
                 List<IndexEntry> persistedEntries = lazyData.getData().entries();
-                List<IndexEntry> entries = selectEntries(
-                        sourceRoot, currentFiles, persistedEntries);
+                List<IndexEntry> entries = (filterView || frozenIndex)
+                        ? selectEntries(sourceRoot, currentFiles, persistedEntries)
+                        : persistedEntries;
                 Set<Path> discovered = discoveredFiles.stream()
                         .map(path -> path.toAbsolutePath().normalize())
                         .collect(java.util.stream.Collectors.toUnmodifiableSet());
@@ -211,7 +253,8 @@ public class IndexedCodebase {
                 forceRefresh = true;
             }
         } else {
-            existing = CodebaseIndex.loadClassesOnly(sourceRoot);
+            // Legacy JSON has no publication identity, even when its hashes match.
+            existing = List.of();
         }
         if (!existing.isEmpty() && lazyData == null
                 && !CodebaseIndex.hasCurrentSplitCallEdgeSchema(sourceRoot)) {
@@ -230,9 +273,9 @@ public class IndexedCodebase {
         var updatedIndex = new CodebaseIndex();
         List<IndexEntry> incrementalBase = forceRefresh ? List.of() : existing;
         int reindexed = updatedIndex.build(
-                parser, currentFiles, sourceRoot, incrementalBase, List.of(), sourceSets,
+                parser, canonicalFiles, sourceRoot, incrementalBase, List.of(), sourceSets,
                 sourceLevels);
-        if (updatedIndex.getEntries().size() != currentFiles.size()) {
+        if (updatedIndex.getEntries().size() != canonicalFiles.size()) {
             throw new com.jsrc.app.exception.JsrcIOException(
                     "Source set changed while refreshing index; retry the command.");
         }
@@ -268,7 +311,8 @@ public class IndexedCodebase {
                 var builder = new com.jsrc.app.analysis.CallGraphBuilder();
                 builder.loadFromIndex(refreshed);
                 var graphForSave = builder.toCallGraph();
-                updatedIndex.saveWithGraph(sourceRoot, graphForSave, loadedMigrations, true);
+                updatedIndex.saveWithGraph(sourceRoot, graphForSave, loadedMigrations,
+                        true, sourceSnapshot);
                 
                 // Re-read the generation just published, not the previous one.
                 v2File = IndexSnapshotStore.currentBinary(sourceRoot);
@@ -296,13 +340,16 @@ public class IndexedCodebase {
             logger.info("Index up-to-date: {} entries", refreshed.size());
         }
 
-        var indexed = new IndexedCodebase(refreshed);
+        List<IndexEntry> visible = filterView
+                ? selectEntries(sourceRoot, currentFiles, refreshed) : refreshed;
+        var indexed = new IndexedCodebase(visible);
         indexed.sourceRoot = sourceRoot;
-        indexed.edgesLoaded = refreshed.stream().anyMatch(e -> !e.callEdges().isEmpty());
-        indexed.smellsLoaded = refreshed.stream().anyMatch(e -> !e.smells().isEmpty());
-        indexed.preBuiltCallGraph = preBuiltGraph;
-        indexed.lazyIndexData = sameEntries(existing, refreshed) ? lazyData : null;
-        indexed.migrationCache = selectMigrations(refreshed, loadedMigrations);
+        indexed.edgesLoaded = visible.stream().anyMatch(e -> !e.callEdges().isEmpty());
+        indexed.smellsLoaded = visible.stream().anyMatch(e -> !e.smells().isEmpty());
+        indexed.preBuiltCallGraph = sameEntries(visible, refreshed) ? preBuiltGraph : null;
+        indexed.lazyIndexData = sameEntries(existing, refreshed)
+                && sameEntries(visible, refreshed) ? lazyData : null;
+        indexed.migrationCache = selectMigrations(visible, loadedMigrations);
         return indexed;
     }
 

@@ -39,12 +39,18 @@ public class WatchCommand implements Command {
     private java.util.Map<Path, com.jsrc.app.project.SourceSet> pendingSourceSets = java.util.Map.of();
     private java.util.Map<Path, com.jsrc.app.project.SourceLevel> pendingSourceLevels = java.util.Map.of();
     private List<Path> pendingDiscoveredFiles = List.of();
+    private List<Path> pendingCanonicalFiles = List.of();
+    private com.jsrc.app.index.SourceSnapshot pendingSourceSnapshot;
+    private Path activeConfigPath;
+    private Path frozenBinary;
     private List<com.jsrc.app.project.SourceDiagnostic> currentDiagnostics = List.of();
     private List<Path> cachedAcceptedFiles = List.of();
     private List<com.jsrc.app.project.SourceDiagnostic> cachedDiagnostics = List.of();
 
     @Override
     public int execute(CommandContext ctx) {
+        activeConfigPath = ctx.sourceSnapshot() == null
+                ? null : ctx.sourceSnapshot().configPath();
         System.err.println("jsrc watch mode started. Send JSON commands on stdin. {\"command\":\"quit\"} to exit.");
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
@@ -235,12 +241,36 @@ public class WatchCommand implements Command {
             java.util.Map<Path, com.jsrc.app.project.SourceSet> existingSourceSets) {
         // Frozen mode: never refresh, load once and cache forever
         if (frozenIndex) {
+            Path currentBinary;
+            try {
+                currentBinary = com.jsrc.app.index.CodebaseIndex.currentBinary(root, true);
+            } catch (IOException ex) {
+                throw new com.jsrc.app.exception.JsrcIOException(
+                        "--frozen-index snapshot is no longer valid: " + ex.getMessage(), ex);
+            }
             if (cached != null) {
+                if (!currentBinary.equals(frozenBinary)) {
+                    throw new com.jsrc.app.exception.JsrcIOException(
+                            "--frozen-index snapshot changed during watch; restart watch");
+                }
                 return new RefreshResult(cached, files, existingModel, existingSourceSets);
             }
+            IndexedCodebase loaded = callTryLoadWithSourceLevels(
+                    root, files, files, files, frozenIndex,
+                    existingSourceSets, existingModel, config);
+            try {
+                if (!currentBinary.equals(
+                        com.jsrc.app.index.CodebaseIndex.currentBinary(root, true))) {
+                    throw new com.jsrc.app.exception.JsrcIOException(
+                            "--frozen-index snapshot changed during watch; restart watch");
+                }
+            } catch (IOException ex) {
+                throw new com.jsrc.app.exception.JsrcIOException(
+                        "--frozen-index snapshot is no longer valid: " + ex.getMessage(), ex);
+            }
+            frozenBinary = currentBinary;
             return new RefreshResult(
-                    callTryLoadWithSourceLevels(root, files, files, frozenIndex,
-                            existingSourceSets, existingModel, config),
+                    loaded,
                     files,
                     existingModel,
                     existingSourceSets);
@@ -248,7 +278,7 @@ public class WatchCommand implements Command {
         
         // Normal mode: rediscover files on each stamp check (detect create/delete/rename)
         var projectSources = discoverJavaFiles(root, config, sourceSets, excludeTests);
-        IndexStamp currentStamp = computeStamp(root, projectSources.files(),
+        IndexStamp currentStamp = computeStamp(root, projectSources.allFiles(),
                 projectSources.model(), config);
 
         if (lastStamp != null && lastStamp.equals(currentStamp)) {
@@ -261,14 +291,25 @@ public class WatchCommand implements Command {
         }
 
         var compatibility = scanSources(
-                projectSources.files(), projectSources.model(), config);
-        currentDiagnostics = compatibility.diagnostics();
+                projectSources.allFiles(), projectSources.model(), config);
+        var selectedPaths = new java.util.HashSet<>(projectSources.files());
+        currentDiagnostics = compatibility.diagnostics().stream()
+                .filter(diagnostic -> selectedPaths.contains(diagnostic.file()))
+                .toList();
         cachedDiagnostics = currentDiagnostics;
-        List<Path> freshFiles = compatibility.files();
+        List<Path> freshFiles = compatibility.files().stream()
+                .filter(selectedPaths::contains).toList();
         cachedAcceptedFiles = freshFiles;
-        var fileSourceSets = projectSources.sourceSets();
+        var fileSourceSets = projectSources.allSourceSets();
+        try {
+            pendingSourceSnapshot = com.jsrc.app.index.SourceSnapshot.capture(
+                    root, activeConfigPath, config, projectSources, compatibility.files());
+        } catch (IOException ex) {
+            throw new com.jsrc.app.exception.JsrcIOException(
+                    "Cannot capture watch source snapshot: " + ex.getMessage(), ex);
+        }
         IndexedCodebase refreshed = callTryLoadWithSourceLevels(
-                root, freshFiles, projectSources.files(), frozenIndex,
+                root, freshFiles, projectSources.allFiles(), compatibility.files(), frozenIndex,
                 fileSourceSets, projectSources.model(), config);
         lastStamp = new IndexStamp(
                 indexMtime(root), currentStamp.files(), currentStamp.sourceVersions());
@@ -303,21 +344,27 @@ public class WatchCommand implements Command {
     protected IndexedCodebase callTryLoad(Path root, List<Path> files, boolean frozenIndex) {
         return IndexedCodebase.tryLoad(root, files, frozenIndex, pendingSourceSets,
                 pendingSourceLevels, pendingDiscoveredFiles.isEmpty()
-                        ? files : pendingDiscoveredFiles);
+                        ? files : pendingDiscoveredFiles,
+                pendingCanonicalFiles.isEmpty() ? files : pendingCanonicalFiles,
+                pendingSourceSnapshot);
     }
 
     private IndexedCodebase callTryLoadWithSourceLevels(
-            Path root, List<Path> files, List<Path> discoveredFiles, boolean frozenIndex,
+            Path root, List<Path> files, List<Path> discoveredFiles,
+            List<Path> canonicalFiles, boolean frozenIndex,
             java.util.Map<Path, com.jsrc.app.project.SourceSet> sourceSets,
             ProjectModel model, com.jsrc.app.config.ProjectConfig config) {
         pendingSourceLevels = com.jsrc.app.project.SourceLevel.resolveFiles(
                 discoveredFiles, model, config);
         pendingDiscoveredFiles = discoveredFiles;
+        pendingCanonicalFiles = canonicalFiles;
         try {
             return callTryLoad(root, files, frozenIndex, sourceSets);
         } finally {
             pendingSourceLevels = java.util.Map.of();
             pendingDiscoveredFiles = List.of();
+            pendingCanonicalFiles = List.of();
+            pendingSourceSnapshot = null;
         }
     }
 

@@ -115,6 +115,11 @@ final class IndexSnapshotStore {
     }
 
     static void updateSmells(Path projectRoot, List<IndexEntry> updates) throws IOException {
+        updateSmells(projectRoot, updates, null);
+    }
+
+    static void updateSmells(Path projectRoot, List<IndexEntry> updates,
+                             SourceSnapshot sourceSnapshot) throws IOException {
         Path indexDir = projectRoot.resolve(".jsrc");
         withWriterLock(indexDir, locked -> {
             if (!Files.isRegularFile(locked.resolve("current"))) {
@@ -141,10 +146,21 @@ final class IndexSnapshotStore {
                 }
             }
             if (changed) {
+                SourceSnapshot baseline = sourceSnapshot == null
+                        ? captureCurrentSources(projectRoot) : sourceSnapshot;
                 publishLocked(locked, merged, snapshot.callGraph(),
-                        snapshot.migrations(), true, null, NOOP_PROBE);
+                        snapshot.migrations(), true, baseline, NOOP_PROBE);
             }
         });
+    }
+
+    private static SourceSnapshot captureCurrentSources(Path projectRoot) throws IOException {
+        var config = com.jsrc.app.config.ProjectConfig.load(projectRoot).orElse(null);
+        var sources = new com.jsrc.app.project.ProjectSourceDiscovery()
+                .discover(projectRoot, config);
+        var accepted = new com.jsrc.app.project.SourceCompatibilityScanner()
+                .scan(sources.allFiles(), sources.model(), config).files();
+        return SourceSnapshot.capture(projectRoot, null, config, sources, accepted);
     }
 
     @FunctionalInterface

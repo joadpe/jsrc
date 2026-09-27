@@ -23,6 +23,45 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class IndexSnapshotStoreTest {
 
     @Test
+    void smellCacheCannotPublishAfterSourceSetGrows(@TempDir Path projectRoot)
+            throws Exception {
+        Path source = projectRoot.resolve("A.java");
+        Files.writeString(source, "class A {}");
+        var entry = new IndexEntry("A.java",
+                com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(source)),
+                0L, SourceSet.UNKNOWN, List.of(), List.of(), List.of(), 0);
+        new CodebaseIndex(List.of(entry)).saveWithGraph(projectRoot, null);
+        String before = Files.readString(projectRoot.resolve(".jsrc/current"));
+        Files.writeString(projectRoot.resolve("B.java"), "class B {}");
+        var update = entry.withSmells(List.of(new CachedSmell(
+                "TEST", "INFO", 1, "", "A", "example")));
+
+        assertThrows(IOException.class,
+                () -> IndexSnapshotStore.updateSmells(projectRoot, List.of(update)));
+        assertEquals(before, Files.readString(projectRoot.resolve(".jsrc/current")));
+        assertTrue(CodebaseIndex.loadPublished(projectRoot).getFirst().smells().isEmpty());
+    }
+
+    @Test
+    void frozenSmellQueryDoesNotPublishCache(@TempDir Path projectRoot) throws Exception {
+        Path source = projectRoot.resolve("A.java");
+        Files.writeString(source, "class A { void many(int a, int b, int c, int d, "
+                + "int e, int f) {} }");
+        var index = new CodebaseIndex();
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(source), projectRoot, List.of());
+        index.saveWithGraph(projectRoot, null);
+        assertTrue(CodebaseIndex.loadPublished(projectRoot).getFirst().smells().isEmpty());
+        String before = Files.readString(projectRoot.resolve(".jsrc/current"));
+
+        com.jsrc.app.cli.JsrcCliFactory.create().execute(
+                "--dir", projectRoot.toString(), "--frozen-index", "smells", "--all");
+
+        assertEquals(before, Files.readString(projectRoot.resolve(".jsrc/current")));
+        assertTrue(CodebaseIndex.loadPublished(projectRoot).getFirst().smells().isEmpty());
+    }
+
+    @Test
     void killedWriterNeverExposesPartialGeneration(@TempDir Path tempDir) throws Exception {
         Path java = Path.of(System.getProperty("java.home"), "bin", "java");
         for (IndexSnapshotStore.PublicationPhase phase

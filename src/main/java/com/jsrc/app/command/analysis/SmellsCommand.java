@@ -101,7 +101,7 @@ public class SmellsCommand implements Command {
         List<Map<String, Object>> allFindings = new java.util.ArrayList<>();
         Map<String, Integer> bySeverity = new java.util.LinkedHashMap<>();
         Map<String, Integer> byRule = new java.util.LinkedHashMap<>();
-        boolean shouldPersist = ctx.indexed() != null;
+        boolean shouldPersist = ctx.indexed() != null && !ctx.frozenIndex();
         int filesWithSmells = 0;
 
         for (Path file : ctx.javaFiles()) {

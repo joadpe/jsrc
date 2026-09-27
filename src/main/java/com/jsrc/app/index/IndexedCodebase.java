@@ -39,6 +39,7 @@ public class IndexedCodebase {
     private java.util.Map<String, IndexedClass> classLookup; // lazy O(1) class lookup
     private java.util.Map<String, String> classToPath; // lazy O(1) class→file path
     private java.util.Map<String, List<CachedMigration>> migrationCache; // path → migrations
+    private SourceSnapshot sourceSnapshot;
 
     private IndexedCodebase(List<IndexEntry> entries) {
         this.entries = new ArrayList<>(entries);
@@ -221,6 +222,7 @@ public class IndexedCodebase {
                 indexed.preBuiltCallGraph = null; // Keep lazy until ensureGraph
                 indexed.lazyIndexData = sameEntries(persistedEntries, entries) ? lazyData : null;
                 indexed.migrationCache = selectMigrations(entries, loadedMigrations);
+                indexed.sourceSnapshot = sourceSnapshot;
                 return indexed;
             } catch (IOException e) {
                 throw new com.jsrc.app.exception.JsrcIOException(
@@ -350,6 +352,7 @@ public class IndexedCodebase {
         indexed.lazyIndexData = sameEntries(existing, refreshed)
                 && sameEntries(visible, refreshed) ? lazyData : null;
         indexed.migrationCache = selectMigrations(visible, loadedMigrations);
+        indexed.sourceSnapshot = sourceSnapshot;
         return indexed;
     }
 
@@ -720,7 +723,7 @@ public class IndexedCodebase {
     /** Persists the index (with cached smells) to disk. */
     public void save(java.nio.file.Path projectRoot) {
         try {
-            IndexSnapshotStore.updateSmells(projectRoot, entries);
+            IndexSnapshotStore.updateSmells(projectRoot, entries, sourceSnapshot);
         } catch (Exception e) {
             logger.warn("Failed to persist cached smells: {}", e.getMessage());
         }

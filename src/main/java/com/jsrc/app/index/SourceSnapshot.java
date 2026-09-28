@@ -71,7 +71,10 @@ public record SourceSnapshot(
             SourceLevel level = sourceLevels.get(file);
             if (entry.sourceSet() != sourceSets.get(file)
                     || entry.sourceVersion() != (level == null ? 0 : level.version())) {
-                throw new IOException("Source metadata changed while indexing: " + entry.path());
+                throw new IOException("Source metadata changed while indexing: "
+                        + entry.path() + " (source set " + entry.sourceSet() + " vs "
+                        + sourceSets.get(file) + ", Java " + entry.sourceVersion()
+                        + " vs " + (level == null ? 0 : level.version()) + ")");
             }
         }
     }

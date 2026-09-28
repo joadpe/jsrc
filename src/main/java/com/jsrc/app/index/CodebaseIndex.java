@@ -91,6 +91,7 @@ public class CodebaseIndex {
                      List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers,
                      Map<Path, com.jsrc.app.project.SourceSet> sourceSets,
                      Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels) {
+        long buildStarted = System.nanoTime();
         Map<String, IndexEntry> existingByPath = new LinkedHashMap<>();
         for (IndexEntry e : existing) {
             existingByPath.put(e.path(), e);
@@ -111,9 +112,11 @@ public class CodebaseIndex {
             var sourceSet = sourceSets.getOrDefault(
                     file, com.jsrc.app.project.SourceSet.UNKNOWN);
             try {
+                long hashStarted = System.nanoTime();
                 byte[] content = Files.readAllBytes(file);
                 String hash = com.jsrc.app.util.Hashing.sha256(content);
                 long lastModified = Files.getLastModifiedTime(file).toMillis();
+                IndexPhaseMetrics.recordPhase("build.hash_read", hashStarted);
 
                 IndexEntry prev = existingByPath.get(relativePath);
                 int sourceVersion = sourceLevels.containsKey(file)
@@ -128,6 +131,7 @@ public class CodebaseIndex {
                 }
 
                 // Need to re-index
+                long parseStarted = System.nanoTime();
                 List<ClassInfo> classes = parser.parseClasses(file);
 
                 // Extract imports from file for return type resolution
@@ -158,6 +162,7 @@ public class CodebaseIndex {
                         relativePath, hash, lastModified, sourceSet,
                         indexed, edges, List.of(), sourceVersion));
                 reindexed++;
+                IndexPhaseMetrics.recordPhase("build.parse_extract", parseStarted);
             } catch (IOException ex) {
                 logger.error("Error indexing {}: {}", file, ex.getMessage());
             }
@@ -167,6 +172,7 @@ public class CodebaseIndex {
                 || reindexed > 0
                 || !invokers.isEmpty();
         if (semanticRefreshRequired && !unchangedFiles.isEmpty()) {
+            long refreshEdgesStarted = System.nanoTime();
             for (int index = 0; index < entries.size(); index++) {
                 IndexEntry entry = entries.get(index);
                 Path file = unchangedFiles.get(entry.path());
@@ -180,14 +186,19 @@ public class CodebaseIndex {
                 }
                 entries.set(index, entry.withEdges(edges));
             }
+            IndexPhaseMetrics.recordPhase("build.refresh_unchanged_edges", refreshEdgesStarted);
         }
 
         if (semanticRefreshRequired) {
+            long resolveStarted = System.nanoTime();
             // Resolve raw edges only when sources or the type universe changed.
             edgeResolver.resolveMarkers(entries);
             edgeResolver.resolveSymbols(entries);
+            IndexPhaseMetrics.recordPhase("build.resolve", resolveStarted);
         }
 
+        IndexPhaseMetrics.countPhase("build.reindexed", reindexed);
+        IndexPhaseMetrics.recordPhase("build.total", buildStarted);
         return reindexed;
     }
 

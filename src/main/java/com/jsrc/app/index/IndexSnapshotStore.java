@@ -170,6 +170,7 @@ final class IndexSnapshotStore {
 
     private static void withWriterLock(Path indexDir, LockedOperation operation)
             throws IOException {
+        long waitStarted = System.nanoTime();
         Path canonicalDir = indexDir.toAbsolutePath().normalize();
         ReentrantLock jvmLock = JVM_LOCKS.computeIfAbsent(canonicalDir,
                 ignored -> new ReentrantLock());
@@ -186,7 +187,13 @@ final class IndexSnapshotStore {
             try (FileChannel channel = FileChannel.open(canonicalDir.resolve("index.lock"),
                     StandardOpenOption.CREATE, StandardOpenOption.WRITE);
                  FileLock ignored = acquireFileLock(channel)) {
-                operation.run(canonicalDir);
+                IndexPhaseMetrics.recordPhase("writer.lock_wait", waitStarted);
+                long holdStarted = System.nanoTime();
+                try {
+                    operation.run(canonicalDir);
+                } finally {
+                    IndexPhaseMetrics.recordPhase("writer.lock_hold", holdStarted);
+                }
             }
         } finally {
             jvmLock.unlock();
@@ -221,6 +228,7 @@ final class IndexSnapshotStore {
                                       boolean validateSources,
                                       SourceSnapshot sourceSnapshot,
                                       PublicationProbe probe) throws IOException {
+        long publicationStarted = System.nanoTime();
         Path generations = indexDir.resolve("generations");
         Files.createDirectories(generations);
         String previous = "-";
@@ -239,18 +247,24 @@ final class IndexSnapshotStore {
         String generation = UUID.randomUUID() + ".bin";
         Path binary = generations.resolve(generation);
         Path temporary = indexDir.resolve("current." + UUID.randomUUID() + ".tmp");
+        long manifestStarted = 0;
         try {
+            long binaryStarted = System.nanoTime();
             BinaryIndexV2Writer.write(binary, entries, graph, migrations);
             forceFile(binary);
             forceDirectory(generations);
             BinaryIndexV2Reader.read(binary);
+            IndexPhaseMetrics.recordPhase("publish.binary_write_fsync_verify", binaryStarted);
+            long sourcesStarted = System.nanoTime();
             if (validateSources) {
                 verifySources(indexDir.getParent(), entries);
             }
             if (sourceSnapshot != null) {
                 sourceSnapshot.verify(entries);
             }
+            IndexPhaseMetrics.recordPhase("publish.source_verify", sourcesStarted);
             probe.reached(PublicationPhase.GENERATION_DURABLE);
+            manifestStarted = System.nanoTime();
 
             String manifest = MANIFEST_VERSION + "\n" + generation + "\n"
                     + Files.size(binary) + "\n" + gitTree(indexDir.getParent()) + "\n"
@@ -270,6 +284,7 @@ final class IndexSnapshotStore {
             throw ex;
         }
         forceDirectory(indexDir);
+        IndexPhaseMetrics.recordPhase("publish.manifest_swap", manifestStarted);
         probe.reached(PublicationPhase.PUBLISHED);
         try {
             pruneGenerations(generations, generation, previous, false);
@@ -277,6 +292,7 @@ final class IndexSnapshotStore {
             logger.warn("Could not clean old index generations: {}", ex.getMessage());
         }
         probe.reached(PublicationPhase.GC_DONE);
+        IndexPhaseMetrics.recordPhase("publish.total", publicationStarted);
     }
 
     private static void pruneGenerations(Path generations, String current, String previous,

@@ -39,3 +39,21 @@ jobs:
         run: mvn package -Djava.library.path=/usr/local/lib
         env:
           MAVEN_OPTS: "--enable-native-access=ALL-UNNAMED"
+      - name: Test performance benchmark runner
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: Run 1K performance smoke
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 scripts/perf_budget.py run \
+            --root "$RUNNER_TEMP/jsrc-perf-1k" \
+            --files 1000 --profile smoke \
+            --jar target/jsrc.jar \
+            --output "$RUNNER_TEMP/jsrc-perf-report.json"
+        env:
+          LD_LIBRARY_PATH: /usr/local/lib
+      - name: Upload performance smoke report
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jsrc-perf-smoke-1k
+          path: ${{ runner.temp }}/jsrc-perf-report.json

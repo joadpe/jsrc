@@ -148,8 +148,11 @@ final class IndexSnapshotStore {
             if (changed) {
                 SourceSnapshot baseline = sourceSnapshot == null
                         ? captureCurrentSources(projectRoot) : sourceSnapshot;
+                Map<String, List<CachedMigration>> migrations =
+                        snapshot.migrationCacheVersion() == CachedMigration.ALGORITHM_VERSION
+                                ? snapshot.migrations() : null;
                 publishLocked(locked, merged, snapshot.callGraph(),
-                        snapshot.migrations(), true, baseline, NOOP_PROBE);
+                        migrations, true, baseline, NOOP_PROBE);
             }
         });
     }

@@ -19,8 +19,18 @@ public class IndexCommand implements Command {
 
         long loadStarted = System.nanoTime();
         java.util.List<com.jsrc.app.index.IndexEntry> existing;
+        com.jsrc.app.index.BinaryIndexV2Reader.IndexData published = null;
         try {
-            existing = CodebaseIndex.loadPublished(root);
+            try {
+                if (!java.nio.file.Files.isRegularFile(root.resolve(".jsrc/current"))) {
+                    throw new IOException("No published index manifest");
+                }
+                published = com.jsrc.app.index.BinaryIndexV2Reader.readLazy(
+                        CodebaseIndex.currentBinary(root)).getData();
+                existing = published.entries();
+            } catch (IOException | RuntimeException ex) {
+                existing = CodebaseIndex.loadPublished(root);
+            }
         } catch (IOException ex) {
             System.err.printf("Invalid published index; rebuilding: %s%n", ex.getMessage());
             existing = java.util.List.of();
@@ -51,14 +61,23 @@ public class IndexCommand implements Command {
             var callGraph = builder.toCallGraph();
             com.jsrc.app.index.IndexPhaseMetrics.recordPhase("index.call_graph", graphStarted);
             long migrationStarted = System.nanoTime();
-            // Pre-compute migration suggestions
-            var migrateCmd = new com.jsrc.app.command.quality.MigrateCommand(null, 17, true);
-            var migrationData = migrateCmd.computeAllForIndex(ctx);
-            java.util.Map<String, java.util.List<com.jsrc.app.index.CachedMigration>> migrations = new java.util.LinkedHashMap<>();
-            for (var entry : migrationData.entrySet()) {
-                migrations.put(entry.getKey(), entry.getValue().stream()
-                        .map(arr -> new com.jsrc.app.index.CachedMigration(arr[0], arr[1]))
-                        .toList());
+            java.util.Map<String, java.util.List<com.jsrc.app.index.CachedMigration>> migrations;
+            if (published != null && !existing.isEmpty() && reindexed == 0
+                    && existing.size() == index.getEntries().size()
+                    && published.migrationCacheVersion()
+                    == com.jsrc.app.index.CachedMigration.ALGORITHM_VERSION) {
+                migrations = published.migrations();
+                com.jsrc.app.index.IndexPhaseMetrics.countPhase("index.migrations.reused", 1);
+            } else {
+                // Recompute suggestions when sources or the published snapshot changed.
+                var migrateCmd = new com.jsrc.app.command.quality.MigrateCommand(null, 17, true);
+                var migrationData = migrateCmd.computeAllForIndex(ctx);
+                migrations = new java.util.LinkedHashMap<>();
+                for (var entry : migrationData.entrySet()) {
+                    migrations.put(entry.getKey(), entry.getValue().stream()
+                            .map(arr -> new com.jsrc.app.index.CachedMigration(arr[0], arr[1]))
+                            .toList());
+                }
             }
 
             com.jsrc.app.index.IndexPhaseMetrics.recordPhase("index.migrations", migrationStarted);

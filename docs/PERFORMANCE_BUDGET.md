@@ -121,3 +121,22 @@ An uncalibrated 10K pilot on HULK indexed all 10,000 files in 65.2 s with
 67.9 s with 2.66 GiB peak RSS. These are single runs, not an enforced memory
 limit or same-runner baseline; heap configuration must be pinned and recorded
 for dedicated comparisons.
+
+## IDX-02a no-op refresh check
+
+The dedicated 10K run-2 baseline on shared HULK measured an unchanged-refresh
+median of 15.78 s, with about 9.13 s in `index.migrations`. After caching
+migration suggestions in the published snapshot, a single no-op run on the
+same seeded 10K corpus copy re-indexed 0 files, reused the migration cache,
+and measured 0.049 ms in `index.migrations` and 6.09 s wall time. The first
+refresh of an older snapshot intentionally recomputed suggestions (9.29 s in
+`index.migrations`, 15.70 s wall) to establish the cache revision. The raw
+post-change traces and wall samples are retained on HULK under
+`/srv/hulk-data/desarrollo/benchmarks/jsrc-c40r-3-2-10k/idx02a-check/`.
+
+These are single, shared-host samples, not a calibrated before/after latency
+gate. The phase trace establishes that the repeated migration scan is avoided;
+source hashing, call-graph construction, snapshot verification, and
+publication still run. A single-file edit also triggers global edge refresh
+and resolution work; the previous dedicated median was 30.25 s. That cost is
+separate from the no-op migration-cache improvement.

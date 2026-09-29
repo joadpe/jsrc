@@ -326,7 +326,7 @@ final class IndexSnapshotStore {
         }
     }
 
-    private static void verifySources(Path projectRoot, List<IndexEntry> entries)
+    static void verifySources(Path projectRoot, List<IndexEntry> entries)
             throws IOException {
         Path root = projectRoot.toAbsolutePath().normalize();
         for (IndexEntry entry : entries) {

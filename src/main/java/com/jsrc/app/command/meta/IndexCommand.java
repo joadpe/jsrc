@@ -21,13 +21,15 @@ public class IndexCommand implements Command {
         java.util.List<com.jsrc.app.index.IndexEntry> existing;
         com.jsrc.app.index.BinaryIndexV2Reader.IndexData published = null;
         com.jsrc.app.index.BinaryIndexV2Reader.LazyIndexData publishedSnapshot = null;
+        Path publishedBinary = null;
         try {
             try {
                 if (!java.nio.file.Files.isRegularFile(root.resolve(".jsrc/current"))) {
                     throw new IOException("No published index manifest");
                 }
+                publishedBinary = CodebaseIndex.currentBinary(root);
                 publishedSnapshot = com.jsrc.app.index.BinaryIndexV2Reader.readLazy(
-                        CodebaseIndex.currentBinary(root));
+                        publishedBinary);
                 published = publishedSnapshot.getData();
                 existing = published.entries();
             } catch (IOException | RuntimeException ex) {
@@ -67,6 +69,8 @@ public class IndexCommand implements Command {
                 builder.loadFromIndex(index.getEntries());
                 callGraph = builder.toCallGraph();
             }
+            boolean graphReused = publishedSnapshot != null
+                    && callGraph == publishedSnapshot.ensureGraph();
             com.jsrc.app.index.IndexPhaseMetrics.recordPhase("index.call_graph", graphStarted);
             long migrationStarted = System.nanoTime();
             java.util.Map<String, java.util.List<com.jsrc.app.index.CachedMigration>> migrations;
@@ -85,6 +89,18 @@ public class IndexCommand implements Command {
             }
 
             com.jsrc.app.index.IndexPhaseMetrics.recordPhase("index.migrations", migrationStarted);
+            if (graphReused && compatibleCache && reindexed == 0
+                    && existing.equals(index.getEntries())
+                    && samePublishedSnapshot(root, publishedBinary)) {
+                index.verifyCurrentSources(root, ctx.sourceSnapshot());
+                if (samePublishedSnapshot(root, publishedBinary)) {
+                    com.jsrc.app.index.IndexPhaseMetrics.countPhase("index.publish.skipped", 1);
+                    System.err.printf("Done. Indexed %d files (0 re-indexed, %d cached).%n",
+                            ctx.javaFiles().size(), ctx.javaFiles().size());
+                    com.jsrc.app.index.IndexPhaseMetrics.recordPhase("index.total", executeStarted);
+                    return Math.max(1, ctx.javaFiles().size());
+                }
+            }
             long publishStarted = System.nanoTime();
             index.saveWithGraph(root, callGraph, migrations, true, ctx.sourceSnapshot());
             com.jsrc.app.index.IndexPhaseMetrics.recordPhase("index.publish", publishStarted);
@@ -95,5 +111,16 @@ public class IndexCommand implements Command {
         }
         com.jsrc.app.index.IndexPhaseMetrics.recordPhase("index.total", executeStarted);
         return Math.max(1, ctx.javaFiles().size());
+    }
+
+    private static boolean samePublishedSnapshot(Path root, Path binary) {
+        if (binary == null) {
+            return false;
+        }
+        try {
+            return binary.equals(CodebaseIndex.currentBinary(root, true));
+        } catch (IOException ex) {
+            return false;
+        }
     }
 }

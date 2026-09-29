@@ -23,6 +23,7 @@ class IndexMigrationCacheTest {
         runIndex(root, root.resolve("first-trace.json"));
         var original = BinaryIndexV2Reader.read(CodebaseIndex.currentBinary(root)).migrations();
         assertFalse(original.isEmpty(), "Fixture must produce a migration suggestion");
+        String manifest = Files.readString(root.resolve(".jsrc/current"));
 
         Path secondTrace = root.resolve("second-trace.json");
         String output = runIndex(root, secondTrace);
@@ -31,6 +32,40 @@ class IndexMigrationCacheTest {
         assertEquals(original, BinaryIndexV2Reader.read(CodebaseIndex.currentBinary(root)).migrations());
         assertTrue(Files.readString(secondTrace).contains("\"index.migrations.reused\":1"),
                 Files.readString(secondTrace));
+        assertEquals(manifest, Files.readString(root.resolve(".jsrc/current")),
+                "An unchanged index must not publish a new generation");
+        assertFalse(Files.readString(secondTrace).contains("\"index.publish\""),
+                Files.readString(secondTrace));
+    }
+
+    @Test
+    void gitTreeChangeRepublishesEvenWhenSourcesAreUnchanged(@TempDir Path root)
+            throws Exception {
+        git(root, "init");
+        git(root, "config", "user.name", "Index Test");
+        git(root, "config", "user.email", "index@example.invalid");
+        Files.writeString(root.resolve("Demo.java"), "class Demo {}\n");
+        git(root, "add", "Demo.java");
+        git(root, "commit", "-m", "initial");
+        runIndex(root, root.resolve("first-trace.json"));
+        String manifest = Files.readString(root.resolve(".jsrc/current"));
+
+        Files.writeString(root.resolve("README.md"), "metadata\n");
+        git(root, "add", "README.md");
+        git(root, "commit", "-m", "metadata");
+        runIndex(root, root.resolve("second-trace.json"));
+
+        assertFalse(manifest.equals(Files.readString(root.resolve(".jsrc/current"))));
+        assertTrue(Files.isRegularFile(CodebaseIndex.currentBinary(root, true)));
+    }
+
+    private static void git(Path root, String... args) throws Exception {
+        var command = new java.util.ArrayList<>(java.util.List.of("git", "-C", root.toString()));
+        command.addAll(java.util.List.of(args));
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+        assertTrue(process.waitFor(10, TimeUnit.SECONDS), "Git command timed out");
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, process.exitValue(), output);
     }
 
     @Test

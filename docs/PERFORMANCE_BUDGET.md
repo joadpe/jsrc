@@ -58,20 +58,19 @@ report timings across different environments as a hard gate.
 
 ## Fixed 10K calibration runner
 
-Use the physical host `jp-hulk` in a reserved quiet window for the repeated
-10K campaign. No dedicated self-hosted runner is referenced by the project
-workflows; the GitHub-hosted `ubuntu-latest` worker is not fixed hardware. HULK's normal
-shared-load measurements, including the pilot below, remain report-only.
+Use the physical host `jp-hulk` for the repeated 10K campaign. Shared host
+load is acceptable for this budget; a quiet or exclusive window is not
+required. No dedicated self-hosted runner is referenced by the project
+workflows; the GitHub-hosted `ubuntu-latest` worker is not fixed hardware.
 
-Run one campaign at a time on HULK's `/srv/hulk-data` ext4 filesystem, with
+Use HULK's `/srv/hulk-data` ext4 filesystem, with
 the same pinned Java 22 container image, native libraries, JVM heap settings,
 CPU affinity (if used), corpus seed, and runner ID
 (`JSRC_PERF_RUNNER_ID=jp-hulk-idx02-10k`). Record these settings with each
-report. Start with `-Xmx4g` as the heap candidate from the successful pilot;
-do not treat that single run as a calibrated memory limit. If competing CPU or
-disk work cannot be excluded, discard timing samples and keep the gate
-report-only. Enable numeric enforcement only after repeated quiet-window
-campaigns establish a same-configuration baseline and its variance.
+report. Use `-Xmx4g` for comparability; it is not an enforced RSS limit.
+Run only one benchmark campaign at a time, and record competing CPU/disk load
+so a confirmed regression can be diagnosed. Do not reject a sample solely
+because other work ran on HULK.
 
 ## Reproduce
 
@@ -100,9 +99,27 @@ reports breaches. Enforced mode rejects missing metrics, invalid values,
 failed reports, or mismatched profiles and requires a second independent
 report to confirm each breach. Each generated report has a unique `run_id`;
 enforced confirmation rejects missing or duplicate IDs and the same report path.
-Calibrate limits from repeated runs on a dedicated,
-fixed runner before enabling enforcement; no numeric budget is established
-by the one-shot PR smoke or historical benchmark.
+
+The shared-HULK 10K regression budget is in
+`docs/perf/idx02-10k-shared-thresholds.json`; its compact baseline is
+`docs/perf/idx02-10k-shared-baseline.json`. The factors compare median and p95
+wall times against the September 2026 `r1` campaign: 1.20 for medians and
+1.25 for p95. These margins exceed the observed r1/r2 spread and allow shared
+load without treating a single outlier as a failure. A breach is enforced
+only when a second independent same-configuration report confirms it:
+
+```sh
+python3 scripts/perf_budget.py compare \
+  --baseline docs/perf/idx02-10k-shared-baseline.json \
+  --current /absolute/path/to/current-report.json \
+  --second-report /absolute/path/to/confirmation-report.json \
+  --thresholds docs/perf/idx02-10k-shared-thresholds.json --enforce
+```
+
+This is a regression ceiling, not an interactive-latency target. Recalibrate
+the unchanged and body-only baselines after two full 10K campaigns on a
+newer commit. The 1K GitHub-hosted smoke remains correctness-only because its environment does
+not match HULK.
 
 ## Real-project contrast
 
@@ -179,15 +196,13 @@ extraction, now dominate the incremental path. Publication includes snapshot
 verification and writing; the phase spans are nested and must not be added
 to the end-to-end wall time.
 
-The two campaigns show low within-run spread and agree closely, but they do
-**not** establish a quiet-window budget. Host `sar` recorded about 94% CPU
-idle on average across 128 logical CPUs and nonzero background CPU and disk
-activity; the container had no CPU affinity or exclusive host reservation.
-Even after the campaign, CPU use remained about 3.5% of the host. The
-measurements are a same-configuration **report-only baseline**. Do not enable
-numeric CI enforcement or treat a factor derived from them as a regression
-limit until independent campaigns run without competing load on reserved
-hardware. The GitHub-hosted PR smoke remains correctness-only.
+The two campaigns show low within-run spread and agree closely. Host `sar`
+recorded about 94% CPU idle on average across 128 logical CPUs and nonzero
+background CPU and disk activity; the container had no CPU affinity or
+exclusive host reservation. They now establish the shared-HULK 10K regression
+baseline above. A future same-configuration campaign can enforce it despite
+shared load, with independent confirmation of a breach. The GitHub-hosted PR
+smoke remains correctness-only.
 
 ## IDX-02c unchanged-graph reuse (September 2026)
 
@@ -217,3 +232,21 @@ its source verification and binary serialization remain whole-index work.
 Edits that add declarations or change call edges do not benefit from graph
 reuse. The IDX-02b 10K declaration-edit median remains about 22–23 s until
 that fallback is optimized separately.
+
+## IDX-02d no-op publication skip (September 2026)
+
+An explicit `jsrc index` with unchanged entries, a compatible migration cache,
+an unchanged call graph, and the same Git tree now verifies sources and build
+metadata but keeps the existing published generation. Changes to the Git tree,
+source content, or cache format still publish a new generation. Normal query
+auto-refresh already avoided publication on an unchanged index.
+
+A one-shot comparison on copies of the same seeded 10K corpus, with Temurin
+22.0.2 and `-Xmx4g` on shared HULK, measured `index.total` at 3.098 s before
+and 1.736 s after. The old run spent 2.264 s in `index.publish`; the new
+run reported `index.publish.skipped=1` and left its manifest unchanged. Both
+runs re-indexed zero files and reused the graph and migration cache. Traces
+and the two JARs are retained under
+`/srv/hulk-data/desarrollo/benchmarks/jsrc-idx02d-noop/`. These are single
+phase samples, not calibrated end-to-end medians. The no-op change does not
+reduce publication cost for actual edits.

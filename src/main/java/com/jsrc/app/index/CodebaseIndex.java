@@ -54,6 +54,15 @@ public class CodebaseIndex {
         return entries;
     }
 
+    /** Verifies an unchanged index before reusing its published generation. */
+    public void verifyCurrentSources(Path projectRoot, SourceSnapshot sourceSnapshot)
+            throws IOException {
+        IndexSnapshotStore.verifySources(projectRoot, entries);
+        if (sourceSnapshot != null) {
+            sourceSnapshot.verify(entries);
+        }
+    }
+
     /**
      * Builds the index by parsing all given files.
      * Skips files whose content hash matches an existing entry (incremental).

@@ -27,7 +27,7 @@ public final class SourceParserFactory {
     }
 
     private static JavaParser create(int version) {
-        var languageLevel = ParserConfiguration.LanguageLevel.valueOf("JAVA_" + version);
+        var languageLevel = ParserConfiguration.LanguageLevel.valueOf("JAVA_" + (version == 22 ? 21 : version));
         return new JavaParser(new ParserConfiguration().setLanguageLevel(languageLevel));
     }
 }

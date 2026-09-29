@@ -46,11 +46,11 @@ class SourceCompatibilityCliTest {
     }
 
     @Test
-    void doesNotTreatJsrcRuntimeJdkAsSupportedSourceLevel() throws Exception {
+    void rejectsSourceLevelBeyondSupportedGrammar() throws Exception {
         Path source = projectRoot.resolve("Feature.java");
         Files.writeString(source, "class Feature {}");
         var config = new com.jsrc.app.config.ProjectConfig(
-                List.of(), List.of(), "22",
+                List.of(), List.of(), "23",
                 com.jsrc.app.config.ArchitectureConfig.empty());
         var result = new com.jsrc.app.project.SourceCompatibilityScanner()
                 .scan(List.of(source), null, config);
@@ -78,12 +78,12 @@ class SourceCompatibilityCliTest {
     }
 
     @Test
-    void resolvesEveryStableSourceLevelFromEightThroughTwentyOne() throws Exception {
+    void resolvesEveryStableSourceLevelFromEightThroughTwentyTwo() throws Exception {
         Path pom = projectRoot.resolve("pom.xml");
         Path source = Files.createDirectories(projectRoot.resolve("src/main/java"))
                 .resolve("Example.java");
         Files.writeString(source, "class Example {}");
-        for (int version = 8; version <= 21; version++) {
+        for (int version = 8; version <= 22; version++) {
             Files.writeString(pom, """
                     <project><modelVersion>4.0.0</modelVersion>
                     <groupId>example</groupId><artifactId>levels</artifactId><version>1</version>

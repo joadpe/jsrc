@@ -388,12 +388,17 @@ def summarize_samples(samples):
     if not samples:
         raise ValueError('no measured samples')
     durations = sorted(item['sample']['wall_ms'] for item in samples)
-    rss = [item['sample'].get('peak_rss_kib') or 0 for item in samples]
+    for item in samples:
+        for metric in ('peak_rss_kib', 'peak_disk_bytes'):
+            value = item['sample'].get(metric)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                    or not math.isfinite(value) or value <= 0:
+                raise ValueError(f'missing or invalid {metric} measurement')
     return {'median_ms': statistics.median(durations),
             'p95_ms': durations[math.ceil(0.95 * len(durations)) - 1],
-            'peak_rss_kib': max(rss),
+            'peak_rss_kib': max(item['sample']['peak_rss_kib'] for item in samples),
             'index_bytes': max(item.get('index_bytes', 0) for item in samples),
-            'peak_disk_bytes': max(item['sample'].get('peak_disk_bytes') or 0 for item in samples)}
+            'peak_disk_bytes': max(item['sample']['peak_disk_bytes'] for item in samples)}
 
 
 def evaluate_budget(baseline, current, factors, enforce):
@@ -405,10 +410,19 @@ def evaluate_budget(baseline, current, factors, enforce):
 def compare_reports(baseline, current, factors, enforce):
     if baseline.get('environment') != current.get('environment'):
         raise ValueError('environment mismatch; budgets require the same runner')
-    if baseline.get('corpus') != current.get('corpus'):
+    # The manifest hashes the entire runner script, including comparison logic.
+    # Corpus content and generation parameters, not that provenance hash, define parity.
+    baseline_corpus = {key: value for key, value in baseline.get('corpus', {}).items()
+                       if key != 'generator_sha256'}
+    current_corpus = {key: value for key, value in current.get('corpus', {}).items()
+                      if key != 'generator_sha256'}
+    if baseline_corpus != current_corpus:
         raise ValueError('corpus mismatch')
     if baseline.get('profile') != current.get('profile'):
         raise ValueError('profile mismatch')
+    for field in ('command', 'plan'):
+        if not baseline.get(field) or not current.get(field) or baseline[field] != current[field]:
+            raise ValueError(f'{field} mismatch or missing; budgets require the same measurement configuration')
     if enforce:
         if baseline.get('status') != 'passed' or current.get('status') != 'passed':
             raise ValueError('enforced comparison requires passed reports')
@@ -423,7 +437,7 @@ def compare_reports(baseline, current, factors, enforce):
             observed = current['summary'][key]
             if any(isinstance(value, bool) or not isinstance(value, (int, float))
                    or not math.isfinite(value) for value in (previous, observed, factor)) \
-                    or previous <= 0 or observed < 0 or factor <= 0:
+                    or previous <= 0 or observed <= 0 or factor <= 0:
                 raise ValueError(f'invalid budget metric or factor: {key}')
     return evaluate_budget(baseline.get('summary', {}), current.get('summary', {}), factors, enforce)
 

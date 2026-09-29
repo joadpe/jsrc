@@ -1,0 +1,11 @@
+[Unit]
+Description=Run jsrc 10K performance budget weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 03:00:00
+Persistent=false
+RandomizedDelaySec=30m
+Unit=jsrc-10k-budget.service
+
+[Install]
+WantedBy=timers.target

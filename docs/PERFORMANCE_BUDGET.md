@@ -95,18 +95,29 @@ contain the raw timing and resource observations.
 
 `compare` accepts a baseline report, current report, and JSON map from
 summary metric names to multiplicative limits. Without `--enforce`, it only
-reports breaches. Enforced mode rejects missing metrics, invalid values,
-failed reports, or mismatched profiles and requires a second independent
-report to confirm each breach. Each generated report has a unique `run_id`;
+reports breaches. Enforced mode rejects missing metrics, nonpositive measurements, invalid
+values, failed reports, or mismatched profiles, commands and sampling plans.
+A missing RSS or peak-disk sample fails the campaign rather than becoming zero.
+The command pins the Java launcher, JVM arguments and JAR path; the product
+commit and JAR contents may change while that measurement configuration stays
+fixed. A confirmed breach requires a second independent report. Each generated report has a unique `run_id`;
 enforced confirmation rejects missing or duplicate IDs and the same report path.
 
 The shared-HULK 10K regression budget is in
 `docs/perf/idx02-10k-shared-thresholds.json`; its compact baseline is
-`docs/perf/idx02-10k-shared-baseline.json`. The factors compare median and p95
-wall times against the September 2026 `r1` campaign: 1.20 for medians and
-1.25 for p95. These margins exceed the observed r1/r2 spread and allow shared
-load without treating a single outlier as a failure. A breach is enforced
-only when a second independent same-configuration report confirms it:
+`docs/perf/idx02-10k-shared-baseline.json`. The baseline values come from the
+September 2026 `r1` campaign and were checked against the independent `r2`
+campaign. The factors are 1.20 for index-scenario median wall times, 1.25
+for index and warm-query p95 wall times, 1.20 for peak RSS, and 1.10 for
+observed peak .jsrc disk bytes. RSS and disk ceilings cover all seven index
+scenarios and four warm queries. Disk is sampled periodically, so a
+sub-sampling temporary-file spike may escape this ceiling. These margins
+exceed the observed r1/r2 spread and allow shared load without treating a
+single outlier as a failure. A breach is enforced only when a second
+independent same-configuration report confirms it. The runner's recorded
+`generator_sha256` is provenance for the entire benchmark script, not a
+corpus identity: comparison requires equal generated content hashes and
+generation parameters but permits this script hash to change:
 
 ```sh
 python3 scripts/perf_budget.py compare \
@@ -115,6 +126,30 @@ python3 scripts/perf_budget.py compare \
   --second-report /absolute/path/to/confirmation-report.json \
   --thresholds docs/perf/idx02-10k-shared-thresholds.json --enforce
 ```
+
+### Weekly HULK campaign
+
+`scripts/run_10k_budget.sh` fetches `origin/master` into a temporary
+worktree, builds its JAR with the pinned Temurin 22 container, and runs the
+dedicated 10K campaign on HULK. It keeps the original calibration inputs
+unchanged: the new JAR is retained with each run and bind-mounted at the
+baseline command's fixed in-container path. The script checks the container,
+Java launcher, and archived JAR hashes before running; the product commit and
+new JAR hash go into the run's environment log.
+
+The first run is compared with the versioned baseline and all 40 thresholds.
+A potential breach triggers a second independent campaign; only a confirmed
+breach fails the scheduled service. Correctness or measurement failures fail
+immediately. Campaigns wait for `campaign.lock` to serialize; reports, raw
+samples, logs and built artifacts remain under
+`/srv/hulk-data/desarrollo/benchmarks/jsrc-c40r-3-2-10k/scheduled/`.
+The user-systemd timer runs on Sundays at 03:00 local time (up to 30 minutes
+of randomized delay). Missed runs are not caught up at startup. Install the
+versioned script and `scripts/systemd/jsrc-10k-budget.{service,timer}` as
+`~/.local/bin/jsrc-10k-budget` and
+`~/.config/systemd/user/jsrc-10k-budget.{service,timer}`, then enable the
+timer with `systemctl --user enable --now jsrc-10k-budget.timer`.
+A failed service is visible with `systemctl --user status jsrc-10k-budget.service`.
 
 This is a regression ceiling, not an interactive-latency target. Recalibrate
 the unchanged and body-only baselines after two full 10K campaigns on a

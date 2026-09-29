@@ -33,6 +33,11 @@ public interface CodeParser {
      */
     List<ClassInfo> parseClasses(Path path);
 
+    /** Parses the supplied immutable source instead of reading the file again. */
+    default List<ClassInfo> parseClasses(Path path, String source) {
+        throw new UnsupportedOperationException("Snapshot parsing is not supported");
+    }
+
     /**
      * Finds methods annotated with the given annotation name.
      *

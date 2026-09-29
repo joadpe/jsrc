@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic offline corpus and report-only performance measurements for jsrc."""
+"""Deterministic offline corpus and performance measurements for jsrc."""
 
 import argparse
 import fcntl

@@ -1,6 +1,8 @@
 package com.jsrc.app.index;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -52,6 +54,16 @@ public class CodebaseIndex {
 
     public List<IndexEntry> getEntries() {
         return entries;
+    }
+
+    /** Verifies an unchanged index before reusing its published generation. */
+    public void verifyCurrentSources(Path projectRoot, SourceSnapshot sourceSnapshot)
+            throws IOException {
+        if (sourceSnapshot != null) {
+            sourceSnapshot.verify(entries);
+        } else {
+            IndexSnapshotStore.verifySources(projectRoot, entries);
+        }
     }
 
     /**
@@ -134,12 +146,13 @@ public class CodebaseIndex {
 
                 // Need to re-index
                 long parseStarted = System.nanoTime();
-                List<ClassInfo> classes = parser.parseClasses(file);
+                String source = decodeSource(content);
+                List<ClassInfo> classes = parser.parseClasses(file, source);
 
-                // Extract imports from file for return type resolution
-                List<String> fileImports = extractImports(file, edgeParser);
+                // Extract imports from the same source used for the content hash.
+                List<String> fileImports = extractImports(source, edgeParser);
 
-                EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser);
+                EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser, source);
                 changedFilesParsedCleanly &= extraction.parsedCleanly();
                 String declarationFingerprint = extraction.declarationFingerprint();
 
@@ -159,7 +172,8 @@ public class CodebaseIndex {
                 // Extract call edges (direct + reflective) via EdgeResolver
                 List<CallEdge> edges = new ArrayList<>(extraction.edges());
                 if (!invokers.isEmpty()) {
-                    edges.addAll(edgeResolver.extractReflectiveEdges(file, edgeParser, invokers));
+                    edges.addAll(edgeResolver.extractReflectiveEdges(
+                            file, edgeParser, invokers, source));
                 }
 
                 entries.add(new IndexEntry(
@@ -188,11 +202,22 @@ public class CodebaseIndex {
                 Path file = unchangedFiles.get(entry.path());
                 if (file == null) continue;
                 JavaParser edgeParser = edgeParsers.forFile(file);
-                EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser);
+                String source;
+                try {
+                    byte[] content = Files.readAllBytes(file);
+                    if (!entry.contentHash().equals(com.jsrc.app.util.Hashing.sha256(content))) {
+                        throw new IOException("Source changed during edge refresh: "
+                                + entry.path() + "; retry the command");
+                    }
+                    source = decodeSource(content);
+                } catch (IOException exception) {
+                    throw new UncheckedIOException(exception);
+                }
+                EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser, source);
                 List<CallEdge> edges = new ArrayList<>(extraction.edges());
                 if (!invokers.isEmpty()) {
                     edges.addAll(edgeResolver.extractReflectiveEdges(
-                            file, edgeParser, invokers));
+                            file, edgeParser, invokers, source));
                 }
                 entries.set(index, entry.withEdges(edges));
             }
@@ -839,17 +864,17 @@ public class CodebaseIndex {
     /**
      * Extracts import statements from a Java file.
      */
-    private static List<String> extractImports(Path file, JavaParser jp) {
-        try {
-            String source = Files.readString(file);
-            var result = jp.parse(source);
-            if (!result.getResult().isPresent()) return List.of();
-            return result.getResult().get().getImports().stream()
-                    .map(imp -> imp.getNameAsString() + (imp.isAsterisk() ? ".*" : ""))
-                    .toList();
-        } catch (IOException e) {
-            return List.of();
-        }
+    private static List<String> extractImports(String source, JavaParser jp) {
+        var result = jp.parse(source);
+        if (result.getResult().isEmpty()) return List.of();
+        return result.getResult().orElseThrow().getImports().stream()
+                .map(imp -> imp.getNameAsString() + (imp.isAsterisk() ? ".*" : ""))
+                .toList();
+    }
+
+    private static String decodeSource(byte[] content) throws IOException {
+        return StandardCharsets.UTF_8.newDecoder()
+                .decode(ByteBuffer.wrap(content)).toString();
     }
 
     // ---- serialization ----

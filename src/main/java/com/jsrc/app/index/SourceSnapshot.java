@@ -19,11 +19,21 @@ import java.util.stream.Collectors;
 public record SourceSnapshot(
         Path root, Path configPath, String configHash, ProjectConfig config,
         Set<Path> discovered, Map<Path, SourceSet> sourceSets,
-        Map<Path, SourceLevel> sourceLevels, Set<Path> accepted) {
+        Map<Path, SourceLevel> sourceLevels, Set<Path> accepted,
+        Map<Path, String> acceptedHashes) {
 
     public static SourceSnapshot capture(Path root, Path configPath, ProjectConfig config,
                                          ProjectSourceDiscovery.Result sources,
-                                         List<Path> accepted) throws IOException {
+                                         SourceCompatibilityScanner.Result compatibility)
+            throws IOException {
+        Set<Path> accepted = normalized(compatibility.files());
+        Map<Path, String> acceptedHashes = compatibility.acceptedHashes().entrySet().stream()
+                .collect(Collectors.toUnmodifiableMap(
+                        entry -> entry.getKey().toAbsolutePath().normalize(),
+                        Map.Entry::getValue));
+        if (!accepted.equals(acceptedHashes.keySet())) {
+            throw new IOException("Compatibility scan lacks hashes for accepted sources");
+        }
         Path canonicalRoot = root.toAbsolutePath().normalize();
         Path actualConfig = configPath == null
                 ? canonicalRoot.resolve(".jsrc.yaml") : configPath.toAbsolutePath().normalize();
@@ -36,11 +46,19 @@ public record SourceSnapshot(
                         .entrySet().stream().collect(Collectors.toUnmodifiableMap(
                                 entry -> entry.getKey().toAbsolutePath().normalize(),
                                 Map.Entry::getValue)),
-                normalized(accepted));
+                accepted, acceptedHashes);
     }
 
     /** Fails closed when sources or their effective build model changed during construction. */
     public void verify(List<IndexEntry> entries) throws IOException {
+        IndexSnapshotStore.verifySources(root, entries);
+        for (IndexEntry entry : entries) {
+            Path file = root.resolve(entry.path()).toAbsolutePath().normalize();
+            if (!entry.contentHash().equals(acceptedHashes.get(file))) {
+                throw new IOException("Source changed after compatibility scan: "
+                        + entry.path() + "; retry the command");
+            }
+        }
         if (!configHash.equals(hashConfig(configPath))) {
             throw new IOException("Project config changed while indexing; retry the command");
         }
@@ -55,9 +73,14 @@ public record SourceSnapshot(
                 || !sourceLevels.equals(normalizedLevels(current, currentConfig))) {
             throw new IOException("Source set or build model changed while indexing; retry the command");
         }
-        var currentAccepted = new SourceCompatibilityScanner()
-                .scan(current.allFiles(), current.model(), currentConfig).files();
-        if (!accepted.equals(normalized(currentAccepted))) {
+        // Accepted sources were checked when captured; their bytes are verified above.
+        // Recheck rejected sources because a changed file could now be accepted.
+        List<Path> rejected = discovered.stream()
+                .filter(path -> !accepted.contains(path)).toList();
+        IndexPhaseMetrics.countPhase("source_snapshot.compatibility_rescanned_files",
+                rejected.size());
+        if (!rejected.isEmpty() && !new SourceCompatibilityScanner()
+                .scan(rejected, current.model(), currentConfig).files().isEmpty()) {
             throw new IOException("Source compatibility changed while indexing; retry the command");
         }
         Set<Path> entryPaths = entries.stream()

@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "run_id": "6fbcd2b3-1d12-45b1-b181-15f87460d0b2",
+  "status": "passed",
+  "profile": "dedicated",
+  "corpus": {
+    "schema": 1,
+    "files": 10000,
+    "seed": 17,
+    "source_level": 17,
+    "packages": 200,
+    "sha256": "3e46849337152a9970ab026f533f5ddf90eb19f258b6be05d07374076de9eb69",
+    "generator_sha256": "4203b10b97bcefee6a4e3c9a38e3cb3d24a07458b6094e46100118e454bcf750",
+    "parameters": {
+      "call_edges_per_file": [
+        2,
+        4
+      ],
+      "extra_methods_per_file": [
+        0,
+        12
+      ],
+      "overload_every": 10,
+      "annotation_every": 20,
+      "package_assignment": "file_number_mod_200"
+    }
+  },
+  "environment": {
+    "platform": "Linux-7.0.0-34-generic-x86_64-with-glibc2.39",
+    "cpu_model": "AMD Ryzen Threadripper 3990X 64-Core Processor",
+    "cpu_count": 128,
+    "governor": "powersave",
+    "filesystem": "ext2/ext3",
+    "java": [
+      "openjdk version \"22.0.2\" 2024-07-16"
+    ],
+    "runner_id": "jp-hulk-idx02-10k"
+  },
+  "commit": "fa8f046d15f34916d9b80425af90847f0ec2b8b1",
+  "summary": {
+    "cold.median_ms": 71766.928722,
+    "cold.p95_ms": 74999.726546,
+    "unchanged.median_ms": 6630.079388,
+    "unchanged.p95_ms": 7067.474567,
+    "edit_body_single.median_ms": 7338.31886,
+    "edit_body_single.p95_ms": 7547.12657,
+    "edit_single.median_ms": 23025.605812,
+    "edit_single.p95_ms": 23542.112955,
+    "edit_1pct.median_ms": 23417.574878,
+    "edit_1pct.p95_ms": 24252.187635,
+    "edit_10pct.median_ms": 28746.688366,
+    "edit_10pct.p95_ms": 29709.690723,
+    "add_delete_1pct.median_ms": 23463.768029,
+    "add_delete_1pct.p95_ms": 24596.920307
+  }
+}

@@ -58,20 +58,19 @@ report timings across different environments as a hard gate.
 
 ## Fixed 10K calibration runner
 
-Use the physical host `jp-hulk` in a reserved quiet window for the repeated
-10K campaign. No dedicated self-hosted runner is referenced by the project
-workflows; the GitHub-hosted `ubuntu-latest` worker is not fixed hardware. HULK's normal
-shared-load measurements, including the pilot below, remain report-only.
+Use the physical host `jp-hulk` for the repeated 10K campaign. Shared host
+load is acceptable for this budget; a quiet or exclusive window is not
+required. No dedicated self-hosted runner is referenced by the project
+workflows; the GitHub-hosted `ubuntu-latest` worker is not fixed hardware.
 
-Run one campaign at a time on HULK's `/srv/hulk-data` ext4 filesystem, with
+Use HULK's `/srv/hulk-data` ext4 filesystem, with
 the same pinned Java 22 container image, native libraries, JVM heap settings,
 CPU affinity (if used), corpus seed, and runner ID
 (`JSRC_PERF_RUNNER_ID=jp-hulk-idx02-10k`). Record these settings with each
-report. Start with `-Xmx4g` as the heap candidate from the successful pilot;
-do not treat that single run as a calibrated memory limit. If competing CPU or
-disk work cannot be excluded, discard timing samples and keep the gate
-report-only. Enable numeric enforcement only after repeated quiet-window
-campaigns establish a same-configuration baseline and its variance.
+report. Use `-Xmx4g` for comparability; it is not an enforced RSS limit.
+Run only one benchmark campaign at a time, and record competing CPU/disk load
+so a confirmed regression can be diagnosed. Do not reject a sample solely
+because other work ran on HULK.
 
 ## Reproduce
 
@@ -100,9 +99,27 @@ reports breaches. Enforced mode rejects missing metrics, invalid values,
 failed reports, or mismatched profiles and requires a second independent
 report to confirm each breach. Each generated report has a unique `run_id`;
 enforced confirmation rejects missing or duplicate IDs and the same report path.
-Calibrate limits from repeated runs on a dedicated,
-fixed runner before enabling enforcement; no numeric budget is established
-by the one-shot PR smoke or historical benchmark.
+
+The shared-HULK 10K regression budget is in
+`docs/perf/idx02-10k-shared-thresholds.json`; its compact baseline is
+`docs/perf/idx02-10k-shared-baseline.json`. The factors compare median and p95
+wall times against the September 2026 `r1` campaign: 1.20 for medians and
+1.25 for p95. These margins exceed the observed r1/r2 spread and allow shared
+load without treating a single outlier as a failure. A breach is enforced
+only when a second independent same-configuration report confirms it:
+
+```sh
+python3 scripts/perf_budget.py compare \
+  --baseline docs/perf/idx02-10k-shared-baseline.json \
+  --current /absolute/path/to/current-report.json \
+  --second-report /absolute/path/to/confirmation-report.json \
+  --thresholds docs/perf/idx02-10k-shared-thresholds.json --enforce
+```
+
+This is a regression ceiling, not an interactive-latency target. Recalibrate
+the unchanged and body-only baselines after two full 10K campaigns on a
+newer commit. The 1K GitHub-hosted smoke remains correctness-only because its environment does
+not match HULK.
 
 ## Real-project contrast
 
@@ -179,12 +196,96 @@ extraction, now dominate the incremental path. Publication includes snapshot
 verification and writing; the phase spans are nested and must not be added
 to the end-to-end wall time.
 
-The two campaigns show low within-run spread and agree closely, but they do
-**not** establish a quiet-window budget. Host `sar` recorded about 94% CPU
-idle on average across 128 logical CPUs and nonzero background CPU and disk
-activity; the container had no CPU affinity or exclusive host reservation.
-Even after the campaign, CPU use remained about 3.5% of the host. The
-measurements are a same-configuration **report-only baseline**. Do not enable
-numeric CI enforcement or treat a factor derived from them as a regression
-limit until independent campaigns run without competing load on reserved
-hardware. The GitHub-hosted PR smoke remains correctness-only.
+The two campaigns show low within-run spread and agree closely. Host `sar`
+recorded about 94% CPU idle on average across 128 logical CPUs and nonzero
+background CPU and disk activity; the container had no CPU affinity or
+exclusive host reservation. They now establish the shared-HULK 10K regression
+baseline above. A future same-configuration campaign can enforce it despite
+shared load, with independent confirmation of a breach. The GitHub-hosted PR
+smoke remains correctness-only.
+
+## IDX-02c unchanged-graph reuse (September 2026)
+
+When a refresh changes source text but leaves every indexed class and resolved
+call edge unchanged, both `jsrc index` and normal command auto-refresh can
+reuse the published call graph. Changed declarations or call edges still take
+the full graph build. A binary format/version change invalidates old snapshots;
+changes to graph-building semantics must bump that version before reuse.
+
+A one-shot same-corpus comparison on shared HULK used the 10K corpus and
+Temurin 22.0.2 with `-Xmx4g`. A single return-expression edit took 7.51 s
+with the previous JAR and 5.33 s with graph reuse. The `index.call_graph`
+phase fell from 2.126 s to 0.280 s. The modified run re-indexed and resolved
+one file, reused 9,999 edge sets and the prior graph, and matched the previous
+JAR's selected normal and frozen query answers. A normal `overview --json`
+query that auto-refreshed the same single edit took 7.47 s before and 6.08 s
+afterward, with identical output. A separate one-shot run with 100
+return-expression edits in one batch took 6.57 s: 100 files were
+re-indexed/resolved, 9,900 edge sets and the graph were reused. The traces
+are under `/srv/hulk-data/desarrollo/benchmarks/jsrc-idx02c-compare/`,
+`/srv/hulk-data/desarrollo/benchmarks/jsrc-idx02c-auto/`, and
+`/srv/hulk-data/desarrollo/benchmarks/jsrc-idx02c-batch100/` on HULK.
+
+These are diagnostic samples under shared host load, not calibrated medians or
+CI thresholds. Publication still took about 2.0 s in the modified samples;
+its source verification and binary serialization remain whole-index work.
+Edits that add declarations or change call edges do not benefit from graph
+reuse. The IDX-02b 10K declaration-edit median remains about 22–23 s until
+that fallback is optimized separately.
+
+## IDX-02d no-op publication skip (September 2026)
+
+An explicit `jsrc index` with unchanged entries, a compatible migration cache,
+an unchanged call graph, and the same Git tree now verifies sources and build
+metadata but keeps the existing published generation. Changes to the Git tree,
+source content, or cache format still publish a new generation. Normal query
+auto-refresh already avoided publication on an unchanged index.
+
+A one-shot comparison on copies of the same seeded 10K corpus, with Temurin
+22.0.2 and `-Xmx4g` on shared HULK, measured `index.total` at 3.098 s before
+and 1.736 s after. The old run spent 2.264 s in `index.publish`; the new
+run reported `index.publish.skipped=1` and left its manifest unchanged. Both
+runs re-indexed zero files and reused the graph and migration cache. Traces
+and the two JARs are retained under
+`/srv/hulk-data/desarrollo/benchmarks/jsrc-idx02d-noop/`. These are single
+phase samples, not calibrated end-to-end medians. The no-op change does not
+reduce publication cost for actual edits.
+
+## IDX-02e publication source verification (September 2026)
+
+Publication verifies each accepted source hash once, then checks discovery,
+build metadata, and compatibility only for sources that were rejected when the
+build started. The compatibility scanner records a hash of the same bytes it
+evaluated; publication requires both the index entry and current file to match
+that hash. This prevents a source that changes between scan and build from
+being published without validation. A rejected source can become compatible
+before publication, so it still must be rescanned. The trace count
+`source_snapshot.compatibility_rescanned_files` records how many rejected files
+required that second check.
+
+Three serial before/after pairs on identical copies of the same indexed 10K
+corpus each applied the same body-only edit to one file. The prior JAR was
+built from `3b7dc18`; the first updated JAR includes source-scan hash
+verification. Both used the same
+Java 22 container and `-Xmx4g`. All six refreshes re-indexed one file. Median
+CLI wall time was 5.520 s before and 4.916 s after; `index.total` was
+3.619 s and 3.052 s. The nested `publish.source_verify` phase fell from
+0.757 s to 0.366 s. The binary write/fsync/verify phase remained about
+1.2-1.4 s, and no rejected files were rescanned in the final samples. Raw
+traces, logs, JARs, and `final-results.json` are under
+`/srv/hulk-data/desarrollo/benchmarks/jsrc-idx02e-verify/` on HULK.
+
+After the immutable-source fix, three more serial pairs used copies of the
+same indexed 10K corpus, each with a body-only edit to `C00001.java`. The
+original `before.jar` was compared against `secure.jar` built from the final
+working tree, in the same Java 22 container with `-Xmx4g`. All six runs
+re-indexed one file and reused 9,999 edge sets. Median CLI wall time was
+5.595 s before and 5.191 s after; `index.total` was 3.577 s and 3.245 s,
+and `publish.source_verify` was 0.800 s and 0.364 s. The changed file's
+parse/extract phase was 0.040 s and 0.037 s. The result remains diagnostic
+on shared HULK; raw data, traces, logs, JARs, and the replay script are in
+`secure-results.json` and `run-secure-pairs.py` in the same benchmark directory.
+
+These three-pair measurements are diagnostic, not a recalibration of the
+shared-host 10K budget. Full snapshot serialization and its verification remain
+the principal publication cost for real edits.

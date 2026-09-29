@@ -70,81 +70,85 @@ public class EdgeResolver {
     }
 
     public Extraction extract(Path file, JavaParser jp) {
+        try {
+            return extract(file, jp, Files.readString(file));
+        } catch (IOException ex) {
+            logger.debug("Error extracting call edges from {}: {}", file, ex.getMessage());
+            return new Extraction(List.of(), Map.of(), "", false);
+        }
+    }
+
+    public Extraction extract(Path file, JavaParser jp, String source) {
         List<CallEdge> edges = new ArrayList<>();
         Map<String, List<IndexedMethod>> syntheticMethods = new HashMap<>();
         String declarationFingerprint = "";
         boolean parsedCleanly = false;
-        try {
-            String source = Files.readString(file);
-            var result = jp.parse(source);
-            if (!result.getResult().isPresent()) {
-                return new Extraction(edges, syntheticMethods, "", false);
+        var result = jp.parse(source);
+        if (!result.getResult().isPresent()) {
+            return new Extraction(edges, syntheticMethods, "", false);
+        }
+
+        CompilationUnit cu = result.getResult().get();
+        parsedCleanly = result.isSuccessful();
+        if (parsedCleanly) {
+            declarationFingerprint = declarationFingerprint(cu);
+        }
+        for (com.github.javaparser.ast.body.TypeDeclaration<?> declaration
+                : cu.findAll(com.github.javaparser.ast.body.TypeDeclaration.class)) {
+            String className = qualifiedClassName(declaration);
+
+            Map<String, String> fieldTypes = new HashMap<>();
+            for (FieldDeclaration field : declaration.getFields()) {
+                String fieldType = field.getCommonType().asString();
+                int genIdx = fieldType.indexOf('<');
+                if (genIdx > 0) fieldType = fieldType.substring(0, genIdx);
+                for (VariableDeclarator var : field.getVariables()) {
+                    fieldTypes.put(var.getNameAsString(), fieldType);
+                }
             }
 
-            CompilationUnit cu = result.getResult().get();
-            parsedCleanly = result.isSuccessful();
-            if (parsedCleanly) {
-                declarationFingerprint = declarationFingerprint(cu);
+            for (MethodDeclaration md : declaration.getMethods()) {
+                LexicalTypes lexicalTypes = lexicalTypes(md);
+                extractEdgesFromCallable(edges, md, className, md.getNameAsString(),
+                        fieldTypes, lexicalTypes, syntheticMethods);
             }
-            for (com.github.javaparser.ast.body.TypeDeclaration<?> declaration
-                    : cu.findAll(com.github.javaparser.ast.body.TypeDeclaration.class)) {
-                String className = qualifiedClassName(declaration);
-
-                Map<String, String> fieldTypes = new HashMap<>();
-                for (FieldDeclaration field : declaration.getFields()) {
-                    String fieldType = field.getCommonType().asString();
-                    int genIdx = fieldType.indexOf('<');
-                    if (genIdx > 0) fieldType = fieldType.substring(0, genIdx);
-                    for (VariableDeclarator var : field.getVariables()) {
-                        fieldTypes.put(var.getNameAsString(), fieldType);
-                    }
-                }
-
-                for (MethodDeclaration md : declaration.getMethods()) {
-                    LexicalTypes lexicalTypes = lexicalTypes(md);
-                    extractEdgesFromCallable(edges, md, className, md.getNameAsString(),
-                            fieldTypes, lexicalTypes, syntheticMethods);
-                }
-                for (ConstructorDeclaration cd : declaration.getMembers().stream()
-                        .filter(ConstructorDeclaration.class::isInstance)
-                        .map(ConstructorDeclaration.class::cast)
-                        .toList()) {
-                    LexicalTypes lexicalTypes = lexicalTypes(cd);
-                    extractEdgesFromCallable(edges, cd, className,
-                            declaration.getNameAsString(),
-                            fieldTypes, lexicalTypes, syntheticMethods);
-                }
+            for (ConstructorDeclaration cd : declaration.getMembers().stream()
+                    .filter(ConstructorDeclaration.class::isInstance)
+                    .map(ConstructorDeclaration.class::cast)
+                    .toList()) {
+                LexicalTypes lexicalTypes = lexicalTypes(cd);
+                extractEdgesFromCallable(edges, cd, className,
+                        declaration.getNameAsString(),
+                        fieldTypes, lexicalTypes, syntheticMethods);
             }
-            for (ObjectCreationExpr creation : cu.findAll(ObjectCreationExpr.class)) {
-                if (creation.getAnonymousClassBody().isEmpty()) continue;
-                String className = com.jsrc.app.util.JavaParserTypeNames
-                        .qualifiedAnonymousName(creation);
-                List<com.github.javaparser.ast.body.BodyDeclaration<?>> body =
-                        creation.getAnonymousClassBody().orElseThrow();
-                Map<String, String> fieldTypes = new HashMap<>();
-                body.stream()
-                        .filter(FieldDeclaration.class::isInstance)
-                        .map(FieldDeclaration.class::cast)
-                        .forEach(field -> {
-                            String fieldType = field.getCommonType().asString();
-                            for (VariableDeclarator variable : field.getVariables()) {
-                                fieldTypes.put(variable.getNameAsString(), fieldType);
-                            }
-                        });
-                for (MethodDeclaration method : body.stream()
-                        .filter(MethodDeclaration.class::isInstance)
-                        .map(MethodDeclaration.class::cast)
-                        .toList()) {
-                    syntheticMethods.computeIfAbsent(
-                                    className, ignored -> new ArrayList<>())
-                            .add(toIndexedMethod(method));
-                    extractEdgesFromCallable(
-                            edges, method, className, method.getNameAsString(),
-                            fieldTypes, lexicalTypes(method), syntheticMethods);
-                }
+        }
+        for (ObjectCreationExpr creation : cu.findAll(ObjectCreationExpr.class)) {
+            if (creation.getAnonymousClassBody().isEmpty()) continue;
+            String className = com.jsrc.app.util.JavaParserTypeNames
+                    .qualifiedAnonymousName(creation);
+            List<com.github.javaparser.ast.body.BodyDeclaration<?>> body =
+                    creation.getAnonymousClassBody().orElseThrow();
+            Map<String, String> fieldTypes = new HashMap<>();
+            body.stream()
+                    .filter(FieldDeclaration.class::isInstance)
+                    .map(FieldDeclaration.class::cast)
+                    .forEach(field -> {
+                        String fieldType = field.getCommonType().asString();
+                        for (VariableDeclarator variable : field.getVariables()) {
+                            fieldTypes.put(variable.getNameAsString(), fieldType);
+                        }
+                    });
+            for (MethodDeclaration method : body.stream()
+                    .filter(MethodDeclaration.class::isInstance)
+                    .map(MethodDeclaration.class::cast)
+                    .toList()) {
+                syntheticMethods.computeIfAbsent(
+                                className, ignored -> new ArrayList<>())
+                        .add(toIndexedMethod(method));
+                extractEdgesFromCallable(
+                        edges, method, className, method.getNameAsString(),
+                        fieldTypes, lexicalTypes(method), syntheticMethods);
             }
-        } catch (IOException ex) {
-            logger.debug("Error extracting call edges from {}: {}", file, ex.getMessage());
         }
         return new Extraction(
                 edges, syntheticMethods, declarationFingerprint, parsedCleanly);
@@ -173,57 +177,63 @@ public class EdgeResolver {
      */
     public List<CallEdge> extractReflectiveEdges(Path file, JavaParser jp,
                                                   List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {
-        List<CallEdge> edges = new ArrayList<>();
         try {
-            String source = Files.readString(file);
-            var result = jp.parse(source);
-            if (!result.getResult().isPresent()) return edges;
-
-            CompilationUnit cu = result.getResult().get();
-            Map<String, com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokerMap = new HashMap<>();
-            for (var inv : invokers) {
-                invokerMap.put(inv.method(), inv);
-            }
-
-            for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
-                String callerClass = qualifiedClassName(cid);
-                for (MethodDeclaration md : cid.getMethods()) {
-                    List<String> callerParameterTypes = md.getParameters().stream()
-                            .map(parameter -> parameter.getTypeAsString()
-                                    + (parameter.isVarArgs() ? "..." : ""))
-                            .map(com.jsrc.app.util.SignatureUtils::normalizeType)
-                            .toList();
-                    for (MethodCallExpr call : md.findAll(MethodCallExpr.class)) {
-                        var inv = invokerMap.get(call.getNameAsString());
-                        if (inv == null) continue;
-                        if (call.getArguments().size() <= inv.targetArg()) continue;
-                        var arg = call.getArguments().get(inv.targetArg());
-                        if (!(arg instanceof com.github.javaparser.ast.expr.StringLiteralExpr strLit)) continue;
-
-                        String targetMethod = strLit.getValue();
-                        String prefix = callerClass;
-                        for (String suffix : inv.callerSuffixes()) {
-                            if (prefix.endsWith(suffix)) {
-                                prefix = prefix.substring(0, prefix.length() - suffix.length());
-                                break;
-                            }
-                        }
-                        String convention = inv.resolveClass();
-                        String targetClass = prefix + convention.substring(0, 1).toUpperCase()
-                                + convention.substring(1);
-
-                        int line = call.getBegin().map(p -> p.line).orElse(-1);
-                        edges.add(new CallEdge(callerClass, md.getNameAsString(),
-                                callerParameterTypes, callerParameterTypes.size(),
-                                targetClass, targetMethod, List.of(), line, -1,
-                                com.jsrc.app.model.InvocationKind.REFLECTIVE,
-                                com.jsrc.app.model.ResolutionLevel.INFERRED,
-                                List.of("CONFIGURED_INVOKER")));
-                    }
-                }
-            }
+            return extractReflectiveEdges(file, jp, invokers, Files.readString(file));
         } catch (IOException ex) {
             logger.debug("Error extracting reflective edges from {}: {}", file, ex.getMessage());
+            return List.of();
+        }
+    }
+
+    public List<CallEdge> extractReflectiveEdges(Path file, JavaParser jp,
+                                                  List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers,
+                                                  String source) {
+        List<CallEdge> edges = new ArrayList<>();
+        var result = jp.parse(source);
+        if (!result.getResult().isPresent()) return edges;
+
+        CompilationUnit cu = result.getResult().get();
+        Map<String, com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokerMap = new HashMap<>();
+        for (var inv : invokers) {
+            invokerMap.put(inv.method(), inv);
+        }
+
+        for (ClassOrInterfaceDeclaration cid : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+            String callerClass = qualifiedClassName(cid);
+            for (MethodDeclaration md : cid.getMethods()) {
+                List<String> callerParameterTypes = md.getParameters().stream()
+                        .map(parameter -> parameter.getTypeAsString()
+                                + (parameter.isVarArgs() ? "..." : ""))
+                        .map(com.jsrc.app.util.SignatureUtils::normalizeType)
+                        .toList();
+                for (MethodCallExpr call : md.findAll(MethodCallExpr.class)) {
+                    var inv = invokerMap.get(call.getNameAsString());
+                    if (inv == null) continue;
+                    if (call.getArguments().size() <= inv.targetArg()) continue;
+                    var arg = call.getArguments().get(inv.targetArg());
+                    if (!(arg instanceof com.github.javaparser.ast.expr.StringLiteralExpr strLit)) continue;
+
+                    String targetMethod = strLit.getValue();
+                    String prefix = callerClass;
+                    for (String suffix : inv.callerSuffixes()) {
+                        if (prefix.endsWith(suffix)) {
+                            prefix = prefix.substring(0, prefix.length() - suffix.length());
+                            break;
+                        }
+                    }
+                    String convention = inv.resolveClass();
+                    String targetClass = prefix + convention.substring(0, 1).toUpperCase()
+                            + convention.substring(1);
+
+                    int line = call.getBegin().map(p -> p.line).orElse(-1);
+                    edges.add(new CallEdge(callerClass, md.getNameAsString(),
+                            callerParameterTypes, callerParameterTypes.size(),
+                            targetClass, targetMethod, List.of(), line, -1,
+                            com.jsrc.app.model.InvocationKind.REFLECTIVE,
+                            com.jsrc.app.model.ResolutionLevel.INFERRED,
+                            List.of("CONFIGURED_INVOKER")));
+                }
+            }
         }
         return edges;
     }

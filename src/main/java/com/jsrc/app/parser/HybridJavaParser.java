@@ -129,9 +129,19 @@ public class HybridJavaParser implements CodeParser {
     @Override
     public List<ClassInfo> parseClasses(Path path) {
         if (!isValidPath(path)) return Collections.emptyList();
+        try {
+            return parseClasses(path, Files.readString(path));
+        } catch (IOException exception) {
+            logger.debug("Error reading file {}: {}", path, exception.getMessage());
+            skippedFiles.add(path.toString());
+            return Collections.emptyList();
+        }
+    }
 
-        CompilationUnit cu = parseWithJavaParser(path);
-        if (cu == null) return treeSitter.parseClasses(path);
+    @Override
+    public List<ClassInfo> parseClasses(Path path, String source) {
+        CompilationUnit cu = parseWithJavaParser(path, source);
+        if (cu == null) return treeSitter.parseClasses(path, source);
 
         String packageName = cu.getPackageDeclaration()
                 .map(pd -> pd.getNameAsString())
@@ -401,19 +411,23 @@ public class HybridJavaParser implements CodeParser {
      */
     private CompilationUnit parseWithJavaParser(Path path) {
         try {
-            String source = Files.readString(path);
-            var result = javaParsers.forFile(path).parse(source);
-            if (result.getResult().isPresent()) {
-                if (!result.isSuccessful()) {
-                    logger.debug("Parsed {} with {} problem(s)", path.getFileName(), result.getProblems().size());
-                }
-                return result.getResult().get();
-            }
-            logger.warn("JavaParser could not parse {}, falling back to TreeSitter", path.getFileName());
+            return parseWithJavaParser(path, Files.readString(path));
         } catch (IOException ex) {
             logger.debug("Error reading file {}: {}", path, ex.getMessage());
             skippedFiles.add(path.toString());
+            return null;
         }
+    }
+
+    private CompilationUnit parseWithJavaParser(Path path, String source) {
+        var result = javaParsers.forFile(path).parse(source);
+        if (result.getResult().isPresent()) {
+            if (!result.isSuccessful()) {
+                logger.debug("Parsed {} with {} problem(s)", path.getFileName(), result.getProblems().size());
+            }
+            return result.getResult().get();
+        }
+        logger.warn("JavaParser could not parse {}, falling back to TreeSitter", path.getFileName());
         return null;
     }
 

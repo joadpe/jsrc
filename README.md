@@ -416,7 +416,12 @@ jsrc overview --json          # All commands: <1s (index loaded)
 jsrc callers MyMethod --json  # Auto-refreshes changed files + edges
 ```
 
-Index uses SHA-256 content hashes. Auto-refresh re-extracts call edges for modified files, so the call graph stays fresh after edits.
+Index uses SHA-256 content hashes. Auto-refresh re-extracts call edges for
+modified files, so the call graph stays fresh after edits. A normal query after
+edits performs the refresh before answering; group related file edits before
+querying to pay that cost once. `jsrc batch` executes several queries in one JVM
+after that refresh. `--frozen-index` skips the refresh but can return stale
+results for uncommitted edits.
 
 After a Git branch switch, normal commands compare source hashes and refresh
 changed files. `--frozen-index` does not scan sources: it rejects a snapshot

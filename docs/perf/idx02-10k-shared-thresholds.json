@@ -1,0 +1,16 @@
+{
+  "cold.median_ms": 1.2,
+  "cold.p95_ms": 1.25,
+  "unchanged.median_ms": 1.2,
+  "unchanged.p95_ms": 1.25,
+  "edit_body_single.median_ms": 1.2,
+  "edit_body_single.p95_ms": 1.25,
+  "edit_single.median_ms": 1.2,
+  "edit_single.p95_ms": 1.25,
+  "edit_1pct.median_ms": 1.2,
+  "edit_1pct.p95_ms": 1.25,
+  "edit_10pct.median_ms": 1.2,
+  "edit_10pct.p95_ms": 1.25,
+  "add_delete_1pct.median_ms": 1.2,
+  "add_delete_1pct.p95_ms": 1.25
+}

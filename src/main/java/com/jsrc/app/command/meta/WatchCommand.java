@@ -303,7 +303,7 @@ public class WatchCommand implements Command {
         var fileSourceSets = projectSources.allSourceSets();
         try {
             pendingSourceSnapshot = com.jsrc.app.index.SourceSnapshot.capture(
-                    root, activeConfigPath, config, projectSources, compatibility.files());
+                    root, activeConfigPath, config, projectSources, compatibility);
         } catch (IOException ex) {
             throw new com.jsrc.app.exception.JsrcIOException(
                     "Cannot capture watch source snapshot: " + ex.getMessage(), ex);

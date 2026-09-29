@@ -311,9 +311,13 @@ public class IndexedCodebase {
             logger.info("Auto-refreshed {} stale/new file(s), {} cached",
                     reindexed, refreshed.size() - reindexed);
             try {
-                var builder = new com.jsrc.app.analysis.CallGraphBuilder();
-                builder.loadFromIndex(refreshed);
-                var graphForSave = builder.toCallGraph();
+                var graphForSave = PublishedGraphReuse.tryReuse(
+                        lazyData, existing, refreshed);
+                if (graphForSave == null) {
+                    var builder = new com.jsrc.app.analysis.CallGraphBuilder();
+                    builder.loadFromIndex(refreshed);
+                    graphForSave = builder.toCallGraph();
+                }
                 // A changed source invalidates every precomputed migration suggestion.
                 loadedMigrations = null;
                 updatedIndex.saveWithGraph(sourceRoot, graphForSave, null,

@@ -152,7 +152,7 @@ public class JsrcCommand implements Runnable {
             sourceSnapshot = sourceIndependent ? null
                     : com.jsrc.app.index.SourceSnapshot.capture(
                             projectModel.root(), configPath, config,
-                            projectSources, compatibility.files());
+                            projectSources, compatibility);
         } catch (java.io.IOException ex) {
             throw new com.jsrc.app.exception.JsrcIOException(
                     "Cannot capture source snapshot: " + ex.getMessage(), ex);

@@ -6,8 +6,13 @@ import picocli.CommandLine;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -18,6 +23,53 @@ import static org.junit.jupiter.api.Assertions.*;
  * because the bug is in PicocliAdapter's result→exit mapping.
  */
 class IndexExitCodeContractTest {
+
+    @Test
+    void indexFromCurrentDirectoryPublishesRelativePaths(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("Demo.java"), "class Demo {}\n");
+
+        runIndex(tempDir, "index");
+        assertTrue(Files.isRegularFile(tempDir.resolve(".jsrc/current")));
+        assertEquals("Demo.java", com.jsrc.app.index.CodebaseIndex.loadPublished(tempDir).get(0).path());
+    }
+
+    @Test
+    void indexAcceptsRelativeDirectory(@TempDir Path tempDir) throws Exception {
+        Path project = Files.createDirectory(tempDir.resolve("project"));
+        Files.writeString(project.resolve("Demo.java"), "class Demo {}\n");
+
+        runIndex(tempDir, "--dir", "project", "index");
+
+        assertTrue(Files.isRegularFile(project.resolve(".jsrc/current")));
+        assertEquals("Demo.java", com.jsrc.app.index.CodebaseIndex.loadPublished(project).get(0).path());
+    }
+
+    @Test
+    void unchangedSourceIsCachedFromCurrentDirectory(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("Demo.java"), "class Demo {}\n");
+
+        runIndex(tempDir, "index");
+        String output = runIndex(tempDir, "index");
+
+        assertTrue(output.contains("Done. Indexed 1 files (0 re-indexed, 1 cached)."), output);
+    }
+
+    private static String runIndex(Path workingDirectory, String... args) throws Exception {
+        String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        String classpath = System.getProperty("surefire.test.class.path",
+                System.getProperty("java.class.path"));
+        List<String> command = new ArrayList<>(List.of(
+                java, "--enable-native-access=ALL-UNNAMED", "-cp", classpath, "com.jsrc.app.App"));
+        command.addAll(Arrays.asList(args));
+        Process process = new ProcessBuilder(command)
+                .directory(workingDirectory.toFile())
+                .redirectErrorStream(true)
+                .start();
+        assertTrue(process.waitFor(40, TimeUnit.SECONDS), "Index subprocess timed out");
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, process.exitValue(), output);
+        return output;
+    }
 
     @Test
     void indexSuccessExitsZero(@TempDir Path tempDir) throws Exception {

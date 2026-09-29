@@ -4,7 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.jsrc.app.output.JsonWriter;
+import com.jsrc.app.json.JsonWriter;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.model.TypeId;
 import com.jsrc.app.symbol.SymbolResolver;

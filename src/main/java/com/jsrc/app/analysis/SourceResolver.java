@@ -4,7 +4,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-import com.jsrc.app.command.CommandContext;
 import com.jsrc.app.parser.model.ClassInfo;
 
 /**
@@ -16,21 +15,19 @@ public class SourceResolver {
     /**
      * Loads a class's full source code, using index for fast lookup or file scan as fallback.
      */
-    public static String loadClassSource(String className, CommandContext ctx) {
+    public static String loadClassSource(String className, AnalysisSource source) {
         // Strategy 1: index lookup
-        if (ctx.indexed() != null) {
-            var filePath = ctx.indexed().findFileForClass(className);
-            if (filePath.isPresent()) {
-                try {
-                    return Files.readString(Path.of(ctx.rootPath()).resolve(filePath.get()));
-                } catch (Exception e) { /* fallback */ }
-            }
+        var indexedFile = source.indexedFileForClass(className);
+        if (indexedFile.isPresent()) {
+            try {
+                return Files.readString(Path.of(source.rootPath()).resolve(indexedFile.get()));
+            } catch (Exception e) { /* fallback */ }
         }
         // Strategy 2: file scan
         String simpleClassName = className.contains(".")
                 ? className.substring(className.lastIndexOf('.') + 1)
                 : className;
-        for (Path file : ctx.javaFiles()) {
+        for (Path file : source.javaFiles()) {
             if (file.getFileName().toString().equals(simpleClassName + ".java")) {
                 try {
                     return Files.readString(file);
@@ -43,8 +40,8 @@ public class SourceResolver {
     /**
      * Loads source code of a specific method within a class.
      */
-    public static String loadMethodSource(String className, String methodName, CommandContext ctx) {
-        String classSource = loadClassSource(className, ctx);
+    public static String loadMethodSource(String className, String methodName, AnalysisSource source) {
+        String classSource = loadClassSource(className, source);
         if (classSource == null) return null;
         return extractMethodByName(classSource, methodName);
     }

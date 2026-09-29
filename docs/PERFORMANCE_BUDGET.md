@@ -188,3 +188,32 @@ measurements are a same-configuration **report-only baseline**. Do not enable
 numeric CI enforcement or treat a factor derived from them as a regression
 limit until independent campaigns run without competing load on reserved
 hardware. The GitHub-hosted PR smoke remains correctness-only.
+
+## IDX-02c unchanged-graph reuse (September 2026)
+
+When a refresh changes source text but leaves every indexed class and resolved
+call edge unchanged, both `jsrc index` and normal command auto-refresh can
+reuse the published call graph. Changed declarations or call edges still take
+the full graph build. A binary format/version change invalidates old snapshots;
+changes to graph-building semantics must bump that version before reuse.
+
+A one-shot same-corpus comparison on shared HULK used the 10K corpus and
+Temurin 22.0.2 with `-Xmx4g`. A single return-expression edit took 7.51 s
+with the previous JAR and 5.33 s with graph reuse. The `index.call_graph`
+phase fell from 2.126 s to 0.280 s. The modified run re-indexed and resolved
+one file, reused 9,999 edge sets and the prior graph, and matched the previous
+JAR's selected normal and frozen query answers. A normal `overview --json`
+query that auto-refreshed the same single edit took 7.47 s before and 6.08 s
+afterward, with identical output. A separate one-shot run with 100
+return-expression edits in one batch took 6.57 s: 100 files were
+re-indexed/resolved, 9,900 edge sets and the graph were reused. The traces
+are under `/srv/hulk-data/desarrollo/benchmarks/jsrc-idx02c-compare/`,
+`/srv/hulk-data/desarrollo/benchmarks/jsrc-idx02c-auto/`, and
+`/srv/hulk-data/desarrollo/benchmarks/jsrc-idx02c-batch100/` on HULK.
+
+These are diagnostic samples under shared host load, not calibrated medians or
+CI thresholds. Publication still took about 2.0 s in the modified samples;
+its source verification and binary serialization remain whole-index work.
+Edits that add declarations or change call edges do not benefit from graph
+reuse. The IDX-02b 10K declaration-edit median remains about 22–23 s until
+that fallback is optimized separately.

@@ -20,15 +20,18 @@ public class IndexCommand implements Command {
         long loadStarted = System.nanoTime();
         java.util.List<com.jsrc.app.index.IndexEntry> existing;
         com.jsrc.app.index.BinaryIndexV2Reader.IndexData published = null;
+        com.jsrc.app.index.BinaryIndexV2Reader.LazyIndexData publishedSnapshot = null;
         try {
             try {
                 if (!java.nio.file.Files.isRegularFile(root.resolve(".jsrc/current"))) {
                     throw new IOException("No published index manifest");
                 }
-                published = com.jsrc.app.index.BinaryIndexV2Reader.readLazy(
-                        CodebaseIndex.currentBinary(root)).getData();
+                publishedSnapshot = com.jsrc.app.index.BinaryIndexV2Reader.readLazy(
+                        CodebaseIndex.currentBinary(root));
+                published = publishedSnapshot.getData();
                 existing = published.entries();
             } catch (IOException | RuntimeException ex) {
+                publishedSnapshot = null;
                 existing = CodebaseIndex.loadPublished(root);
             }
         } catch (IOException ex) {
@@ -56,9 +59,14 @@ public class IndexCommand implements Command {
         try {
             // Build call graph and save V2 binary with pre-resolved graph
             long graphStarted = System.nanoTime();
-            var builder = new com.jsrc.app.analysis.CallGraphBuilder();
-            builder.loadFromIndex(index.getEntries());
-            var callGraph = builder.toCallGraph();
+            com.jsrc.app.analysis.CallGraph callGraph =
+                    com.jsrc.app.index.PublishedGraphReuse.tryReuse(
+                            publishedSnapshot, existing, index.getEntries());
+            if (callGraph == null) {
+                var builder = new com.jsrc.app.analysis.CallGraphBuilder();
+                builder.loadFromIndex(index.getEntries());
+                callGraph = builder.toCallGraph();
+            }
             com.jsrc.app.index.IndexPhaseMetrics.recordPhase("index.call_graph", graphStarted);
             long migrationStarted = System.nanoTime();
             java.util.Map<String, java.util.List<com.jsrc.app.index.CachedMigration>> migrations;

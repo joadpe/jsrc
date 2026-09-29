@@ -17,11 +17,19 @@ normal and frozen symbol lookup, and normal and frozen graph lookup on 1K
 files. It requires correct re-index counts, phase traces, and consistent
 query answers. Its timings are **report-only**; correctness failures fail CI.
 
-The dedicated profile measures cold build, unchanged refresh, single-file
-edit, seeded 1% and 10% edits, and 1% additions/deletions. Each scenario has
+The dedicated profile measures cold build, unchanged refresh, a body-only
+single-file edit, a declaration-adding single-file edit, seeded 1% and 10%
+updates, and 1% additions/deletions. Each scenario has
 two preparation and seven measured independent CLI runs. The first measured
 run compares indexed query answers with a clean rebuild. Warm symbol and
 graph queries have five preparation and 50 measured invocations per mode.
+The body-only mutation changes the return expression of one existing method
+without changing imports, declarations, or line count. It must report one
+re-indexed file; inspect `build.edges_reused_files`,
+`build.edges_extracted_files`, and `build.resolved_files` to confirm that
+unchanged entries were actually reused. The `edit_single` mutation adds a
+`revision()` method and intentionally exercises the full-resolution fallback.
+
 The dedicated run also exercises one writer with four frozen-index readers,
 then two competing writers, and interrupted-publication recovery. On Linux,
 the runner observes the writer's actual OS lock and pauses that process with
@@ -140,3 +148,43 @@ source hashing, call-graph construction, snapshot verification, and
 publication still run. A single-file edit also triggers global edge refresh
 and resolution work; the previous dedicated median was 30.25 s. That cost is
 separate from the no-op migration-cache improvement.
+
+## IDX-02b edge reuse at 10K (September 2026)
+
+Two serial dedicated campaigns (`r1` and `r2`) used the same seeded 10K
+corpus, Temurin 22.0.2 container, `-Xmx4g`, JAR, runner, and `jp-hulk`
+filesystem. Both passed query parity with a clean rebuild, concurrency, and
+interrupted-publication recovery. Their independent reports are retained at
+`/srv/hulk-data/desarrollo/benchmarks/jsrc-c40r-3-2-10k/idx02b-body-35c721e/`
+on HULK; the pinned source commit is `fa8f046`.
+
+| Scenario | r1 median / p95 | r2 median / p95 |
+| --- | ---: | ---: |
+| Cold build | 71.77 / 75.00 s | 71.33 / 74.34 s |
+| Unchanged refresh | 6.63 / 7.07 s | 6.46 / 6.69 s |
+| Body-only single-file edit | 7.34 / 7.55 s | 7.28 / 7.32 s |
+| Declaration-adding single-file edit | 23.03 / 23.54 s | 22.35 / 22.76 s |
+| 1% edit | 23.42 / 24.25 s | 23.33 / 24.52 s |
+| 10% edit | 28.75 / 29.71 s | 28.52 / 29.27 s |
+| 1% add/delete | 23.46 / 24.60 s | 23.54 / 24.14 s |
+
+Every body-only sample re-indexed and resolved one file, extracted its one
+edge set, and reused the other 9,999. Declaration or file-set changes still
+intentionally take the full fallback: the single declaration edit resolved all
+10,000 files in every sample. In the body-only case, the median residual
+call-graph phase was 2.08/2.01 s and publication 2.27/2.19 s (r1/r2), versus
+1.04/1.06 s for `index.build`; unchanged refresh still spent 2.18/2.18 s on
+the call graph and 2.07/1.97 s on publication. These phases, not edge
+extraction, now dominate the incremental path. Publication includes snapshot
+verification and writing; the phase spans are nested and must not be added
+to the end-to-end wall time.
+
+The two campaigns show low within-run spread and agree closely, but they do
+**not** establish a quiet-window budget. Host `sar` recorded about 94% CPU
+idle on average across 128 logical CPUs and nonzero background CPU and disk
+activity; the container had no CPU affinity or exclusive host reservation.
+Even after the campaign, CPU use remained about 3.5% of the host. The
+measurements are a same-configuration **report-only baseline**. Do not enable
+numeric CI enforcement or treat a factor derived from them as a regression
+limit until independent campaigns run without competing load on reserved
+hardware. The GitHub-hosted PR smoke remains correctness-only.

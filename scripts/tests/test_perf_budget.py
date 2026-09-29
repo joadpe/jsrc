@@ -115,6 +115,49 @@ class GateTest(unittest.TestCase):
         self.assertEqual(summary['index_bytes'], 1007)
         self.assertEqual(summary['peak_disk_bytes'], 2007)
 
+    def test_summary_rejects_missing_resource_measurements(self):
+        sample = {'sample': {'wall_ms': 10, 'peak_rss_kib': None,
+                             'peak_disk_bytes': 20}, 'index_bytes': 20}
+        with self.assertRaisesRegex(ValueError, 'peak_rss_kib'):
+            perf.summarize_samples([sample])
+        sample['sample']['peak_rss_kib'] = 0
+        with self.assertRaisesRegex(ValueError, 'peak_rss_kib'):
+            perf.summarize_samples([sample])
+        sample['sample']['peak_rss_kib'] = 10
+        sample['sample']['peak_disk_bytes'] = None
+        with self.assertRaisesRegex(ValueError, 'peak_disk_bytes'):
+            perf.summarize_samples([sample])
+
+    def test_enforced_comparison_requires_matching_command_and_plan(self):
+        baseline = {'status': 'passed', 'profile': 'dedicated',
+                    'environment': {'cpu': 'A'}, 'corpus': {'sha256': 'x'},
+                    'command': ['java', '-jar', 'jsrc.jar'],
+                    'plan': perf.benchmark_plan('dedicated'),
+                    'summary': {'cold.peak_rss_kib': 100}}
+        current = {**baseline, 'command': ['other-java', '-jar', 'jsrc.jar']}
+        with self.assertRaisesRegex(ValueError, 'command'):
+            perf.compare_reports(baseline, current, {'cold.peak_rss_kib': 1.2}, True)
+        current = {**baseline, 'command': ['java', '-jar', 'other.jar']}
+        with self.assertRaisesRegex(ValueError, 'command'):
+            perf.compare_reports(baseline, current, {'cold.peak_rss_kib': 1.2}, True)
+        current = {**baseline, 'plan': {**baseline['plan'], 'index_measured': 1}}
+        with self.assertRaisesRegex(ValueError, 'plan'):
+            perf.compare_reports(baseline, current, {'cold.peak_rss_kib': 1.2}, True)
+        for missing in ('command', 'plan'):
+            incomplete = {key: value for key, value in baseline.items() if key != missing}
+            with self.assertRaisesRegex(ValueError, missing):
+                perf.compare_reports(incomplete, baseline, {'cold.peak_rss_kib': 1.2}, True)
+
+    def test_enforced_comparison_rejects_zero_rss(self):
+        baseline = {'status': 'passed', 'profile': 'dedicated',
+                    'environment': {'cpu': 'A'}, 'corpus': {'sha256': 'x'},
+                    'command': ['java', '-jar', 'jsrc.jar'],
+                    'plan': perf.benchmark_plan('dedicated'),
+                    'summary': {'cold.peak_rss_kib': 100}}
+        current = {**baseline, 'summary': {'cold.peak_rss_kib': 0}}
+        with self.assertRaisesRegex(ValueError, 'invalid budget metric'):
+            perf.compare_reports(baseline, current, {'cold.peak_rss_kib': 1.2}, True)
+
     def test_environment_records_explicit_java_runtime(self):
         with tempfile.TemporaryDirectory() as root:
             java = Path(root) / 'java'
@@ -125,9 +168,28 @@ class GateTest(unittest.TestCase):
     def test_environment_comparison_does_not_require_same_commit(self):
         baseline = {'status': 'passed', 'profile': 'dedicated',
                     'environment': {'cpu': 'A'}, 'corpus': {'sha256': 'x'},
+                    'command': ['java', '-jar', 'jsrc.jar'],
+                    'plan': perf.benchmark_plan('dedicated'),
                     'commit': 'old', 'summary': {'cold_ms': 100}}
         current = {**baseline, 'commit': 'new', 'summary': {'cold_ms': 110}}
         self.assertFalse(perf.compare_reports(baseline, current, {'cold_ms': 1.2}, True)['failed'])
+
+    def test_runner_hash_change_does_not_invalidate_identical_corpus(self):
+        baseline = {'status': 'passed', 'profile': 'dedicated',
+                    'environment': {'cpu': 'A'},
+                    'command': ['java', '-jar', 'jsrc.jar'],
+                    'plan': perf.benchmark_plan('dedicated'),
+                    'corpus': {'files': 10000, 'seed': 17, 'source_level': 17,
+                               'sha256': 'same-content', 'generator_sha256': 'old-runner'},
+                    'summary': {'cold.median_ms': 100}}
+        current = {**baseline,
+                   'corpus': {**baseline['corpus'], 'generator_sha256': 'new-runner'},
+                   'summary': {'cold.median_ms': 110}}
+        self.assertFalse(perf.compare_reports(baseline, current,
+                                              {'cold.median_ms': 1.2}, True)['failed'])
+        current['corpus'] = {**current['corpus'], 'sha256': 'different-content'}
+        with self.assertRaisesRegex(ValueError, 'corpus mismatch'):
+            perf.compare_reports(baseline, current, {'cold.median_ms': 1.2}, True)
 
     def test_report_only_records_regression_without_failing(self):
         baseline = {'cold_ms': 100, 'rss_kib': 1000}
@@ -144,6 +206,8 @@ class GateTest(unittest.TestCase):
     def test_enforced_comparison_rejects_missing_metric_or_failed_report(self):
         baseline = {'status': 'passed', 'profile': 'dedicated',
                     'environment': {'cpu': 'A'}, 'corpus': {'sha256': 'x'},
+                    'command': ['java', '-jar', 'jsrc.jar'],
+                    'plan': perf.benchmark_plan('dedicated'),
                     'summary': {'cold.median_ms': 100}}
         current = {**baseline, 'summary': {}}
         with self.assertRaisesRegex(ValueError, 'missing'):
@@ -160,6 +224,8 @@ class GateTest(unittest.TestCase):
             root = Path(temp)
             baseline = {'status': 'passed', 'profile': 'dedicated',
                         'environment': {'cpu': 'A'}, 'corpus': {'sha256': 'x'},
+                        'command': ['java', '-jar', 'jsrc.jar'],
+                        'plan': perf.benchmark_plan('dedicated'),
                         'summary': {'cold.median_ms': 100}}
             current = {**baseline, 'summary': {}}
             for name, value in (('baseline', baseline), ('current', current),
@@ -176,6 +242,8 @@ class GateTest(unittest.TestCase):
             root = Path(temp)
             report = {'status': 'passed', 'profile': 'dedicated',
                       'environment': {'cpu': 'A'}, 'corpus': {'sha256': 'x'},
+                      'command': ['java', '-jar', 'jsrc.jar'],
+                      'plan': perf.benchmark_plan('dedicated'),
                       'summary': {'cold.median_ms': 150}}
             baseline = {**report, 'run_id': 'baseline',
                         'summary': {'cold.median_ms': 100}}

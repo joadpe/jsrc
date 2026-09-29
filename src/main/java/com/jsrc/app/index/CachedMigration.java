@@ -7,6 +7,6 @@ package com.jsrc.app.index;
  * @param line       source line number
  */
 public record CachedMigration(int patternId, int line) {
-    // Bump when MigrateCommand.MIGRATIONS order or detection semantics change.
-    public static final int ALGORITHM_VERSION = 1;
+    // Bump when migration detection semantics or cache key format change.
+    public static final int ALGORITHM_VERSION = 2;
 }

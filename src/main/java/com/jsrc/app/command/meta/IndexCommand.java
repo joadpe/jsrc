@@ -62,22 +62,18 @@ public class IndexCommand implements Command {
             com.jsrc.app.index.IndexPhaseMetrics.recordPhase("index.call_graph", graphStarted);
             long migrationStarted = System.nanoTime();
             java.util.Map<String, java.util.List<com.jsrc.app.index.CachedMigration>> migrations;
-            if (published != null && !existing.isEmpty() && reindexed == 0
-                    && existing.size() == index.getEntries().size()
+            boolean compatibleCache = published != null
                     && published.migrationCacheVersion()
-                    == com.jsrc.app.index.CachedMigration.ALGORITHM_VERSION) {
+                    == com.jsrc.app.index.CachedMigration.ALGORITHM_VERSION;
+            if (compatibleCache && !existing.isEmpty() && reindexed == 0
+                    && existing.size() == index.getEntries().size()) {
                 migrations = published.migrations();
                 com.jsrc.app.index.IndexPhaseMetrics.countPhase("index.migrations.reused", 1);
             } else {
-                // Recompute suggestions when sources or the published snapshot changed.
                 var migrateCmd = new com.jsrc.app.command.quality.MigrateCommand(null, 17, true);
-                var migrationData = migrateCmd.computeAllForIndex(ctx);
-                migrations = new java.util.LinkedHashMap<>();
-                for (var entry : migrationData.entrySet()) {
-                    migrations.put(entry.getKey(), entry.getValue().stream()
-                            .map(arr -> new com.jsrc.app.index.CachedMigration(arr[0], arr[1]))
-                            .toList());
-                }
+                migrations = migrateCmd.computeForIndex(root, index.getEntries(),
+                        compatibleCache ? published.migrations() : java.util.Map.of(),
+                        compatibleCache ? existing : java.util.List.of());
             }
 
             com.jsrc.app.index.IndexPhaseMetrics.recordPhase("index.migrations", migrationStarted);

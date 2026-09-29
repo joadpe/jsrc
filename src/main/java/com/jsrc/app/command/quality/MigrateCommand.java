@@ -201,22 +201,62 @@ public class MigrateCommand implements Command {
      * Computes migration suggestions for all classes and returns as map path → suggestions.
      * Used by IndexCommand to pre-compute and cache in index.bin.
      */
-    public Map<String, List<int[]>> computeAllForIndex(CommandContext ctx) {
-        Map<String, List<int[]>> result = new LinkedHashMap<>();
-        for (ClassInfo ci : ctx.getAllClasses()) {
-            String source = SourceResolver.loadClassSource(ci.name(), ctx);
-            if (source == null) continue;
-            var suggestions = scanSource(source, ci);
-            if (!suggestions.isEmpty()) {
-                String path = ctx.indexed() != null
-                        ? ctx.indexed().findFileForClass(ci.name()).orElse(ci.name())
-                        : ci.name();
-                List<int[]> compact = suggestions.stream()
-                        .map(s -> new int[]{patternIndex(s.get("id").toString()), (int) s.get("line")})
-                        .toList();
-                result.put(path, compact);
+    /**
+     * Builds path-keyed suggestions in new entry order, reusing only unchanged paths.
+     * A missing or ambiguous previous mapping causes a full rescan.
+     */
+    public Map<String, List<com.jsrc.app.index.CachedMigration>> computeForIndex(
+            java.nio.file.Path root,
+            List<com.jsrc.app.index.IndexEntry> entries,
+            Map<String, List<com.jsrc.app.index.CachedMigration>> cached,
+            List<com.jsrc.app.index.IndexEntry> previousEntries) throws java.io.IOException {
+        Map<String, com.jsrc.app.index.IndexEntry> previousByPath = new java.util.HashMap<>();
+        boolean reusable = cached != null && previousEntries != null;
+        if (reusable) {
+            for (var entry : previousEntries) {
+                if (previousByPath.putIfAbsent(entry.path(), entry) != null) {
+                    reusable = false;
+                    break;
+                }
+            }
+            if (!previousByPath.keySet().containsAll(cached.keySet())) {
+                reusable = false;
             }
         }
+
+        Map<String, List<com.jsrc.app.index.CachedMigration>> result = new LinkedHashMap<>();
+        long reusedPaths = 0;
+        long scannedPaths = 0;
+        for (var entry : entries) {
+            if (entry.classes().isEmpty()) {
+                continue;
+            }
+            var previous = reusable ? previousByPath.get(entry.path()) : null;
+            if (previous != null
+                    && previous.contentHash().equals(entry.contentHash())
+                    && previous.sourceVersion() == entry.sourceVersion()
+                    && previous.sourceSet() == entry.sourceSet()) {
+                var suggestions = cached.get(entry.path());
+                if (suggestions != null && !suggestions.isEmpty()) {
+                    result.put(entry.path(), suggestions);
+                }
+                reusedPaths++;
+                continue;
+            }
+            String source = java.nio.file.Files.readString(root.resolve(entry.path()));
+            var suggestions = scanSource(source, null).stream()
+                    .map(s -> new com.jsrc.app.index.CachedMigration(
+                            patternIndex(s.get("id").toString()), (int) s.get("line")))
+                    .toList();
+            if (!suggestions.isEmpty()) {
+                result.put(entry.path(), suggestions);
+            }
+            scannedPaths++;
+        }
+        com.jsrc.app.index.IndexPhaseMetrics.countPhase(
+                "index.migrations.reused_paths", reusedPaths);
+        com.jsrc.app.index.IndexPhaseMetrics.countPhase(
+                "index.migrations.scanned_paths", scannedPaths);
         return result;
     }
 

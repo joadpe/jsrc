@@ -46,7 +46,7 @@ class IndexMigrationCacheTest {
 
         assertTrue(output.contains("1 re-indexed"), output);
         assertTrue(BinaryIndexV2Reader.read(CodebaseIndex.currentBinary(root)).migrations().isEmpty());
-        assertFalse(Files.readString(editedTrace).contains("index.migrations.reused"));
+        assertFalse(Files.readString(editedTrace).contains("\"index.migrations.reused\":1"));
     }
 
     @Test
@@ -64,7 +64,7 @@ class IndexMigrationCacheTest {
         assertTrue(output.contains("0 re-indexed"), output);
         assertEquals(indexed.migrations(),
                 BinaryIndexV2Reader.read(CodebaseIndex.currentBinary(root)).migrations());
-        assertFalse(Files.readString(refreshTrace).contains("index.migrations.reused"));
+        assertFalse(Files.readString(refreshTrace).contains("\"index.migrations.reused\":1"));
     }
 
     @Test
@@ -77,7 +77,7 @@ class IndexMigrationCacheTest {
         assertFalse(original.isEmpty(), "Fixture must produce a migration suggestion");
 
         byte[] bytes = Files.readAllBytes(binary);
-        ByteBuffer.wrap(bytes, bytes.length - Integer.BYTES, Integer.BYTES).putInt(0);
+        ByteBuffer.wrap(bytes, bytes.length - Integer.BYTES, Integer.BYTES).putInt(1);
         CRC32 crc = new CRC32();
         crc.update(bytes, 12, bytes.length - 12);
         ByteBuffer.wrap(bytes, 8, Integer.BYTES).putInt((int) crc.getValue());
@@ -89,7 +89,7 @@ class IndexMigrationCacheTest {
         assertTrue(output.contains("0 re-indexed"), output);
         assertEquals(original,
                 BinaryIndexV2Reader.read(CodebaseIndex.currentBinary(root)).migrations());
-        assertFalse(Files.readString(refreshTrace).contains("index.migrations.reused"));
+        assertFalse(Files.readString(refreshTrace).contains("\"index.migrations.reused\":1"));
     }
 
     @Test

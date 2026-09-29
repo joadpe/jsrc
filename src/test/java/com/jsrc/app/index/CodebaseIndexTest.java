@@ -19,6 +19,91 @@ class CodebaseIndexTest {
     Path tempDir;
 
     @Test
+    void buildUsesHashedBytesForIndexedSemantics() throws Exception {
+        Path source = writeFile("A.java", """
+                import java.util.List;
+                class Accepted {
+                    void keep() { target(); }
+                    void target() {}
+                }
+                """);
+        String accepted = Files.readString(source);
+        String changed = """
+                import java.util.Map;
+                class Changed {
+                    void drift() { other(); }
+                    void other() {}
+                }
+                """;
+        var discovery = new com.jsrc.app.project.ProjectSourceDiscovery()
+                .discover(tempDir, null);
+        var compatibility = new com.jsrc.app.project.SourceCompatibilityScanner()
+                .scan(discovery.allFiles(), discovery.model(), null);
+        var snapshot = SourceSnapshot.capture(tempDir, null, null,
+                discovery, compatibility);
+        var parser = new HybridJavaParser() {
+            @Override
+            public List<com.jsrc.app.parser.model.ClassInfo> parseClasses(
+                    Path path, String sourceContent) {
+                try {
+                    Files.writeString(path, changed);
+                } catch (IOException exception) {
+                    throw new java.io.UncheckedIOException(exception);
+                }
+                return super.parseClasses(path, sourceContent);
+            }
+        };
+
+        var index = new CodebaseIndex();
+        try {
+            index.build(parser, List.of(source), tempDir, List.of());
+            assertEquals(changed, Files.readString(source),
+                    "The file must change while class and edge extraction run");
+        } finally {
+            Files.writeString(source, accepted);
+        }
+        index.saveWithGraph(tempDir, null, null, true, snapshot);
+
+        var entry = CodebaseIndex.loadPublished(tempDir).getFirst();
+        assertEquals(com.jsrc.app.util.Hashing.sha256(accepted.getBytes(
+                java.nio.charset.StandardCharsets.UTF_8)), entry.contentHash());
+        assertEquals("Accepted", entry.classes().getFirst().name());
+        assertEquals("keep", entry.classes().getFirst().methods().getFirst().name());
+        assertEquals(List.of("java.util.List"), entry.classes().getFirst().imports());
+        assertTrue(entry.callEdges().stream().anyMatch(edge ->
+                edge.callerMethod().equals("keep") && edge.calleeMethod().equals("target")));
+        assertTrue(entry.callEdges().stream().noneMatch(edge ->
+                edge.callerMethod().equals("drift") || edge.calleeMethod().equals("other")));
+    }
+
+    @Test
+    void fullEdgeRefreshRejectsChangedUnchangedSource() throws Exception {
+        Path stable = writeFile("Stable.java", "class Stable { void keep() {} }");
+        var initial = new CodebaseIndex();
+        initial.build(new HybridJavaParser(), List.of(stable), tempDir, List.of());
+        Path added = writeFile("Added.java", "class Added {}");
+        var parser = new HybridJavaParser() {
+            @Override
+            public List<com.jsrc.app.parser.model.ClassInfo> parseClasses(
+                    Path path, String sourceContent) {
+                if (path.equals(added)) {
+                    try {
+                        Files.writeString(stable, "class Drifted {}");
+                    } catch (IOException exception) {
+                        throw new java.io.UncheckedIOException(exception);
+                    }
+                }
+                return super.parseClasses(path, sourceContent);
+            }
+        };
+
+        var refresh = new CodebaseIndex();
+        assertThrows(java.io.UncheckedIOException.class,
+                () -> refresh.build(parser, List.of(stable, added),
+                        tempDir, initial.getEntries()));
+    }
+
+    @Test
     @DisplayName("Should build index and save to disk")
     void shouldBuildAndSave() throws IOException {
         Path javaFile = writeFile("Hello.java", """

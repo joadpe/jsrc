@@ -19,14 +19,21 @@ public final class SourceCompatibilityScanner {
             "\\(\\s*var\\s+[A-Za-z_$][\\w$]*\\s*\\)\\s*->");
 
     public record Result(
-            List<Path> files, List<SourceDiagnostic> diagnostics, int parsedFiles) {
+            List<Path> files, List<SourceDiagnostic> diagnostics, int parsedFiles,
+            Map<Path, String> acceptedHashes) {
         public Result(List<Path> files, List<SourceDiagnostic> diagnostics) {
-            this(files, diagnostics, 0);
+            this(files, diagnostics, 0, Map.of());
+        }
+
+        public Result(List<Path> files, List<SourceDiagnostic> diagnostics,
+                      int parsedFiles) {
+            this(files, diagnostics, parsedFiles, Map.of());
         }
 
         public Result {
             files = List.copyOf(files);
             diagnostics = List.copyOf(diagnostics);
+            acceptedHashes = Map.copyOf(acceptedHashes);
         }
     }
 
@@ -35,6 +42,7 @@ public final class SourceCompatibilityScanner {
             return new Result(List.of(), List.of());
         }
         List<Path> accepted = new ArrayList<>();
+        Map<Path, String> acceptedHashes = new HashMap<>();
         List<SourceDiagnostic> diagnostics = new ArrayList<>();
         Map<Integer, JavaParser> parsers = new HashMap<>();
         Map<Path, com.jsrc.app.index.IndexEntry> cached = cachedEntries(model);
@@ -57,12 +65,14 @@ public final class SourceCompatibilityScanner {
                 }
                 try {
                     String source = Files.readString(file);
+                    String hash = com.jsrc.app.util.Hashing.sha256(
+                            source.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                     var entry = cached.get(file.toAbsolutePath().normalize());
                     int sourceVersion = level.map(SourceLevel::version).orElse(0);
                     if (entry != null && entry.sourceVersion() == sourceVersion
-                            && entry.contentHash().equals(com.jsrc.app.util.Hashing.sha256(
-                                    source.getBytes(java.nio.charset.StandardCharsets.UTF_8)))) {
+                            && entry.contentHash().equals(hash)) {
                         accepted.add(file);
+                        acceptedHashes.put(file, hash);
                         continue;
                     }
                     parsedFiles++;
@@ -117,6 +127,7 @@ public final class SourceCompatibilityScanner {
                         continue;
                     }
                     accepted.add(file);
+                    acceptedHashes.put(file, hash);
                 } catch (IOException exception) {
                     diagnostics.add(new SourceDiagnostic(
                             "PARSE_PARTIAL", file,
@@ -124,7 +135,7 @@ public final class SourceCompatibilityScanner {
                 }
             }
         }
-        return new Result(accepted, diagnostics, parsedFiles);
+        return new Result(accepted, diagnostics, parsedFiles, acceptedHashes);
     }
 
     private static Map<Path, com.jsrc.app.index.IndexEntry> cachedEntries(ProjectModel model) {

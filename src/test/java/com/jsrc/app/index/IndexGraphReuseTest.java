@@ -36,6 +36,8 @@ class IndexGraphReuseTest {
         Path bodyTrace = root.resolve("body-trace.json");
         runIndex(root, bodyTrace);
         assertTrue(Files.readString(bodyTrace).contains("\"index.call_graph.reused\":1"));
+        assertTrue(Files.readString(bodyTrace).contains(
+                "\"source_snapshot.compatibility_rescanned_files\":0"));
         assertGraphEquals(original, readGraph(root));
 
         Files.writeString(client, "class Client { int value() { return Service.two() + 1; } }");

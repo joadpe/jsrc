@@ -202,11 +202,78 @@ class IndexSnapshotStoreTest {
         var discovery = new com.jsrc.app.project.ProjectSourceDiscovery()
                 .discover(projectRoot, null);
         var snapshot = SourceSnapshot.capture(projectRoot, null, null,
-                discovery, discovery.allFiles());
+                discovery, new com.jsrc.app.project.SourceCompatibilityScanner()
+                        .scan(discovery.allFiles(), discovery.model(), null));
         var entry = new IndexEntry("A.java",
                 com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(source)),
                 0L, SourceSet.UNKNOWN, List.of(), List.of(), List.of(), 0);
         Files.writeString(projectRoot.resolve("B.java"), "class B {}");
+
+        assertThrows(IOException.class, () -> new CodebaseIndex(List.of(entry))
+                .saveWithGraph(projectRoot, null, null, true, snapshot));
+        assertTrue(Files.notExists(projectRoot.resolve(".jsrc/current")));
+    }
+
+    @Test
+    void changedAcceptedSourceBeforePublicationRejectsGeneration(@TempDir Path projectRoot)
+            throws Exception {
+        Path source = projectRoot.resolve("A.java");
+        Files.writeString(source, "class A {}");
+        var discovery = new com.jsrc.app.project.ProjectSourceDiscovery()
+                .discover(projectRoot, null);
+        var snapshot = SourceSnapshot.capture(projectRoot, null, null,
+                discovery, new com.jsrc.app.project.SourceCompatibilityScanner()
+                        .scan(discovery.allFiles(), discovery.model(), null));
+        var entry = new IndexEntry("A.java",
+                com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(source)),
+                0L, SourceSet.UNKNOWN, List.of(), List.of(), List.of(), 0);
+        Files.writeString(source, "class A {");
+
+        assertThrows(IOException.class, () -> new CodebaseIndex(List.of(entry))
+                .saveWithGraph(projectRoot, null, null, true, snapshot));
+        assertTrue(Files.notExists(projectRoot.resolve(".jsrc/current")));
+    }
+
+    @Test
+    void acceptedSourceChangedBetweenScanAndBuildRejectsGeneration(@TempDir Path projectRoot)
+            throws Exception {
+        Path source = projectRoot.resolve("A.java");
+        Files.writeString(source, "class A {}");
+        var discovery = new com.jsrc.app.project.ProjectSourceDiscovery()
+                .discover(projectRoot, null);
+        var compatibility = new com.jsrc.app.project.SourceCompatibilityScanner()
+                .scan(discovery.allFiles(), discovery.model(), null);
+        assertEquals(List.of(source), compatibility.files());
+        var snapshot = SourceSnapshot.capture(projectRoot, null, null,
+                discovery, compatibility);
+        Files.writeString(source, "class A {");
+        var entry = new IndexEntry("A.java",
+                com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(source)),
+                0L, SourceSet.UNKNOWN, List.of(), List.of(), List.of(), 0);
+
+        assertThrows(IOException.class, () -> new CodebaseIndex(List.of(entry))
+                .saveWithGraph(projectRoot, null, null, true, snapshot));
+        assertTrue(Files.notExists(projectRoot.resolve(".jsrc/current")));
+    }
+
+    @Test
+    void rejectedSourceBecomingValidBeforePublicationRejectsGeneration(@TempDir Path projectRoot)
+            throws Exception {
+        Path accepted = projectRoot.resolve("A.java");
+        Path rejected = projectRoot.resolve("B.java");
+        Files.writeString(accepted, "class A {}");
+        Files.writeString(rejected, "class B {");
+        var discovery = new com.jsrc.app.project.ProjectSourceDiscovery()
+                .discover(projectRoot, null);
+        var compatibility = new com.jsrc.app.project.SourceCompatibilityScanner()
+                .scan(discovery.allFiles(), discovery.model(), null);
+        assertEquals(List.of(accepted), compatibility.files());
+        var snapshot = SourceSnapshot.capture(projectRoot, null, null,
+                discovery, compatibility);
+        var entry = new IndexEntry("A.java",
+                com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(accepted)),
+                0L, SourceSet.UNKNOWN, List.of(), List.of(), List.of(), 0);
+        Files.writeString(rejected, "class B {}");
 
         assertThrows(IOException.class, () -> new CodebaseIndex(List.of(entry))
                 .saveWithGraph(projectRoot, null, null, true, snapshot));
@@ -228,7 +295,8 @@ class IndexSnapshotStoreTest {
         var discovery = new com.jsrc.app.project.ProjectSourceDiscovery()
                 .discover(projectRoot, null);
         var snapshot = SourceSnapshot.capture(projectRoot, null, null,
-                discovery, discovery.allFiles());
+                discovery, new com.jsrc.app.project.SourceCompatibilityScanner()
+                        .scan(discovery.allFiles(), discovery.model(), null));
         var entry = new IndexEntry("src/main/java/A.java",
                 com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(source)),
                 0L, SourceSet.MAIN, List.of(), List.of(), List.of(), 8);

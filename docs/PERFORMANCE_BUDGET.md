@@ -250,3 +250,42 @@ and the two JARs are retained under
 `/srv/hulk-data/desarrollo/benchmarks/jsrc-idx02d-noop/`. These are single
 phase samples, not calibrated end-to-end medians. The no-op change does not
 reduce publication cost for actual edits.
+
+## IDX-02e publication source verification (September 2026)
+
+Publication verifies each accepted source hash once, then checks discovery,
+build metadata, and compatibility only for sources that were rejected when the
+build started. The compatibility scanner records a hash of the same bytes it
+evaluated; publication requires both the index entry and current file to match
+that hash. This prevents a source that changes between scan and build from
+being published without validation. A rejected source can become compatible
+before publication, so it still must be rescanned. The trace count
+`source_snapshot.compatibility_rescanned_files` records how many rejected files
+required that second check.
+
+Three serial before/after pairs on identical copies of the same indexed 10K
+corpus each applied the same body-only edit to one file. The prior JAR was
+built from `3b7dc18`; the first updated JAR includes source-scan hash
+verification. Both used the same
+Java 22 container and `-Xmx4g`. All six refreshes re-indexed one file. Median
+CLI wall time was 5.520 s before and 4.916 s after; `index.total` was
+3.619 s and 3.052 s. The nested `publish.source_verify` phase fell from
+0.757 s to 0.366 s. The binary write/fsync/verify phase remained about
+1.2-1.4 s, and no rejected files were rescanned in the final samples. Raw
+traces, logs, JARs, and `final-results.json` are under
+`/srv/hulk-data/desarrollo/benchmarks/jsrc-idx02e-verify/` on HULK.
+
+After the immutable-source fix, three more serial pairs used copies of the
+same indexed 10K corpus, each with a body-only edit to `C00001.java`. The
+original `before.jar` was compared against `secure.jar` built from the final
+working tree, in the same Java 22 container with `-Xmx4g`. All six runs
+re-indexed one file and reused 9,999 edge sets. Median CLI wall time was
+5.595 s before and 5.191 s after; `index.total` was 3.577 s and 3.245 s,
+and `publish.source_verify` was 0.800 s and 0.364 s. The changed file's
+parse/extract phase was 0.040 s and 0.037 s. The result remains diagnostic
+on shared HULK; raw data, traces, logs, JARs, and the replay script are in
+`secure-results.json` and `run-secure-pairs.py` in the same benchmark directory.
+
+These three-pair measurements are diagnostic, not a recalibration of the
+shared-host 10K budget. Full snapshot serialization and its verification remain
+the principal publication cost for real edits.

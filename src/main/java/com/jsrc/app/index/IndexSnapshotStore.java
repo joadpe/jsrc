@@ -161,9 +161,9 @@ final class IndexSnapshotStore {
         var config = com.jsrc.app.config.ProjectConfig.load(projectRoot).orElse(null);
         var sources = new com.jsrc.app.project.ProjectSourceDiscovery()
                 .discover(projectRoot, config);
-        var accepted = new com.jsrc.app.project.SourceCompatibilityScanner()
-                .scan(sources.allFiles(), sources.model(), config).files();
-        return SourceSnapshot.capture(projectRoot, null, config, sources, accepted);
+        var compatibility = new com.jsrc.app.project.SourceCompatibilityScanner()
+                .scan(sources.allFiles(), sources.model(), config);
+        return SourceSnapshot.capture(projectRoot, null, config, sources, compatibility);
     }
 
     @FunctionalInterface
@@ -259,11 +259,10 @@ final class IndexSnapshotStore {
             BinaryIndexV2Reader.read(binary);
             IndexPhaseMetrics.recordPhase("publish.binary_write_fsync_verify", binaryStarted);
             long sourcesStarted = System.nanoTime();
-            if (validateSources) {
-                verifySources(indexDir.getParent(), entries);
-            }
             if (sourceSnapshot != null) {
                 sourceSnapshot.verify(entries);
+            } else if (validateSources) {
+                verifySources(indexDir.getParent(), entries);
             }
             IndexPhaseMetrics.recordPhase("publish.source_verify", sourcesStarted);
             probe.reached(PublicationPhase.GENERATION_DURABLE);

@@ -88,6 +88,11 @@ public class TreeSitterParser implements CodeParser {
     }
 
     @Override
+    public List<ClassInfo> parseClasses(Path path, String source) {
+        return executeClassQuery(path, source);
+    }
+
+    @Override
     public List<MethodInfo> findMethodsByAnnotation(Path path, String annotationName) {
         // Tree-sitter can't reliably parse annotations; return empty.
         // Callers needing annotation search should use HybridJavaParser.
@@ -136,28 +141,44 @@ public class TreeSitterParser implements CodeParser {
         return results;
     }
 
-    @SuppressWarnings("null")
     private List<ClassInfo> executeClassQuery(Path path) {
-        List<ClassInfo> results = new ArrayList<>();
         try {
-            ParsedFile pf = readAndParse(path);
-            try (Query query = new Query(language, ALL_CLASSES_QUERY);
-                 QueryCursor cursor = new QueryCursor(query)) {
-                cursor.findMatches(pf.tree.getRootNode()).forEach(match -> {
-                    for (Node nameNode : match.findNodes("className")) {
-                        Node classNode = nameNode.getParent().orElse(null);
-                        if (classNode == null) continue;
-                        ClassInfo ci = buildClassInfo(classNode, pf);
-                        if (ci != null) results.add(ci);
-                    }
-                });
-            }
+            return executeClassQuery(readAndParse(path));
         } catch (IOException ex) {
             logger.debug("Error reading file {}: {}", path, ex.getMessage());
             skippedFiles.add(path.toString());
         } catch (Exception ex) {
             logger.debug("Unexpected error parsing file {}: {}", path, ex.getMessage());
             skippedFiles.add(path.toString());
+        }
+        return Collections.emptyList();
+    }
+
+    private List<ClassInfo> executeClassQuery(Path path, String source) {
+        try {
+            byte[] bytes = source.getBytes(StandardCharsets.UTF_8);
+            Tree tree = parser.parse(source, InputEncoding.UTF_8).orElseThrow();
+            return executeClassQuery(new ParsedFile(bytes, source.lines().toList(), tree));
+        } catch (Exception ex) {
+            logger.debug("Unexpected error parsing source {}: {}", path, ex.getMessage());
+            skippedFiles.add(path.toString());
+            return Collections.emptyList();
+        }
+    }
+
+    @SuppressWarnings("null")
+    private List<ClassInfo> executeClassQuery(ParsedFile pf) {
+        List<ClassInfo> results = new ArrayList<>();
+        try (Query query = new Query(language, ALL_CLASSES_QUERY);
+             QueryCursor cursor = new QueryCursor(query)) {
+            cursor.findMatches(pf.tree.getRootNode()).forEach(match -> {
+                for (Node nameNode : match.findNodes("className")) {
+                    Node classNode = nameNode.getParent().orElse(null);
+                    if (classNode == null) continue;
+                    ClassInfo ci = buildClassInfo(classNode, pf);
+                    if (ci != null) results.add(ci);
+                }
+            });
         }
         return results;
     }

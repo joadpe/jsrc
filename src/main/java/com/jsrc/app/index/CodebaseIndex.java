@@ -14,7 +14,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.jsrc.app.output.JsonWriter;
+import com.jsrc.app.json.JsonWriter;
 import com.jsrc.app.parser.CodeParser;
 import com.jsrc.app.parser.model.ClassInfo;
 
@@ -445,7 +445,7 @@ public class CodebaseIndex {
         }
         try {
             String json = Files.readString(indexFile, java.nio.charset.StandardCharsets.UTF_8);
-            Object parsed = com.jsrc.app.output.JsonReader.parse(json);
+            Object parsed = com.jsrc.app.json.JsonReader.parse(json);
             if (!(parsed instanceof List<?> rawList)) {
                 logger.warn("Index file is not a JSON array: {}", indexFile);
                 return List.of();
@@ -479,7 +479,7 @@ public class CodebaseIndex {
         if (Files.exists(classesFile)) {
             try {
                 String json = Files.readString(classesFile, java.nio.charset.StandardCharsets.UTF_8);
-                Object parsed = com.jsrc.app.output.JsonReader.parse(json);
+                Object parsed = com.jsrc.app.json.JsonReader.parse(json);
                 if (parsed instanceof List<?> rawList) {
                     List<IndexEntry> result = new ArrayList<>();
                     for (Object item : rawList) {
@@ -509,7 +509,7 @@ public class CodebaseIndex {
         try {
             String json = Files.readString(
                     edgesFile, java.nio.charset.StandardCharsets.UTF_8);
-            Object parsed = com.jsrc.app.output.JsonReader.parse(json);
+            Object parsed = com.jsrc.app.json.JsonReader.parse(json);
             if (!(parsed instanceof Map<?, ?> document)
                     || intVal(document, CALL_EDGE_SCHEMA_KEY)
                     != CALL_EDGE_SCHEMA_VERSION
@@ -536,7 +536,7 @@ public class CodebaseIndex {
         if (!Files.exists(edgesFile)) return;
         try {
             String json = Files.readString(edgesFile, java.nio.charset.StandardCharsets.UTF_8);
-            Object parsed = com.jsrc.app.output.JsonReader.parse(json);
+            Object parsed = com.jsrc.app.json.JsonReader.parse(json);
             List<?> rawList;
             if (parsed instanceof Map<?, ?> document
                     && intVal(document, CALL_EDGE_SCHEMA_KEY)
@@ -584,7 +584,7 @@ public class CodebaseIndex {
         if (!Files.exists(smellsFile)) return;
         try {
             String json = Files.readString(smellsFile, java.nio.charset.StandardCharsets.UTF_8);
-            Object parsed = com.jsrc.app.output.JsonReader.parse(json);
+            Object parsed = com.jsrc.app.json.JsonReader.parse(json);
             if (!(parsed instanceof List<?> rawList)) return;
 
             Map<String, List<CachedSmell>> smellsByPath = new LinkedHashMap<>();

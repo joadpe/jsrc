@@ -98,7 +98,8 @@ public class FlowCommand implements Command {
         List<String> boundaries = new ArrayList<>();
         int[] dbQueries = {0};
 
-        traceFlow(entryMethod, null, graph, ctx, allClasses, layerResolver,
+        Set<String> daoClasses = ClassResolver.detectDaoClasses(allClasses);
+        traceFlow(entryMethod, null, graph, allClasses, daoClasses, layerResolver,
                 flowSteps, visited, layers, boundaries, dbQueries, 0);
 
         // Build result
@@ -126,7 +127,7 @@ public class FlowCommand implements Command {
 
     private void traceFlow(MethodReference method, MethodCall incomingCall,
                             CallGraph graph,
-                            CommandContext ctx, List<ClassInfo> allClasses,
+                            List<ClassInfo> allClasses, Set<String> daoClasses,
                             LayerResolver layerResolver,
                             List<Map<String, Object>> flowSteps, Set<String> visited,
                             Set<String> layers, List<String> boundaries,
@@ -179,7 +180,7 @@ public class FlowCommand implements Command {
         }
 
         // Check for DB access
-        if (ClassResolver.isDaoClass(className, ctx)) {
+        if (daoClasses.contains(className)) {
             step.put("dbAccess", true);
             dbQueries[0]++;
         }
@@ -192,7 +193,7 @@ public class FlowCommand implements Command {
         sorted.sort(Comparator.comparingInt(MethodCall::line));
         for (MethodCall call : sorted) {
             if (!call.callee().equals(method)) {
-                traceFlow(call.callee(), call, graph, ctx, allClasses,
+                traceFlow(call.callee(), call, graph, allClasses, daoClasses,
                         layerResolver, flowSteps, visited, layers, boundaries,
                         dbQueries, depth + 1);
             }

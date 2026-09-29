@@ -19,7 +19,7 @@ import com.jsrc.app.parser.model.ClassInfo;
  * Provides lazy-loaded shared services (call graph, etc.) to avoid
  * redundant expensive operations across commands.
  */
-public final class CommandContext {
+public final class CommandContext implements com.jsrc.app.analysis.AnalysisSource {
 
     private final List<Path> javaFiles;
     private final String rootPath;
@@ -40,6 +40,7 @@ public final class CommandContext {
     private final com.jsrc.app.index.SourceSnapshot sourceSnapshot;
 
     private CallGraph callGraphCache;
+    private java.util.Set<String> daoClassesCache;
     private DependencyAnalyzer dependencyAnalyzerCache;
     private SourceReader sourceReaderCache;
 
@@ -175,6 +176,21 @@ public final class CommandContext {
         return sourceDiagnostics;
     }
     public com.jsrc.app.index.SourceSnapshot sourceSnapshot() { return sourceSnapshot; }
+
+    @Override
+    public java.util.Optional<String> indexedFileForClass(String className) {
+        return indexed == null ? java.util.Optional.empty()
+                : indexed.findFileForClass(className);
+    }
+
+    @Override
+    public java.util.Set<String> daoClasses() {
+        if (daoClassesCache == null) {
+            daoClassesCache = com.jsrc.app.analysis.ClassResolver
+                    .detectDaoClasses(getAllClasses());
+        }
+        return daoClassesCache;
+    }
 
     public com.jsrc.app.project.SourceSet sourceSet(Path file) {
         return fileSourceSets.getOrDefault(

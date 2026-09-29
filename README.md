@@ -161,6 +161,22 @@ jsrc summary MyService --json # Class metadata
 jsrc callers validate --json  # Who calls this method?
 ```
 
+## Embed the analysis engine
+
+Java 22 applications can call `com.jsrc.app.engine.JsrcEngine` directly, without
+starting Picocli or choosing an output format. The three use cases are
+`overview(OverviewSource)`, `resolve(ResolutionSource, expression)` for receiver
+variables such as `Controller.service.process`, and
+`callers(CallersSource, method)`. Each source is an interface that can be backed
+by in-memory data or an index. Results are `OverviewResult`,
+`ResolutionResult`, and `CallersResult`; the caller decides how to render them.
+The CLI uses `CommandEngineSource` to adapt its existing execution context.
+
+For type and method identity resolution, including ambiguous candidates, use
+`com.jsrc.app.symbol.SymbolResolver`. That resolver remains independent of the
+CLI; the engine's `resolve` operation preserves the existing receiver-resolution
+command contract.
+
 ## Commands
 
 <!-- BEGIN GENERATED COMMAND CATALOG -->

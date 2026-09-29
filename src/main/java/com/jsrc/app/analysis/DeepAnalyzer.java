@@ -3,7 +3,6 @@ package com.jsrc.app.analysis;
 import java.util.*;
 
 import com.jsrc.app.analysis.PatternDetector.PatternDef;
-import com.jsrc.app.command.CommandContext;
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodReference;
 
@@ -19,9 +18,18 @@ public class DeepAnalyzer {
      * Each pattern type reported at most once per chain (shortest path).
      */
     public static List<Map<String, String>> findDeepPatterns(
-            String callName, ClassInfo ci, CommandContext ctx,
+            String callName, ClassInfo ci, AnalysisSource source,
             String currentClassSource, int currentDepth, int maxDepth,
             Set<String> visited, List<PatternDef> patterns) {
+        return findDeepPatterns(callName, ci, source, currentClassSource,
+                currentDepth, maxDepth, visited, patterns,
+                source.daoClasses());
+    }
+
+    private static List<Map<String, String>> findDeepPatterns(
+            String callName, ClassInfo ci, AnalysisSource source,
+            String currentClassSource, int currentDepth, int maxDepth,
+            Set<String> visited, List<PatternDef> patterns, Set<String> daoClasses) {
 
         List<Map<String, String>> results = new ArrayList<>();
         if (currentDepth > maxDepth) return results;
@@ -44,14 +52,14 @@ public class DeepAnalyzer {
         if ("this".equals(calleeClass) && currentClassSource != null) {
             calleeSource = SourceResolver.extractMethodByName(currentClassSource, calleeMethod);
         } else if (resolvedClass != null) {
-            calleeSource = SourceResolver.loadMethodSource(resolvedClass, calleeMethod, ctx);
+            calleeSource = SourceResolver.loadMethodSource(resolvedClass, calleeMethod, source);
         }
 
         Set<String> foundTypes = new HashSet<>();
 
         // Check if callee class is a known DAO class
         if (resolvedClass != null && !foundTypes.contains("DB_QUERY")) {
-            if (ClassResolver.isDaoClass(resolvedClass, ctx)) {
+            if (daoClasses.contains(resolvedClass)) {
                 results.add(Map.of("type", "DB_QUERY", "path", calleeMethod + " → DAO class (" + resolvedClass + ")"));
                 foundTypes.add("DB_QUERY");
             }
@@ -78,7 +86,7 @@ public class DeepAnalyzer {
         }
 
         // Navigate to next level using CallGraph
-        CallGraph graph = ctx.callGraph();
+        CallGraph graph = source.callGraph();
         if (resolvedClass != null) {
             Set<MethodReference> refs = graph.findMethodsByName(calleeMethod);
             for (MethodReference ref : refs) {
@@ -86,8 +94,8 @@ public class DeepAnalyzer {
                         || classMatches(ref.className(), ci.name())) {
                     for (var call : graph.getCalleesOf(ref)) {
                         String nextCall = call.callee().className() + "." + call.callee().methodName();
-                        var deepResults = findDeepPatterns(nextCall, ci, ctx, currentClassSource,
-                                currentDepth + 1, maxDepth, visited, patterns);
+                        var deepResults = findDeepPatterns(nextCall, ci, source, currentClassSource,
+                                currentDepth + 1, maxDepth, visited, patterns, daoClasses);
                         for (var dr : deepResults) {
                             if (!foundTypes.contains(dr.get("type"))) {
                                 results.add(Map.of("type", dr.get("type"),

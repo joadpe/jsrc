@@ -2,7 +2,6 @@ package com.jsrc.app.analysis;
 
 import java.util.*;
 
-import com.jsrc.app.command.CommandContext;
 import com.jsrc.app.parser.model.ClassInfo;
 
 /**
@@ -11,25 +10,22 @@ import com.jsrc.app.parser.model.ClassInfo;
  */
 public class ClassResolver {
 
-    private static Set<String> daoClassesCache;
-
     /**
      * Detects DAO classes by name, superclass, and interfaces.
-     * Cached after first call.
+     * Computed from the supplied project, without global cross-project state.
      */
-    public static Set<String> detectDaoClasses(CommandContext ctx) {
-        if (daoClassesCache != null) return daoClassesCache;
-        daoClassesCache = new HashSet<>();
+    public static Set<String> detectDaoClasses(List<ClassInfo> classes) {
+        Set<String> daoClasses = new HashSet<>();
 
-        for (ClassInfo ci : ctx.getAllClasses()) {
+        for (ClassInfo ci : classes) {
             String name = ci.name();
             String qname = ci.qualifiedName();
 
             // Heuristic 1: class name
             if (name.endsWith("Dao") || name.endsWith("DAO")
                     || name.endsWith("Repository") || name.endsWith("Mapper")) {
-                daoClassesCache.add(name);
-                daoClassesCache.add(qname);
+                daoClasses.add(name);
+                daoClasses.add(qname);
                 continue;
             }
 
@@ -42,8 +38,8 @@ public class ClassResolver {
                         || superSimple.contains("Repository") || superSimple.contains("Mapper")
                         || superSimple.contains("JdbcTemplate") || superSimple.contains("JpaRepository")
                         || superSimple.contains("CrudRepository")) {
-                    daoClassesCache.add(name);
-                    daoClassesCache.add(qname);
+                    daoClasses.add(name);
+                    daoClasses.add(qname);
                 }
             }
 
@@ -53,26 +49,20 @@ public class ClassResolver {
                         ? iface.substring(iface.lastIndexOf('.') + 1) : iface;
                 if (ifaceSimple.contains("Repository") || ifaceSimple.contains("Dao")
                         || ifaceSimple.contains("Mapper")) {
-                    daoClassesCache.add(name);
-                    daoClassesCache.add(qname);
+                    daoClasses.add(name);
+                    daoClasses.add(qname);
                 }
             }
         }
 
-        return daoClassesCache;
+        return Set.copyOf(daoClasses);
     }
 
     /**
      * Checks if a class name is a known DAO class.
      */
-    public static boolean isDaoClass(String className, CommandContext ctx) {
-        return detectDaoClasses(ctx).contains(className);
+    public static boolean isDaoClass(String className, List<ClassInfo> classes) {
+        return detectDaoClasses(classes).contains(className);
     }
 
-    /**
-     * Resets the DAO cache (for testing).
-     */
-    public static void resetCache() {
-        daoClassesCache = null;
-    }
 }

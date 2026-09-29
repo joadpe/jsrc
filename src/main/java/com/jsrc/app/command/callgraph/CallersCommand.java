@@ -2,6 +2,9 @@ package com.jsrc.app.command.callgraph;
 
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.command.CommandEngineSource;
+import com.jsrc.app.engine.CallersResult;
+import com.jsrc.app.engine.JsrcEngine;
 import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.model.HintContext;
 
@@ -10,10 +13,6 @@ import java.util.Objects;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import com.jsrc.app.architecture.InvokerResolver;
-import com.jsrc.app.analysis.CallGraph;
-import com.jsrc.app.util.MethodResolver;
-import com.jsrc.app.util.MethodTargetResolver;
 
 public class CallersCommand implements Command {
     private final String methodInput;
@@ -30,72 +29,47 @@ public class CallersCommand implements Command {
 
     @Override
     public int execute(CommandContext ctx) {
-        var ref = MethodResolver.parse(methodInput);
-        String methodName = ref.methodName();
-
-        CallGraph graph = ctx.callGraph();
-
-        var resolved = MethodTargetResolver.resolve(ref, graph);
-        var signatures = MethodTargetResolver.buildSignatureMap(ctx.indexed());
-        var packages = MethodTargetResolver.buildClassPackageMap(ctx.indexed());
-        var methodPackages = MethodTargetResolver.buildMethodPackageMap(ctx.indexed());
-
-        if (resolved.isAmbiguous()) {
-            var candidates = MethodTargetResolver.buildCandidates(resolved.targets(), signatures, packages);
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("ambiguous", true);
-            result.put("method", ref.hasClassName()
-                    ? ref.className() + "." + ref.methodName() : ref.methodName());
-            result.put("candidates", candidates);
-            result.put("suggestions", candidates);
-            result.put("message", "Multiple methods found. Use Class.method(Type1,Type2) to disambiguate.");
-            ctx.formatter().printResult(result);
-            return Math.max(1, candidates.size());
+        CallersResult result = new JsrcEngine().callers(
+                new CommandEngineSource(ctx), methodInput);
+        String methodName = result.method();
+        if (result.status() == CallersResult.Status.AMBIGUOUS) {
+            Map<String, Object> output = new LinkedHashMap<>();
+            output.put("ambiguous", true);
+            output.put("method", methodName);
+            output.put("candidates", result.candidates());
+            output.put("suggestions", result.candidates());
+            output.put("message", "Multiple methods found. Use Class.method(Type1,Type2) to disambiguate.");
+            ctx.formatter().printResult(output);
+            return Math.max(1, result.candidates().size());
         }
-
-        var targets = resolved.targets();
 
         List<Map<String, Object>> callers = new ArrayList<>();
-        for (var target : targets) {
-            for (var call : graph.getCallersOf(target)) {
-                Map<String, Object> entry = new LinkedHashMap<>();
-                String callerClass = ctx.qualify(call.caller().className());
-                String callerMethod = call.caller().methodName();
-                entry.put("class", callerClass);
-                entry.put("method", callerMethod);
-                // Include caller signature from index when available
-                String sigKey = call.caller().className() + "." + callerMethod;
-                String sig = signatures.get(sigKey);
-                if (sig != null) entry.put("signature", sig);
-
-                entry.put("line", call.line());
-                entry.put("type", "direct");
-                entry.put("dispatch", call.invocationKind().name()
-                        .toLowerCase(java.util.Locale.ROOT));
-                entry.put("resolution", call.resolutionLevel().name()
-                        .toLowerCase(java.util.Locale.ROOT));
-                if (!call.evidence().isEmpty()) {
-                    entry.put("evidence", call.evidence());
+        for (var caller : result.callers()) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("class", caller.className());
+            entry.put("method", caller.method());
+            switch (caller) {
+                case CallersResult.DirectCaller direct -> {
+                    if (direct.signature() != null) {
+                        entry.put("signature", direct.signature());
+                    }
+                    entry.put("line", direct.line());
+                    entry.put("type", "direct");
+                    entry.put("dispatch", direct.dispatch().name()
+                            .toLowerCase(java.util.Locale.ROOT));
+                    entry.put("resolution", direct.resolution().name()
+                            .toLowerCase(java.util.Locale.ROOT));
+                    if (!direct.evidence().isEmpty()) {
+                        entry.put("evidence", direct.evidence());
+                    }
                 }
-                callers.add(entry);
-            }
-        }
-
-        // Add reflective callers — skip if index already has them
-        if (ctx.config() != null && !ctx.config().architecture().invokers().isEmpty()
-                && !(ctx.indexed() != null && ctx.indexed().hasCallEdges())) {
-            var resolver = new InvokerResolver(ctx.config().architecture().invokers());
-            for (var rc : resolver.resolve(ctx.javaFiles())) {
-                if (rc.targetMethod().equals(methodName)) {
-                    Map<String, Object> entry = new LinkedHashMap<>();
-                    entry.put("class", rc.callerClass());
-                    entry.put("method", rc.callerMethod());
-                    entry.put("line", rc.line());
+                case CallersResult.ReflectiveCaller reflective -> {
+                    entry.put("line", reflective.line());
                     entry.put("type", "reflective");
-                    entry.put("targetClass", rc.targetClass());
-                    callers.add(entry);
+                    entry.put("targetClass", reflective.targetClass());
                 }
             }
+            callers.add(entry);
         }
 
         if (mermaidGraph) {

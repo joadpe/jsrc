@@ -20,8 +20,19 @@ public record IndexEntry(
         List<IndexedClass> classes,
         List<CallEdge> callEdges,
         List<CachedSmell> smells,
-        int sourceVersion
+        int sourceVersion,
+        String declarationFingerprint
 ) {
+    public IndexEntry {
+        declarationFingerprint = declarationFingerprint == null ? "" : declarationFingerprint;
+    }
+
+    public IndexEntry(String path, String contentHash, long lastModified,
+                      com.jsrc.app.project.SourceSet sourceSet, List<IndexedClass> classes,
+                      List<CallEdge> callEdges, List<CachedSmell> smells, int sourceVersion) {
+        this(path, contentHash, lastModified, sourceSet, classes, callEdges, smells,
+                sourceVersion, "");
+    }
     public IndexEntry(String path, String contentHash, long lastModified,
                       com.jsrc.app.project.SourceSet sourceSet,
                       List<IndexedClass> classes, List<CallEdge> callEdges,
@@ -52,12 +63,14 @@ public record IndexEntry(
     /** Returns a copy with different call edges. */
     public IndexEntry withEdges(List<CallEdge> newEdges) {
         return new IndexEntry(
-                path, contentHash, lastModified, sourceSet, classes, newEdges, smells, sourceVersion);
+                path, contentHash, lastModified, sourceSet, classes, newEdges, smells,
+                sourceVersion, declarationFingerprint);
     }
 
     /** Returns a copy with different smells. */
     public IndexEntry withSmells(List<CachedSmell> newSmells) {
         return new IndexEntry(
-                path, contentHash, lastModified, sourceSet, classes, callEdges, newSmells, sourceVersion);
+                path, contentHash, lastModified, sourceSet, classes, callEdges, newSmells,
+                sourceVersion, declarationFingerprint);
     }
 }

@@ -527,14 +527,20 @@ def blocked_on_file_lock(pid, lock_path):
         if channel not in ('fcntl_setlk', 'posix_lock_inode_wait',
                            'locks_lock_inode_wait'):
             return False
+        syscall = Path(f'/proc/{pid}/syscall').read_text().split()
+        if len(syscall) < 3:
+            return False
+        fd_number, operation = int(syscall[1], 0), int(syscall[2], 0)
+        blocking_operations = {fcntl.F_SETLKW}
+        for name in ('F_SETLKW64', 'F_OFD_SETLKW'):
+            value = getattr(fcntl, name, None)
+            if value is not None:
+                blocking_operations.add(value)
+        if operation not in blocking_operations:
+            return False
         locked = lock_path.stat()
-        for fd in Path(f'/proc/{pid}/fd').iterdir():
-            try:
-                opened = fd.stat()
-            except OSError:
-                continue
-            if (opened.st_dev, opened.st_ino) == (locked.st_dev, locked.st_ino):
-                return True
+        opened = Path(f'/proc/{pid}/fd/{fd_number}').stat()
+        return (opened.st_dev, opened.st_ino) == (locked.st_dev, locked.st_ino)
     except OSError:
         return False
     return False

@@ -357,6 +357,36 @@ print(json.dumps({'ok': True}))
                     for child in children:
                         child.wait(timeout=5)
 
+    def test_open_index_lock_does_not_prove_waiting_on_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            index_path = Path(temp) / 'index.lock'
+            other_path = Path(temp) / 'other.lock'
+            with index_path.open('w') as index_file, other_path.open('w') as other_file:
+                fcntl.lockf(index_file, fcntl.LOCK_EX)
+                fcntl.lockf(other_file, fcntl.LOCK_EX)
+                script = ('import fcntl, sys; '
+                          'index = open(sys.argv[1], "w"); '
+                          'other = open(sys.argv[2], "w"); '
+                          'fcntl.lockf(other, fcntl.LOCK_EX)')
+                child = subprocess.Popen([sys.executable, '-c', script,
+                                          str(index_path), str(other_path)])
+                try:
+                    deadline = perf.time.monotonic() + 2
+                    while (perf.time.monotonic() < deadline
+                           and not perf.blocked_on_file_lock(child.pid, other_path)):
+                        perf.time.sleep(0.005)
+                    self.assertTrue(perf.blocked_on_file_lock(child.pid, other_path))
+                    self.assertFalse(perf.blocked_on_file_lock(child.pid, index_path))
+                    from unittest.mock import patch
+                    real_lock_owners = perf.lock_owners
+                    with patch.object(perf, 'lock_owners',
+                                      side_effect=lambda path: (real_lock_owners(path)[0], set())):
+                        self.assertIsNone(perf.wait_for_competing_writers(
+                            index_path, [child.pid], [sys.executable], 0.2))
+                finally:
+                    child.terminate()
+                    child.wait(timeout=5)
+
     def test_concurrent_publication_checks_readers_and_competing_writers(self):
         fake = """import fcntl, json, os, pathlib, sys, time
 args = sys.argv[1:]

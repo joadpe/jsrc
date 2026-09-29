@@ -231,12 +231,24 @@ class FrozenIndexContractTest {
         assertNotNull(IndexedCodebase.tryLoad(tempDir, List.of(sourceFile), false));
 
         byte[] bytes = Files.readAllBytes(publishedBinary());
-        assertEquals(9, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
+        assertEquals(10, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
     }
 
     private Path publishedBinary() throws java.io.IOException {
         var manifest = Files.readAllLines(tempDir.resolve(".jsrc/current"));
         return tempDir.resolve(".jsrc/generations").resolve(manifest.get(1));
+    }
+
+    @Test
+    void normalLoadRebuildsPreviousDeclarationFingerprintSchema() throws Exception {
+        buildValidIndex();
+        Path indexFile = publishedBinary();
+        setIndexVersion(indexFile, 9);
+
+        assertNotNull(IndexedCodebase.tryLoad(tempDir, List.of(sourceFile), false));
+
+        byte[] bytes = Files.readAllBytes(publishedBinary());
+        assertEquals(10, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
     }
 
     private void setIndexVersion(Path indexFile, int version) throws Exception {

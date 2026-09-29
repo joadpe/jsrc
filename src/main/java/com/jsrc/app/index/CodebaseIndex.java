@@ -101,6 +101,8 @@ public class CodebaseIndex {
                 .collect(java.util.stream.Collectors.toSet());
         boolean fileSetChanged = !existingByPath.keySet().equals(currentPaths);
         Map<String, Path> unchangedFiles = new LinkedHashMap<>();
+        java.util.Set<String> changedPaths = new java.util.HashSet<>();
+        boolean changedFilesParsedCleanly = true;
 
         entries.clear();
         int reindexed = 0;
@@ -138,6 +140,8 @@ public class CodebaseIndex {
                 List<String> fileImports = extractImports(file, edgeParser);
 
                 EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser);
+                changedFilesParsedCleanly &= extraction.parsedCleanly();
+                String declarationFingerprint = extraction.declarationFingerprint();
 
                 List<IndexedClass> indexed = new ArrayList<>(classes.stream()
                         .map(ci -> toIndexedClass(ci, file, parser, fileImports))
@@ -160,8 +164,9 @@ public class CodebaseIndex {
 
                 entries.add(new IndexEntry(
                         relativePath, hash, lastModified, sourceSet,
-                        indexed, edges, List.of(), sourceVersion));
+                        indexed, edges, List.of(), sourceVersion, declarationFingerprint));
                 reindexed++;
+                changedPaths.add(relativePath);
                 IndexPhaseMetrics.recordPhase("build.parse_extract", parseStarted);
             } catch (IOException ex) {
                 logger.error("Error indexing {}: {}", file, ex.getMessage());
@@ -171,7 +176,12 @@ public class CodebaseIndex {
         boolean semanticRefreshRequired = fileSetChanged
                 || reindexed > 0
                 || !invokers.isEmpty();
-        if (semanticRefreshRequired && !unchangedFiles.isEmpty()) {
+        String fallbackReason = semanticRefreshRequired
+                ? scopedResolutionFallback(existing, entries, changedPaths,
+                        changedFilesParsedCleanly, fileSetChanged, !invokers.isEmpty())
+                : null;
+        boolean scopedResolution = semanticRefreshRequired && fallbackReason == null;
+        if (semanticRefreshRequired && !scopedResolution && !unchangedFiles.isEmpty()) {
             long refreshEdgesStarted = System.nanoTime();
             for (int index = 0; index < entries.size(); index++) {
                 IndexEntry entry = entries.get(index);
@@ -192,14 +202,57 @@ public class CodebaseIndex {
         if (semanticRefreshRequired) {
             long resolveStarted = System.nanoTime();
             // Resolve raw edges only when sources or the type universe changed.
-            edgeResolver.resolveMarkers(entries);
-            edgeResolver.resolveSymbols(entries);
+            java.util.Set<String> selectedPaths = scopedResolution ? changedPaths : null;
+            edgeResolver.resolveMarkers(entries, selectedPaths);
+            edgeResolver.resolveSymbols(entries, selectedPaths);
             IndexPhaseMetrics.recordPhase("build.resolve", resolveStarted);
         }
 
+        int reusedEdges = scopedResolution || !semanticRefreshRequired
+                ? unchangedFiles.size() : 0;
+        IndexPhaseMetrics.countPhase("build.edges_reused_files", reusedEdges);
+        IndexPhaseMetrics.countPhase("build.edges_extracted_files",
+                reindexed + unchangedFiles.size() - reusedEdges);
+        IndexPhaseMetrics.countPhase("build.resolved_files",
+                semanticRefreshRequired ? (scopedResolution ? changedPaths.size() : entries.size()) : 0);
+        if (semanticRefreshRequired && fallbackReason != null) {
+            IndexPhaseMetrics.countPhase("build.full_fallback_reason." + fallbackReason, 1);
+        }
         IndexPhaseMetrics.countPhase("build.reindexed", reindexed);
         IndexPhaseMetrics.recordPhase("build.total", buildStarted);
         return reindexed;
+    }
+
+    private static String scopedResolutionFallback(
+            List<IndexEntry> previous, List<IndexEntry> current,
+            java.util.Set<String> changedPaths, boolean parsedCleanly,
+            boolean fileSetChanged, boolean hasInvokers) {
+        if (changedPaths.isEmpty()) return "no_changed_files";
+        if (fileSetChanged || previous.size() != current.size()) return "file_set";
+        if (hasInvokers || previous.stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .anyMatch(edge -> edge.invocationKind()
+                        == com.jsrc.app.model.InvocationKind.REFLECTIVE)) {
+            return "invokers";
+        }
+        if (!parsedCleanly) return "diagnostics";
+        for (int index = 0; index < current.size(); index++) {
+            IndexEntry oldEntry = previous.get(index);
+            IndexEntry newEntry = current.get(index);
+            if (!oldEntry.path().equals(newEntry.path())) return "order";
+            if (!hasCanonicalCallEdgeSchema(oldEntry)) return "schema";
+            if (oldEntry.sourceSet() != newEntry.sourceSet()
+                    || oldEntry.sourceVersion() != newEntry.sourceVersion()
+                    || !oldEntry.classes().equals(newEntry.classes())
+                    || oldEntry.declarationFingerprint().isBlank()
+                    || !oldEntry.declarationFingerprint().equals(
+                            newEntry.declarationFingerprint())
+                    || (changedPaths.contains(newEntry.path())
+                            && newEntry.classes().isEmpty())) {
+                return "declarations";
+            }
+        }
+        return null;
     }
 
     private static boolean hasCanonicalCallEdgeSchema(IndexEntry entry) {
@@ -604,6 +657,7 @@ public class CodebaseIndex {
                 : com.jsrc.app.project.SourceSet.UNKNOWN;
         int sourceVersion = map.get("sourceVersion") instanceof Number number
                 ? number.intValue() : -1;
+        String declarationFingerprint = str(map, "declarationFingerprint");
 
         List<IndexedClass> classes = new ArrayList<>();
         Object classesRaw = map.get("classes");
@@ -634,7 +688,7 @@ public class CodebaseIndex {
         }
         return new IndexEntry(
                 path, hash, lastModified, sourceSet, classes, callEdges, smells,
-                sourceVersion);
+                sourceVersion, declarationFingerprint);
     }
 
     @SuppressWarnings("unchecked")
@@ -808,6 +862,7 @@ public class CodebaseIndex {
         map.put("lastModified", entry.lastModified());
         map.put("sourceSet", entry.sourceSet().externalName());
         map.put("sourceVersion", entry.sourceVersion());
+        map.put("declarationFingerprint", entry.declarationFingerprint());
         map.put("classes", entry.classes().stream().map(this::classToMap).toList());
         if (!entry.callEdges().isEmpty()) {
             map.put("callEdges", entry.callEdges().stream().map(this::edgeToMap).toList());

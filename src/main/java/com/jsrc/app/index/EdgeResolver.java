@@ -43,7 +43,9 @@ public class EdgeResolver {
 
     public record Extraction(
             List<CallEdge> edges,
-            Map<String, List<IndexedMethod>> syntheticMethods) {
+            Map<String, List<IndexedMethod>> syntheticMethods,
+            String declarationFingerprint,
+            boolean parsedCleanly) {
         public Extraction {
             edges = List.copyOf(edges);
             syntheticMethods = syntheticMethods.entrySet().stream()
@@ -70,14 +72,20 @@ public class EdgeResolver {
     public Extraction extract(Path file, JavaParser jp) {
         List<CallEdge> edges = new ArrayList<>();
         Map<String, List<IndexedMethod>> syntheticMethods = new HashMap<>();
+        String declarationFingerprint = "";
+        boolean parsedCleanly = false;
         try {
             String source = Files.readString(file);
             var result = jp.parse(source);
             if (!result.getResult().isPresent()) {
-                return new Extraction(edges, syntheticMethods);
+                return new Extraction(edges, syntheticMethods, "", false);
             }
 
             CompilationUnit cu = result.getResult().get();
+            parsedCleanly = result.isSuccessful();
+            if (parsedCleanly) {
+                declarationFingerprint = declarationFingerprint(cu);
+            }
             for (com.github.javaparser.ast.body.TypeDeclaration<?> declaration
                     : cu.findAll(com.github.javaparser.ast.body.TypeDeclaration.class)) {
                 String className = qualifiedClassName(declaration);
@@ -138,7 +146,8 @@ public class EdgeResolver {
         } catch (IOException ex) {
             logger.debug("Error extracting call edges from {}: {}", file, ex.getMessage());
         }
-        return new Extraction(edges, syntheticMethods);
+        return new Extraction(
+                edges, syntheticMethods, declarationFingerprint, parsedCleanly);
     }
 
     private static IndexedMethod toIndexedMethod(MethodDeclaration method) {
@@ -226,7 +235,52 @@ public class EdgeResolver {
      * Modifies the entries list in place, replacing entries whose edges changed.
      * Runs iteratively (up to 5 passes) for nested marker chains.
      */
+    private static String declarationFingerprint(CompilationUnit unit) {
+        var declarations = unit.clone();
+        StringBuilder signature = new StringBuilder();
+        for (var type : declarations.findAll(
+                com.github.javaparser.ast.body.TypeDeclaration.class)) {
+            if (type.findAncestor(
+                    com.github.javaparser.ast.body.CallableDeclaration.class).isPresent()
+                    || type.findAncestor(
+                            com.github.javaparser.ast.body.InitializerDeclaration.class)
+                            .isPresent()) {
+                var localType = type.clone();
+                eraseExecutableBodies(localType);
+                signature.append(localType).append('\n');
+            }
+        }
+        for (var creation : declarations.findAll(
+                com.github.javaparser.ast.expr.ObjectCreationExpr.class)) {
+            if (creation.getAnonymousClassBody().isPresent()) {
+                var anonymousType = creation.clone();
+                eraseExecutableBodies(anonymousType);
+                signature.append(anonymousType).append('\n');
+            }
+        }
+        eraseExecutableBodies(declarations);
+        signature.append(declarations);
+        return com.jsrc.app.util.Hashing.sha256(
+                signature.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private static void eraseExecutableBodies(com.github.javaparser.ast.Node declarations) {
+        declarations.findAll(com.github.javaparser.ast.body.MethodDeclaration.class)
+                .forEach(method -> method.getBody().ifPresent(
+                        ignored -> method.setBody(new com.github.javaparser.ast.stmt.BlockStmt())));
+        declarations.findAll(com.github.javaparser.ast.body.ConstructorDeclaration.class)
+                .forEach(constructor -> constructor.setBody(
+                        new com.github.javaparser.ast.stmt.BlockStmt()));
+        declarations.findAll(com.github.javaparser.ast.body.InitializerDeclaration.class)
+                .forEach(initializer -> initializer.setBody(
+                        new com.github.javaparser.ast.stmt.BlockStmt()));
+    }
+
     public void resolveMarkers(List<IndexEntry> entries) {
+        resolveMarkers(entries, null);
+    }
+
+    void resolveMarkers(List<IndexEntry> entries, java.util.Set<String> selectedPaths) {
         Map<String, String> fieldTypeMap = new HashMap<>();
         Map<String, String> returnTypeMap = new HashMap<>();
         for (IndexEntry entry : entries) {
@@ -253,6 +307,10 @@ public class EdgeResolver {
             boolean changed = false;
             List<IndexEntry> newEntries = new ArrayList<>();
             for (IndexEntry entry : entries) {
+                if (selectedPaths != null && !selectedPaths.contains(entry.path())) {
+                    newEntries.add(entry);
+                    continue;
+                }
                 List<CallEdge> newEdges = new ArrayList<>();
                 boolean entryChanged = false;
                 for (CallEdge edge : entry.callEdges()) {
@@ -1332,9 +1390,17 @@ public class EdgeResolver {
      */
     /** Resolves caller and callee type names using the common project symbol resolver. */
     public void resolveSymbols(List<IndexEntry> entries) {
+        resolveSymbols(entries, null);
+    }
+
+    void resolveSymbols(List<IndexEntry> entries, java.util.Set<String> selectedPaths) {
         var resolver = new SemanticCallResolver(entries);
         List<IndexEntry> resolvedEntries = new ArrayList<>(entries.size());
         for (IndexEntry entry : entries) {
+            if (selectedPaths != null && !selectedPaths.contains(entry.path())) {
+                resolvedEntries.add(entry);
+                continue;
+            }
             List<CallEdge> resolvedEdges = new ArrayList<>();
             for (CallEdge edge : entry.callEdges()) {
                 resolvedEdges.addAll(resolver.resolve(edge));

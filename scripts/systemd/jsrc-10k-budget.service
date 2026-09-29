@@ -1,7 +1,0 @@
-[Unit]
-Description=jsrc weekly 10K performance budget
-
-[Service]
-Type=oneshot
-ExecStart=/home/joaquin/.local/bin/jsrc-10k-budget
-TimeoutStartSec=8h

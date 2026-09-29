@@ -40,10 +40,8 @@ cd /path/to/codebase
 jsrc index
 ```
 
-This parses all Java files and saves a persistent index to `.jsrc/index.bin`. Only needed once — subsequent runs auto-refresh changed files.
+This parses the project and saves a persistent index under `.jsrc/`. Subsequent runs auto-refresh changed files.
 
-- First run on 8,000 files: ~14 minutes
-- Incremental (after changes): <2 seconds
 - All query commands use the index automatically
 
 ### Step 2: Orient yourself
@@ -53,7 +51,7 @@ cd /path/to/codebase
 jsrc overview --json
 ```
 
-Returns: total files, classes, interfaces, methods, package list. ~77ms with index.
+Returns: total files, classes, interfaces, methods, and package list.
 
 ### Step 3: Query as needed
 
@@ -213,7 +211,7 @@ jsrc read ClassName.methodName --json  # whole-class reads denied under tiny
 3. **Index auto-refreshes** — if files changed since indexing, jsrc re-parses only those files automatically
 4. **stdout = data, stderr = diagnostics** — parse stdout only
 5. **`--signature-only`** saves tokens — use it when you don't need full method metadata
-6. **`--metrics`** reports timing — use it to verify index is working (should be <1s)
+6. **`--metrics`** reports timing — use it to inspect command costs
 
 ## Output format (JSON)
 
@@ -239,23 +237,6 @@ the default legacy protocol; use `--protocol 1` for the versioned envelope.
 ```json
 [{"name":"process","className":"Service","file":"Service.java","startLine":10,"endLine":25,"signature":"public void process(String input)","returnType":"void","modifiers":["public"],"parameters":[{"type":"String","name":"input"}]}]
 ```
-
-### metrics (stderr)
-```json
-{"command":"overview","elapsedMs":77,"filesScanned":8323,"resultsFound":13335}
-```
-
-## Performance (with index)
-
-| Command | 51 files | 1,621 files | 8,323 files |
-|---------|----------|-------------|-------------|
-| overview | 1.7s | 41ms | 77ms |
-| classes | 1.5s | 146ms | 227ms |
-| annotations | 1.7s | 304ms | 857ms |
-| summary | 671ms | 39ms | 85ms |
-| search | 646ms | — | — |
-
-Without index, full-parse commands on 8,323 files take 12+ minutes.
 
 ## Playbooks — What command to use when
 

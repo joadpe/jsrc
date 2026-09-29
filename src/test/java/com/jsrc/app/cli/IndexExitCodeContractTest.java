@@ -59,4 +59,30 @@ class IndexExitCodeContractTest {
             System.setErr(originalErr);
         }
     }
+
+    @Test
+    void unchangedCallFreeSourceIsCached(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("Demo.java"), """
+                package demo;
+                public class Demo {
+                    public void run() {}
+                }
+                """);
+        assertEquals(0, JsrcCliFactory.create().execute("--dir", tempDir.toString(), "index"));
+
+        var originalErr = System.err;
+        var capturedErr = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(capturedErr));
+        int exitCode;
+        try {
+            exitCode = JsrcCliFactory.create().execute("--dir", tempDir.toString(), "index");
+        } finally {
+            System.setErr(originalErr);
+        }
+
+        assertEquals(0, exitCode);
+        assertTrue(capturedErr.toString().contains(
+                "Done. Indexed 1 files (0 re-indexed, 1 cached)."),
+                capturedErr.toString());
+    }
 }

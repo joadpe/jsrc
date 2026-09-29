@@ -16,24 +16,35 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Resolves raw call edges into canonical, explainable dispatch targets. */
 public final class SemanticCallResolver {
 
     private final SymbolResolver symbolResolver;
     private final List<IndexedClass> classes;
+    private final List<TypeId> classIds;
+    private final List<String> classNames;
     private final Map<String, IndexedClass> classesByName;
+    private final Map<TypeId, List<Integer>> directSubtypes;
+    private final Map<TypeId, List<IndexedClass>> concreteSubtypes = new ConcurrentHashMap<>();
 
     public SemanticCallResolver(List<IndexEntry> entries) {
         this.symbolResolver = IndexSymbolAdapter.create(entries);
         this.classes = entries.stream()
                 .flatMap(entry -> entry.classes().stream())
                 .toList();
+        this.classIds = classes.stream()
+                .map(indexedClass -> TypeId.from(
+                        indexedClass.packageName(), indexedClass.name()))
+                .toList();
+        this.classNames = classIds.stream().map(TypeId::canonicalName).toList();
         this.classesByName = new HashMap<>();
         for (IndexedClass indexedClass : classes) {
             classesByName.put(indexedClass.qualifiedName(), indexedClass);
             classesByName.putIfAbsent(indexedClass.name(), indexedClass);
         }
+        this.directSubtypes = buildDirectSubtypes();
     }
 
     public List<CallEdge> resolve(CallEdge edge) {
@@ -455,10 +466,8 @@ public final class SemanticCallResolver {
             List<String> argumentTypes,
             Context callerContext) {
         List<MethodSymbol> targets = new ArrayList<>();
-        for (IndexedClass candidate : classes) {
-            if (candidate.isInterface() || candidate.isAbstract()) continue;
-            if (!isSubtype(candidate, receiver.id(), new HashSet<>())) continue;
-
+        for (IndexedClass candidate : concreteSubtypes.computeIfAbsent(
+                receiver.id(), this::findConcreteSubtypes)) {
             Resolution<MethodSymbol> resolution = symbolResolver.resolveMethod(
                     candidate.qualifiedName(), methodName, argumentTypes, callerContext);
             if (resolution instanceof Resolution.Found<MethodSymbol> found
@@ -469,34 +478,57 @@ public final class SemanticCallResolver {
         return targets;
     }
 
-    private boolean isSubtype(
-            IndexedClass candidate,
-            TypeId expected,
-            Set<String> visited) {
-        if (!visited.add(candidate.qualifiedName())) return false;
-        if (TypeId.namesMatch(candidate.qualifiedName(), expected.canonicalName())) return true;
-
-        TypeId candidateId = TypeId.from(candidate.packageName(), candidate.name());
-        Context context = new Context(candidate.packageName(), candidate.imports(), candidateId);
-        for (String relation : candidate.superClass()) {
-            if (relationMatches(relation, expected, context, visited)) return true;
+    private Map<TypeId, List<Integer>> buildDirectSubtypes() {
+        Map<TypeId, List<Integer>> children = new HashMap<>();
+        for (int index = 0; index < classes.size(); index++) {
+            IndexedClass indexedClass = classes.get(index);
+            Context context = new Context(indexedClass.packageName(),
+                    indexedClass.imports(), classIds.get(index));
+            for (String relation : indexedClass.superClass()) {
+                addDirectSubtype(children, relation, context, index);
+            }
+            for (String relation : indexedClass.interfaces()) {
+                addDirectSubtype(children, relation, context, index);
+            }
         }
-        for (String relation : candidate.interfaces()) {
-            if (relationMatches(relation, expected, context, visited)) return true;
-        }
-        return false;
+        return children;
     }
 
-    private boolean relationMatches(
-            String relation,
-            TypeId expected,
-            Context context,
-            Set<String> visited) {
+    private void addDirectSubtype(Map<TypeId, List<Integer>> children,
+            String relation, Context context, int index) {
         Resolution<TypeSymbol> resolution = symbolResolver.resolveType(relation, context);
-        if (!(resolution instanceof Resolution.Found<TypeSymbol> found)) return false;
-        if (found.value().id().equals(expected)) return true;
-        IndexedClass parent = classesByName.get(found.value().id().canonicalName());
-        return parent != null && isSubtype(parent, expected, visited);
+        if (resolution instanceof Resolution.Found<TypeSymbol> found) {
+            children.computeIfAbsent(found.value().id(), ignored -> new ArrayList<>())
+                    .add(index);
+        }
+    }
+
+    private List<IndexedClass> findConcreteSubtypes(TypeId receiverId) {
+        List<Integer> pending = new ArrayList<>();
+        String receiverName = receiverId.canonicalName();
+        for (int index = 0; index < classes.size(); index++) {
+            if (TypeId.namesMatch(classNames.get(index), receiverName)) {
+                pending.add(index);
+            }
+        }
+
+        Set<Integer> descendants = new HashSet<>();
+        for (int next = 0; next < pending.size(); next++) {
+            int index = pending.get(next);
+            if (descendants.add(index)) {
+                pending.addAll(directSubtypes.getOrDefault(classIds.get(index), List.of()));
+            }
+        }
+
+        List<IndexedClass> subtypes = new ArrayList<>();
+        for (int index = 0; index < classes.size(); index++) {
+            IndexedClass candidate = classes.get(index);
+            if (descendants.contains(index) && !candidate.isInterface()
+                    && !candidate.isAbstract()) {
+                subtypes.add(candidate);
+            }
+        }
+        return List.copyOf(subtypes);
     }
 
     private boolean isConcrete(MethodSymbol method) {

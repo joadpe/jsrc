@@ -138,7 +138,9 @@ Output: `dist\jsrc-windows-x64.zip`.
 The JAR requires Java 22+ and the Tree-sitter native libraries from the matching bundle:
 
 This is the **runtime requirement for jsrc**, not the source version of the project
-being analyzed. jsrc recognizes declared Java source levels 8–21 per module.
+being analyzed. jsrc recognizes declared Java source levels 8–22 per module.
+Java 22 sources are parsed with the Java 21 grammar; unsupported newer syntax
+remains quarantined.
 
 ```bash
 java --enable-native-access=ALL-UNNAMED \
@@ -372,7 +374,7 @@ sourceRoots:
 excludes:
   - "**/test/**"
   - "**/generated/**"
-javaVersion: "21"  # Optional source-language override (8–21), not jsrc's runtime JDK
+javaVersion: "21"  # Optional source-language override (8–22), not jsrc's runtime JDK
 moduleJavaVersions:  # Optional overrides for modules with dynamic/undeclared build settings
   legacy: "8"       # Key is the module path relative to the project root
 budget: small  # Optional: tiny|small|standard (default: standard)

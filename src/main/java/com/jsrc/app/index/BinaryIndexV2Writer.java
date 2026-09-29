@@ -188,6 +188,8 @@ public class BinaryIndexV2Writer {
         } else {
             out.writeByte(0); // no migrations
         }
+        // An old reader ignores this trailer; a new reader treats its absence as unversioned.
+        out.writeInt(migrations == null ? 0 : CachedMigration.ALGORITHM_VERSION);
 
         out.flush();
         byte[] payloadBytes = payload.toByteArray();

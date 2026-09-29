@@ -3,7 +3,12 @@ package com.jsrc.app.symbol;
 import com.jsrc.app.model.TypeId;
 import com.jsrc.app.model.MethodId;
 import com.jsrc.app.util.SignatureUtils;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /** Resolves type and method identities against an immutable project symbol set. */
 public final class SymbolResolver {
@@ -131,16 +136,43 @@ public final class SymbolResolver {
     }
 
     private final List<TypeSymbol> types;
+    private final Map<String, List<TypeSymbol>> qualifiedTypes;
+    private final Map<String, List<TypeSymbol>> projectTypes;
 
     public SymbolResolver(List<TypeSymbol> types) {
         this.types = List.copyOf(types);
+        Map<String, List<TypeSymbol>> qualified = new HashMap<>();
+        Map<String, List<TypeSymbol>> project = new HashMap<>();
+        for (TypeSymbol type : this.types) {
+            TypeId id = type.id();
+            Set<String> qualifiedNames = new HashSet<>();
+            qualifiedNames.add(id.canonicalName());
+            qualifiedNames.add(id.sourceName());
+            if (!id.enclosingTypes().isEmpty()) {
+                qualifiedNames.add(id.binaryName());
+                qualifiedNames.add(id.relativeSourceName());
+            }
+            for (String name : qualifiedNames) {
+                qualified.computeIfAbsent(name, ignored -> new ArrayList<>()).add(type);
+            }
+
+            Set<String> projectNames = new HashSet<>(List.of(
+                    id.simpleName(), id.binaryName(), id.relativeSourceName()));
+            for (String name : projectNames) {
+                project.computeIfAbsent(name, ignored -> new ArrayList<>()).add(type);
+            }
+        }
+        qualified.replaceAll((name, matches) -> List.copyOf(matches));
+        project.replaceAll((name, matches) -> matches.stream()
+                .sorted(java.util.Comparator.comparing(type -> type.id().canonicalName()))
+                .toList());
+        this.qualifiedTypes = Map.copyOf(qualified);
+        this.projectTypes = Map.copyOf(project);
     }
 
     public Resolution<TypeSymbol> resolveType(String query, Context context) {
         String normalizedQuery = SignatureUtils.eraseType(query);
-        List<TypeSymbol> exact = types.stream()
-                .filter(type -> type.id().matchesQualified(normalizedQuery))
-                .toList();
+        List<TypeSymbol> exact = qualifiedTypes.getOrDefault(normalizedQuery, List.of());
         if (exact.size() == 1) {
             return new Resolution.Found<>(exact.getFirst(), Evidence.EXACT);
         }
@@ -148,9 +180,7 @@ public final class SymbolResolver {
         for (String imported : context.imports()) {
             if (imported.startsWith("static ") || imported.endsWith(".*")) continue;
             if (!imported.endsWith("." + normalizedQuery)) continue;
-            List<TypeSymbol> importedMatches = types.stream()
-                    .filter(type -> type.id().matchesQualified(imported))
-                    .toList();
+            List<TypeSymbol> importedMatches = qualifiedTypes.getOrDefault(imported, List.of());
             if (importedMatches.size() == 1) {
                 return new Resolution.Found<>(
                         importedMatches.getFirst(), Evidence.EXPLICIT_IMPORT);
@@ -159,9 +189,7 @@ public final class SymbolResolver {
 
         if (context.enclosingType() != null) {
             String nestedName = context.enclosingType().canonicalName() + "$" + normalizedQuery;
-            List<TypeSymbol> nestedMatches = types.stream()
-                    .filter(type -> type.id().matchesQualified(nestedName))
-                    .toList();
+            List<TypeSymbol> nestedMatches = qualifiedTypes.getOrDefault(nestedName, List.of());
             if (nestedMatches.size() == 1) {
                 return new Resolution.Found<>(
                         nestedMatches.getFirst(), Evidence.ENCLOSING_TYPE);
@@ -170,9 +198,8 @@ public final class SymbolResolver {
 
         if (!context.packageName().isEmpty()) {
             String samePackageName = context.packageName() + "." + normalizedQuery;
-            List<TypeSymbol> samePackageMatches = types.stream()
-                    .filter(type -> type.id().matchesQualified(samePackageName))
-                    .toList();
+            List<TypeSymbol> samePackageMatches = qualifiedTypes.getOrDefault(
+                    samePackageName, List.of());
             if (samePackageMatches.size() == 1) {
                 return new Resolution.Found<>(
                         samePackageMatches.getFirst(), Evidence.SAME_PACKAGE);
@@ -183,8 +210,8 @@ public final class SymbolResolver {
                 .filter(imported -> imported.endsWith(".*"))
                 .map(imported -> imported.substring(0, imported.length() - 2)
                         + "." + normalizedQuery)
-                .flatMap(candidate -> types.stream()
-                        .filter(type -> type.id().matchesQualified(candidate)))
+                .flatMap(candidate -> qualifiedTypes.getOrDefault(
+                        candidate, List.of()).stream())
                 .distinct()
                 .sorted(java.util.Comparator.comparing(type -> type.id().canonicalName()))
                 .toList();
@@ -199,12 +226,8 @@ public final class SymbolResolver {
             return new Resolution.Ambiguous<>(wildcardMatches, suggestions);
         }
 
-        List<TypeSymbol> projectMatches = types.stream()
-                .filter(type -> type.id().simpleName().equals(normalizedQuery)
-                        || type.id().binaryName().equals(normalizedQuery)
-                        || type.id().relativeSourceName().equals(normalizedQuery))
-                .sorted(java.util.Comparator.comparing(type -> type.id().canonicalName()))
-                .toList();
+        List<TypeSymbol> projectMatches = projectTypes.getOrDefault(
+                normalizedQuery, List.of());
         if (projectMatches.size() == 1) {
             return new Resolution.Found<>(
                     projectMatches.getFirst(), Evidence.UNIQUE_PROJECT_MATCH);

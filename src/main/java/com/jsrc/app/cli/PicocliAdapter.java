@@ -75,7 +75,9 @@ public abstract class PicocliAdapter implements Callable<Integer> {
             }
             
             var timer = StopWatch.start();
+            long contextStarted = System.nanoTime();
             CommandContext ctx = parent.buildContext(skipIndex(), commandName());
+            com.jsrc.app.index.IndexPhaseMetrics.recordPhase("cli.context", contextStarted);
             Command cmd = createCommand();
 
             if (cmd == null) {
@@ -83,7 +85,9 @@ public abstract class PicocliAdapter implements Callable<Integer> {
                 return ExitCode.BAD_USAGE;
             }
 
+            long commandStarted = System.nanoTime();
             int result = cmd.execute(ctx);
+            com.jsrc.app.index.IndexPhaseMetrics.recordPhase("cli.command", commandStarted);
 
             if (parent.globalOptions().showMetrics()) {
                 long elapsed = timer.elapsedMs();

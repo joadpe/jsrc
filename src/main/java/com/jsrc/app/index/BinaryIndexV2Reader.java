@@ -44,8 +44,14 @@ public class BinaryIndexV2Reader {
     public record IndexData(
             List<IndexEntry> entries,
             CallGraph callGraph,
-            Map<String, List<CachedMigration>> migrations
-    ) {}
+            Map<String, List<CachedMigration>> migrations,
+            int migrationCacheVersion
+    ) {
+        public IndexData(List<IndexEntry> entries, CallGraph callGraph,
+                         Map<String, List<CachedMigration>> migrations) {
+            this(entries, callGraph, migrations, 0);
+        }
+    }
 
     /**
      * Lazy container for index data with deferred graph loading.
@@ -243,9 +249,10 @@ public class BinaryIndexV2Reader {
             }
         }
 
+        int migrationCacheVersion = readMigrationCacheVersion(in);
         logger.info("Loaded V2 binary index: {} entries, {} strings, graph={}, migrations={}",
                 entryCount, stringCount, callGraph != null, migrations.size());
-        return new IndexData(entries, callGraph, migrations);
+        return new IndexData(entries, callGraph, migrations, migrationCacheVersion);
     }
 
     /**
@@ -425,11 +432,21 @@ public class BinaryIndexV2Reader {
             }
         }
 
+        int migrationCacheVersion = readMigrationCacheVersion(in);
         logger.info("Loaded V2 binary index (LAZY, mmap={}): {} entries, {} strings, graph={} (deferred), migrations={}",
                 usedMmap, entryCount, stringCount, hasGraph == 1, migrations.size());
 
-        var lightData = new IndexData(entries, null, migrations);
+        var lightData = new IndexData(entries, null, migrations, migrationCacheVersion);
         return new LazyIndexData(lightData, buffer, graphSectionOffset, strings);
+    }
+
+    private static int readMigrationCacheVersion(DataInputStream in) throws IOException {
+        int remaining = in.available();
+        if (remaining == 0) return 0;
+        if (remaining != Integer.BYTES) {
+            throw new IOException("Invalid migration cache version trailer");
+        }
+        return in.readInt();
     }
 
     /**

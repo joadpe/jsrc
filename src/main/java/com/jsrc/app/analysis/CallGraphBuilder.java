@@ -48,6 +48,8 @@ public class CallGraphBuilder {
     private final Map<MethodReference, Set<MethodCall>> calleeIndex = new HashMap<>();
     private final Set<MethodReference> allMethods = new HashSet<>();
     private final Map<String, Set<MethodReference>> methodsByName = new HashMap<>();
+    private final Map<String, Map<String, Set<MethodReference>>>
+            methodsByNameAndClassSuffix = new HashMap<>();
 
     public CallGraphBuilder() {
         var config = new com.github.javaparser.ParserConfiguration()
@@ -75,6 +77,7 @@ public class CallGraphBuilder {
             calleeIndex.clear();
             allMethods.clear();
             methodsByName.clear();
+            methodsByNameAndClassSuffix.clear();
             return;
         }
 
@@ -113,6 +116,7 @@ public class CallGraphBuilder {
         calleeIndex.clear();
         allMethods.clear();
         methodsByName.clear();
+        methodsByNameAndClassSuffix.clear();
 
         // Register every method before resolving any persisted edge. Index entry order
         // must not affect whether a typed callee can be canonicalized.
@@ -123,8 +127,7 @@ public class CallGraphBuilder {
                             .extractParameterTypes(im.signature());
                     MethodReference ref = new MethodReference(
                             ic.qualifiedName(), im.name(), parameterTypes, null);
-                    allMethods.add(ref);
-                    methodsByName.computeIfAbsent(im.name(), k -> new HashSet<>()).add(ref);
+                    registerMethod(ref);
                 }
             }
         }
@@ -610,8 +613,7 @@ public class CallGraphBuilder {
                 MethodReference ref = new MethodReference(
                         qualifiedKey, md.getNameAsString(),
                         parameterTypes(md), file);
-                allMethods.add(ref);
-                methodsByName.computeIfAbsent(md.getNameAsString(), k -> new HashSet<>()).add(ref);
+                registerMethod(ref);
             }
 
             // Register constructors as methods named after the class
@@ -622,8 +624,7 @@ public class CallGraphBuilder {
                 MethodReference ref = new MethodReference(
                         qualifiedKey, className,
                         parameterTypes(cd), file);
-                allMethods.add(ref);
-                methodsByName.computeIfAbsent(className, k -> new HashSet<>()).add(ref);
+                registerMethod(ref);
             }
 
             classContexts.put(qualifiedKey, ctx);
@@ -978,14 +979,55 @@ public class CallGraphBuilder {
      * Finds a registered MethodReference by class+method name.
      * Returns the first match, or a new MR with -1 if not found.
      */
+    private void registerMethod(MethodReference reference) {
+        allMethods.add(reference);
+        methodsByName.computeIfAbsent(
+                reference.methodName(), ignored -> new HashSet<>()).add(reference);
+        Map<String, Set<MethodReference>> byClass = methodsByNameAndClassSuffix
+                .computeIfAbsent(reference.methodName(), ignored -> new HashMap<>());
+        for (String suffix : classSuffixes(reference.className())) {
+            byClass.computeIfAbsent(suffix, ignored -> new HashSet<>()).add(reference);
+        }
+    }
+
+    private Set<MethodReference> registeredCandidates(
+            String methodName, String className) {
+        Map<String, Set<MethodReference>> byClass =
+                methodsByNameAndClassSuffix.get(methodName);
+        if (byClass == null) return Set.of();
+        Set<MethodReference> candidates = new HashSet<>();
+        for (String suffix : classSuffixes(className)) {
+            candidates.addAll(byClass.getOrDefault(suffix, Set.of()));
+        }
+        return candidates;
+    }
+
+    private static Set<String> classSuffixes(String className) {
+        Set<String> suffixes = new HashSet<>();
+        addClassSuffixes(suffixes, className);
+        addClassSuffixes(suffixes, className.replace('$', '.'));
+        return suffixes;
+    }
+
+    private static void addClassSuffixes(Set<String> suffixes, String className) {
+        suffixes.add(className);
+        for (int index = 0; index < className.length(); index++) {
+            char character = className.charAt(index);
+            if (character == '.' || character == '$') {
+                suffixes.add(className.substring(index + 1));
+            }
+        }
+    }
+
     private MethodReference resolveRegistered(String className, String methodName) {
         return resolveRegistered(className, methodName, -1);
     }
 
     private MethodReference resolveRegistered(MethodReference reference) {
         if (reference.hasKnownParameterTypes()) {
-            Set<MethodReference> byName = methodsByName.get(reference.methodName());
-            if (byName != null) {
+            Set<MethodReference> byName = registeredCandidates(
+                    reference.methodName(), reference.className());
+            if (!byName.isEmpty()) {
                 List<MethodReference> candidates = byName.stream()
                         .filter(candidate -> classMatches(
                                 candidate.className(), reference.className()))
@@ -1001,8 +1043,8 @@ public class CallGraphBuilder {
     }
 
     private MethodReference resolveRegistered(String className, String methodName, int parameterCount) {
-        Set<MethodReference> byName = methodsByName.get(methodName);
-        if (byName != null) {
+        Set<MethodReference> byName = registeredCandidates(methodName, className);
+        if (!byName.isEmpty()) {
             List<MethodReference> candidates = byName.stream()
                     .filter(ref -> classMatches(ref.className(), className))
                     .filter(ref -> parameterCount < 0 || ref.parameterCount() == parameterCount)

@@ -49,10 +49,10 @@ public final class SourceCompatibilityScanner {
                             "Java source level is not declared; compatibility is provisional"));
                 }
                 int version = level.map(SourceLevel::version).orElse(21);
-                if (version < 8 || version > 21) {
+                if (version < 8 || version > 22) {
                     diagnostics.add(new SourceDiagnostic(
                             "SOURCE_LEVEL_UNSUPPORTED", file,
-                            "Java source level " + version + " is outside supported range 8..21"));
+                            "Java source level " + version + " is outside supported range 8..22"));
                     continue;
                 }
                 try {
@@ -166,7 +166,7 @@ public final class SourceCompatibilityScanner {
 
     private static JavaParser parser(int version) {
         var languageLevel = ParserConfiguration.LanguageLevel.valueOf(
-                "JAVA_" + version);
+                "JAVA_" + (version == 22 ? 21 : version));
         return new JavaParser(new ParserConfiguration().setLanguageLevel(languageLevel));
     }
 }

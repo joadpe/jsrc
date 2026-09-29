@@ -1,5 +1,8 @@
 # jsrc Benchmark
 
+For the current IDX-02 measurement method and report-only budget, see
+[Performance budget](PERFORMANCE_BUDGET.md). The numbers below are historical.
+
 ## Baseline: 2026-03-14
 
 **Codebase:** jsrc itself (51 Java files, 53 classes, 342 methods)

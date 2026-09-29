@@ -211,7 +211,8 @@ public class IndexedCodebase {
                                         + ". Run 'jsrc index' or omit --frozen-index.");
                     }
                 }
-                java.util.Map<String, List<CachedMigration>> loadedMigrations = lazyData.getData().migrations();
+                java.util.Map<String, List<CachedMigration>> loadedMigrations =
+                        currentMigrations(lazyData.getData());
                 
                 logger.info("Loaded V2 binary index in FROZEN mode (LAZY): {} entries", entries.size());
                 
@@ -246,7 +247,7 @@ public class IndexedCodebase {
             try {
                 lazyData = IndexSnapshotStore.readCurrent(sourceRoot, false);
                 existing = lazyData.getData().entries();
-                loadedMigrations = lazyData.getData().migrations();
+                loadedMigrations = currentMigrations(lazyData.getData());
                 logger.info("Loaded V2 binary index (LAZY): {} entries",
                         existing.size());
             } catch (IOException e) {
@@ -313,7 +314,9 @@ public class IndexedCodebase {
                 var builder = new com.jsrc.app.analysis.CallGraphBuilder();
                 builder.loadFromIndex(refreshed);
                 var graphForSave = builder.toCallGraph();
-                updatedIndex.saveWithGraph(sourceRoot, graphForSave, loadedMigrations,
+                // A changed source invalidates every precomputed migration suggestion.
+                loadedMigrations = null;
+                updatedIndex.saveWithGraph(sourceRoot, graphForSave, null,
                         true, sourceSnapshot);
                 
                 // Re-read the generation just published, not the previous one.
@@ -322,7 +325,7 @@ public class IndexedCodebase {
                     try {
                         lazyData = IndexSnapshotStore.readCurrent(sourceRoot, false);
                         refreshed = new ArrayList<>(lazyData.getData().entries());
-                        loadedMigrations = lazyData.getData().migrations();
+                        loadedMigrations = currentMigrations(lazyData.getData());
                         preBuiltGraph = null; // keep lazy until ensureGraph
                         logger.debug("Re-loaded index in lazy mode after refresh");
                     } catch (IOException readEx) {
@@ -668,6 +671,12 @@ public class IndexedCodebase {
             preBuiltCallGraph = lazyIndexData.ensureGraph();
         }
         return preBuiltCallGraph;
+    }
+
+    private static java.util.Map<String, List<CachedMigration>> currentMigrations(
+            BinaryIndexV2Reader.IndexData data) {
+        return data.migrationCacheVersion() == CachedMigration.ALGORITHM_VERSION
+                ? data.migrations() : null;
     }
 
     public boolean hasCachedMigrations() {

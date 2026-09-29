@@ -111,13 +111,16 @@ public class JsrcCommand implements Runnable {
         boolean effectiveJson = OutputModeResolver.effectiveJson(
                 globalOptions.jsonOutput(), globalOptions.mdOutput(), profile);
 
+        long discoveryStarted = System.nanoTime();
         var projectSources = new com.jsrc.app.project.ProjectSourceDiscovery()
                 .discover(
                         Path.of(rootPath),
                         config,
                         globalOptions.sourceSets(),
                         globalOptions.noTest());
+        com.jsrc.app.index.IndexPhaseMetrics.recordPhase("context.discovery", discoveryStarted);
         var projectModel = projectSources.model();
+        long compatibilityStarted = System.nanoTime();
         boolean sourceIndependent = java.util.Set.of(
                 "skill", "describe", "version", "help").contains(commandName);
         var compatibility = sourceIndependent
@@ -125,6 +128,7 @@ public class JsrcCommand implements Runnable {
                         projectSources.allFiles(), java.util.List.of())
                 : new com.jsrc.app.project.SourceCompatibilityScanner()
                         .scan(projectSources.allFiles(), projectModel, config);
+        com.jsrc.app.index.IndexPhaseMetrics.recordPhase("context.compatibility", compatibilityStarted);
         var selectedPaths = new java.util.HashSet<>(projectSources.files());
         boolean indexCommand = "index".equals(commandName);
         var javaFiles = new ArrayList<>(compatibility.files().stream()
@@ -140,6 +144,7 @@ public class JsrcCommand implements Runnable {
         var sourceLevels = com.jsrc.app.project.SourceLevel.resolveFiles(
                 projectSources.allFiles(), projectModel, config);
         com.jsrc.app.index.SourceSnapshot sourceSnapshot;
+        long snapshotStarted = System.nanoTime();
         try {
             Path configPath = globalOptions.configPath() == null
                     || globalOptions.configPath().isBlank()
@@ -152,6 +157,7 @@ public class JsrcCommand implements Runnable {
             throw new com.jsrc.app.exception.JsrcIOException(
                     "Cannot capture source snapshot: " + ex.getMessage(), ex);
         }
+        com.jsrc.app.index.IndexPhaseMetrics.recordPhase("context.source_snapshot", snapshotStarted);
         var parser = new HybridJavaParser(sourceLevels);
         OutputFormatter formatter = OutputFormatter.create(
                 effectiveJson,
@@ -163,6 +169,7 @@ public class JsrcCommand implements Runnable {
                 commandName,
                 diagnostics);
         var sourceSets = projectSources.allSourceSets();
+        long loadStarted = System.nanoTime();
         IndexedCodebase indexed = skipIndex != null
                 ? null
                 : IndexedCodebase.tryLoad(
@@ -170,6 +177,7 @@ public class JsrcCommand implements Runnable {
                         sourceLevels, projectSources.allFiles(), compatibility.files(),
                         sourceSnapshot);
 
+        com.jsrc.app.index.IndexPhaseMetrics.recordPhase("context.index_load", loadStarted);
         return new CommandContext(
                 javaFiles,
                 rootPath,

@@ -273,10 +273,7 @@ public class EdgeResolver {
                     }
                     newEdges.add(edge);
                 }
-                newEntries.add(entryChanged
-                        ? new IndexEntry(entry.path(), entry.contentHash(),
-                                entry.lastModified(), entry.classes(), newEdges)
-                        : entry);
+                newEntries.add(entryChanged ? entry.withEdges(newEdges) : entry);
             }
             entries.clear();
             entries.addAll(newEntries);
@@ -1138,6 +1135,7 @@ public class EdgeResolver {
     private static List<String> customFunctionalInputTypes(
             String simpleType,
             com.github.javaparser.ast.Node context) {
+        if (context == null) return null;
         return context.findCompilationUnit()
                 .stream()
                 .flatMap(unit -> unit.findAll(MethodDeclaration.class).stream())

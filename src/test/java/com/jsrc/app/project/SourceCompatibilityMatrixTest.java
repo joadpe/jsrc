@@ -35,8 +35,8 @@ class SourceCompatibilityMatrixTest {
     }
 
     @Test
-    void everyStableSourceLevelFromEightThroughTwentyOneIsConfigured() throws Exception {
-        for (int version = 8; version <= 21; version++) {
+    void everyStableSourceLevelFromEightThroughTwentyTwoIsConfigured() throws Exception {
+        for (int version = 8; version <= 22; version++) {
             assertSource(version, "class Feature { int value() { return 1; } }", true);
         }
     }
@@ -109,6 +109,29 @@ class SourceCompatibilityMatrixTest {
                     }
                 }
                 """, true);
+    }
+
+    @Test
+    void javaTwentyTwoUnnamedCatchIsQuarantinedWithoutMatchingGrammar() throws Exception {
+        Path file = root.resolve("Feature.java");
+        Files.writeString(file, """
+                class Feature {
+                    void run() {
+                        try { throw new IllegalStateException(); }
+                        catch (IllegalStateException _) { }
+                    }
+                }
+                """);
+        var errors = new ByteArrayOutputStream();
+        int exit = ToolProvider.getSystemJavaCompiler().run(null, null, errors,
+                "--release", "22", "-d", root.toString(), file.toString());
+        assertEquals(0, exit, "Fixture must be valid Java 22: " + errors);
+
+        var config = new ProjectConfig(
+                List.of(), List.of(), "22", ArchitectureConfig.empty());
+        var outcome = new SourceCompatibilityScanner().scan(List.of(file), null, config);
+        assertEquals(List.of(), outcome.files());
+        assertEquals("SOURCE_SYNTAX_UNSUPPORTED", outcome.diagnostics().getFirst().code());
     }
 
     @Test

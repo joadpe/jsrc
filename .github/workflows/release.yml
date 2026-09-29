@@ -20,6 +20,14 @@ jobs:
           distribution: 'temurin'
           java-version: '22'
           cache: 'maven'
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)"
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "Release tag ${GITHUB_REF_NAME} does not match Maven version ${version}" >&2
+            exit 1
+          fi
       - name: Build fat JAR
         run: mvn -B -DskipTests package
       - name: Upload JAR artifact

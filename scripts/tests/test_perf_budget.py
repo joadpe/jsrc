@@ -73,6 +73,21 @@ class CorpusTest(unittest.TestCase):
             self.assertIn('import bench.p000.C00020;', source)
             self.assertIn('return C00020.value() + 17;', source)
 
+    def test_body_only_edit_changes_one_method_body_without_declaration_changes(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            perf.generate_corpus(base, 40, 17)
+            selected = perf.select_changes(40, 1, 17)[0]
+            source = perf.corpus_path(base, selected, 40)
+            before = source.read_text()
+            mutation = perf.apply_mutation(base, 40, 'edit_body_single', 17)
+            after = source.read_text()
+            self.assertEqual(mutation['reindexed'], 1)
+            self.assertEqual(mutation['edited'], [selected])
+            self.assertEqual(after, before.replace(
+                f'return {selected};', f'return {selected} + 1;', 1))
+            self.assertIn('edit_body_single', perf.SCENARIOS)
+
     def test_seeded_edit_selection_spreads_across_packages(self):
         picked = perf.select_changes(1000, 100, 17)
         self.assertEqual(len(picked), 100)

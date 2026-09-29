@@ -199,7 +199,7 @@ def append_calling_method(root, count, number, method, seed):
 
 
 def apply_mutation(root, count, scenario, seed):
-    if scenario == 'edit_single':
+    if scenario in ('edit_single', 'edit_body_single'):
         selected = select_changes(count, 1, seed)
     elif scenario == 'edit_1pct':
         selected = select_changes(count, max(1, count // 100), seed)
@@ -217,7 +217,13 @@ def apply_mutation(root, count, scenario, seed):
     else:
         raise ValueError(f'unknown mutation scenario: {scenario}')
     for number in selected:
-        append_calling_method(root, count, number, 'revision', seed)
+        if scenario == 'edit_body_single':
+            path = corpus_path(root, number, count)
+            source = path.read_text(encoding='utf-8')
+            before = f'return {number};'
+            path.write_text(source.replace(before, f'return {number} + 1;', 1), encoding='utf-8')
+        else:
+            append_calling_method(root, count, number, 'revision', seed)
     return {'reindexed': len(selected), 'edited': selected}
 
 
@@ -422,7 +428,7 @@ def compare_reports(baseline, current, factors, enforce):
     return evaluate_budget(baseline.get('summary', {}), current.get('summary', {}), factors, enforce)
 
 
-SCENARIOS = ('cold', 'unchanged', 'edit_single', 'edit_1pct', 'edit_10pct',
+SCENARIOS = ('cold', 'unchanged', 'edit_body_single', 'edit_single', 'edit_1pct', 'edit_10pct',
              'add_delete_1pct')
 def warm_queries(count):
     return {'symbol': ['mini', 'C00020'],

@@ -14,6 +14,26 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      - name: Validate public repository tree
+        run: |
+          unexpected=0
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              .gitignore|\
+              pom.xml|\
+              README.md|\
+              SKILL.md|\
+              LICENSE|\
+              .github/dependabot.yml|\
+              .github/workflows/continuous-integration.yml|\
+              .github/workflows/release.yml|\
+              scripts/build-native-unix.sh|\
+              scripts/build-native-windows.ps1|\
+              src/*) ;;
+              *) echo "Unexpected tracked file: $path" >&2; unexpected=1 ;;
+            esac
+          done < <(git ls-files -z)
+          exit "$unexpected"
       - name: Set up Java
         uses: actions/setup-java@v4
         with:

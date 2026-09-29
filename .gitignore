@@ -44,3 +44,14 @@ Thumbs.db
 call-chains/
 AGENTS.md
 docs/ROADMAP.md
+
+# === Local review and release artifacts ===
+.review/
+*.bundle
+dist/
+release/
+
+# === Local environment ===
+.env
+.env.*
+!.env.example

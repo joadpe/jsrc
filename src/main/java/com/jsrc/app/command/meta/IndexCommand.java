@@ -14,7 +14,7 @@ public class IndexCommand implements Command {
     @Override
     public int execute(CommandContext ctx) {
         long executeStarted = System.nanoTime();
-        Path root = Paths.get(ctx.rootPath());
+        Path root = Paths.get(ctx.rootPath()).toAbsolutePath().normalize();
         System.err.printf("Indexing %d Java files under '%s'...%n", ctx.javaFiles().size(), ctx.rootPath());
 
         long loadStarted = System.nanoTime();

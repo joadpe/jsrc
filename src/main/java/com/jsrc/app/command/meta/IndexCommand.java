@@ -61,16 +61,16 @@ public class IndexCommand implements Command {
         try {
             // Build call graph and save V2 binary with pre-resolved graph
             long graphStarted = System.nanoTime();
-            com.jsrc.app.analysis.CallGraph callGraph =
+            com.jsrc.app.analysis.CallGraph reusedGraph =
                     com.jsrc.app.index.PublishedGraphReuse.tryReuse(
                             publishedSnapshot, existing, index.getEntries());
-            if (callGraph == null) {
+            boolean graphReused = reusedGraph != null;
+            com.jsrc.app.analysis.CallGraph callGraph = reusedGraph;
+            if (!graphReused) {
                 var builder = new com.jsrc.app.analysis.CallGraphBuilder();
                 builder.loadFromIndex(index.getEntries());
                 callGraph = builder.toCallGraph();
             }
-            boolean graphReused = publishedSnapshot != null
-                    && callGraph == publishedSnapshot.ensureGraph();
             com.jsrc.app.index.IndexPhaseMetrics.recordPhase("index.call_graph", graphStarted);
             long migrationStarted = System.nanoTime();
             java.util.Map<String, java.util.List<com.jsrc.app.index.CachedMigration>> migrations;

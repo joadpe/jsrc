@@ -54,7 +54,7 @@ final class IndexSnapshotStore {
         }
 
         Manifest current = readManifest(manifest);
-        if (checkGitTree && !"-".equals(current.gitTree())) {
+        if (checkGitTree) {
             String currentTree = gitTree(projectRoot);
             if (!"-".equals(currentTree) && !current.gitTree().equals(currentTree)) {
                 throw new IOException("Index snapshot belongs to a different Git tree. "

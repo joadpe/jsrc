@@ -2,6 +2,7 @@ package com.jsrc.app.index;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.ByteBuffer;
@@ -57,6 +58,33 @@ class IndexMigrationCacheTest {
 
         assertFalse(manifest.equals(Files.readString(root.resolve(".jsrc/current"))));
         assertTrue(Files.isRegularFile(CodebaseIndex.currentBinary(root, true)));
+    }
+
+    @Test
+    void firstGitCommitGivesExistingSnapshotATreeIdentity(@TempDir Path root)
+            throws Exception {
+        Files.writeString(root.resolve("Demo.java"), "class Demo {}\n");
+        runIndex(root, root.resolve("first-trace.json"));
+        String before = Files.readString(root.resolve(".jsrc/current"));
+        assertEquals("-", before.lines().toList().get(3));
+
+        git(root, "init");
+        git(root, "config", "user.name", "Index Test");
+        git(root, "config", "user.email", "index@example.invalid");
+        git(root, "add", "Demo.java");
+        git(root, "commit", "-m", "initial");
+
+        assertThrows(java.io.IOException.class, () -> CodebaseIndex.currentBinary(root, true));
+        runIndex(root, root.resolve("second-trace.json"));
+        String after = Files.readString(root.resolve(".jsrc/current"));
+        assertFalse(before.equals(after), "The index must acquire the first Git tree identity");
+        assertFalse("-".equals(after.lines().toList().get(3)));
+        assertTrue(Files.isRegularFile(CodebaseIndex.currentBinary(root, true)));
+
+        Files.writeString(root.resolve("README.md"), "different tree\n");
+        git(root, "add", "README.md");
+        git(root, "commit", "-m", "metadata");
+        assertThrows(java.io.IOException.class, () -> CodebaseIndex.currentBinary(root, true));
     }
 
     private static void git(Path root, String... args) throws Exception {

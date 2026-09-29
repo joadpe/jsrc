@@ -13,10 +13,7 @@ expected_launcher=b63846d9e57c569c349b58e687b162fe7bde737e78a4971182d7db0bcd811a
 expected_archived_jar=d46dd21760d7fff8511fa6330ed9aecc92f0513c84dc6e4d61ce44ef4002d233
 
 exec 9>"$bench_root/campaign.lock"
-if ! flock -n 9; then
-  echo "Another 10K campaign owns the lock; skipping." >&2
-  exit 0
-fi
+flock 9
 
 if [[ "$(podman image inspect "$image" --format '{{.Id}}' | sed 's/^sha256://')" != "$expected_image" ]]; then
   echo "Pinned container image changed." >&2

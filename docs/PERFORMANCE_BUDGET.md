@@ -140,7 +140,7 @@ new JAR hash go into the run's environment log.
 The first run is compared with the versioned baseline and all 40 thresholds.
 A potential breach triggers a second independent campaign; only a confirmed
 breach fails the scheduled service. Correctness or measurement failures fail
-immediately. Campaigns serialize with `campaign.lock`, and reports, raw
+immediately. Campaigns wait for `campaign.lock` to serialize; reports, raw
 samples, logs and built artifacts remain under
 `/srv/hulk-data/desarrollo/benchmarks/jsrc-c40r-3-2-10k/scheduled/`.
 The user-systemd timer runs on Sundays at 03:00 local time (up to 30 minutes

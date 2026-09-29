@@ -470,16 +470,6 @@ This eliminates redundant index loads during interactive sessions, making back-t
 - Input format: `{"command": "...", "arg": "..."}`
 - Quit: `{"command": "quit"}`
 
-## Pre-Release Validation
-
-Run the smoke test before every release:
-
-```bash
-./scripts/smoke-test.sh ./target/jsrc-native /path/to/large-codebase
-```
-
-Validates command output, flag combinations, error handling, and JSON validity.
-
 ## Test
 
 ```bash

@@ -44,7 +44,3 @@ Thumbs.db
 call-chains/
 AGENTS.md
 docs/ROADMAP.md
-
-# === Python benchmark ===
-__pycache__/
-*.pyc

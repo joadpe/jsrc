@@ -6,8 +6,7 @@ import java.sql.PreparedStatement;
 
 public class VulnerableService {
 
-    private static final String password = "admin123";
-    private static final String apiKey = "sk-abc123def456";
+    private static final String password = "fixture-only-value";
 
     // SQL injection — string concatenation
     public void findUser(Connection conn, String name) throws Exception {

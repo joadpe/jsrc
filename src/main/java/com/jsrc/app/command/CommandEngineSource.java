@@ -8,6 +8,9 @@ import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.project.ProjectModel;
 import com.jsrc.app.project.SourceSet;
 import com.jsrc.app.util.MethodTargetResolver;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,7 +19,8 @@ import java.util.Optional;
 
 /** Adapts a CLI execution context to the in-process engine ports. */
 public final class CommandEngineSource implements JsrcEngine.OverviewSource,
-        JsrcEngine.ResolutionSource, JsrcEngine.CallersSource {
+        JsrcEngine.ResolutionSource, JsrcEngine.CallersSource,
+        JsrcEngine.SearchSource, JsrcEngine.ImpactSource {
     private final CommandContext context;
     private List<ClassInfo> classes;
     private Map<String, String> signatures;
@@ -111,4 +115,39 @@ public final class CommandEngineSource implements JsrcEngine.OverviewSource,
         }
         return callers;
     }
+
+    @Override
+    public List<String> paths() {
+        return context.javaFiles().stream().map(Path::toString).toList();
+    }
+
+    @Override
+    public Optional<JsrcEngine.SearchDocument> document(String path) {
+        Path file = Path.of(path);
+        try {
+            List<String> lines = Files.readAllLines(file);
+            var parsedClasses = context.indexed() != null
+                    ? context.indexed().findClassesInFile(path)
+                    : context.parser().parseClasses(file);
+            return Optional.of(new JsrcEngine.SearchDocument(path, lines, parsedClasses));
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public long textUsages(String methodName) {
+        long count = 0;
+        for (Path file : context.javaFiles()) {
+            try {
+                for (String line : Files.readAllLines(file)) {
+                    if (line.contains(methodName)) count++;
+                }
+            } catch (Exception e) {
+                // Preserve the CLI's best-effort fallback for unreadable files.
+            }
+        }
+        return count;
+    }
+
 }

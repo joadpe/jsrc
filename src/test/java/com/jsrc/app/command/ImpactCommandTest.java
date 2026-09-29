@@ -74,6 +74,41 @@ class ImpactCommandTest {
         var affected = (List<String>) result.get("affectedClasses");
         assertTrue(affected.contains("Service"));
         assertTrue(affected.contains("Controller"));
+        assertEquals(List.of("Controller", "Service"), affected);
+    }
+
+    @Test
+    void markdownPreservesTraversalOrderOfAffectedClasses() throws Exception {
+        List<Path> files = writeSources("""
+                public class Repo {
+                    public void save() {}
+                }
+                """, """
+                public class Service {
+                    private Repo repo;
+                    public void process() { repo.save(); }
+                }
+                """, """
+                public class Controller {
+                    private Service service;
+                    public void handle() { service.process(); }
+                }
+                """);
+        var parser = new HybridJavaParser();
+        var index = new CodebaseIndex();
+        index.build(parser, files, tempDir, List.of());
+        index.save(tempDir);
+        var indexed = IndexedCodebase.tryLoad(tempDir, files);
+        Path output = tempDir.resolve("reports");
+        var context = new CommandContext(files, tempDir.toString(), null,
+                new JsonFormatter(false, null, System.out), indexed, parser,
+                true, output.toString());
+
+        new ImpactCommand("Repo.save").execute(context);
+
+        String markdown = Files.readString(output.resolve("impact-Repo-save.md"));
+        assertTrue(markdown.contains("## Affected Classes\n\n- `Service`\n- `Controller`\n"),
+                markdown);
     }
 
     @Test
@@ -125,17 +160,7 @@ class ImpactCommandTest {
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> run(String methodRef, String... sources) throws Exception {
-        List<Path> files = new java.util.ArrayList<>();
-        for (int i = 0; i < sources.length; i++) {
-            String src = sources[i];
-            String className = "Class" + i;
-            int idx = src.indexOf("class ");
-            if (idx >= 0) className = src.substring(idx + 6).trim().split("[\\s{<]")[0];
-            Path file = tempDir.resolve(className + ".java");
-            Files.writeString(file, src);
-            files.add(file);
-        }
-
+        List<Path> files = writeSources(sources);
         var parser = new HybridJavaParser();
         var index = new CodebaseIndex();
         index.build(parser, files, tempDir, List.of());
@@ -151,4 +176,20 @@ class ImpactCommandTest {
         if (json.isEmpty()) return Map.of();
         return (Map<String, Object>) JsonReader.parse(json);
     }
+
+    private List<Path> writeSources(String... sources) throws Exception {
+        List<Path> files = new java.util.ArrayList<>();
+        for (int i = 0; i < sources.length; i++) {
+            String src = sources[i];
+            String className = "Class" + i;
+            int idx = src.indexOf("class ");
+            if (idx >= 0) className = src.substring(idx + 6).trim().split("[\\s{<]")[0];
+            Path file = tempDir.resolve(className + ".java");
+            Files.writeString(file, src);
+            files.add(file);
+        }
+
+        return files;
+    }
+
 }

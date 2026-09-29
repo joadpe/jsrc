@@ -7,6 +7,7 @@ import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -47,6 +48,31 @@ class SearchCommandTest {
         @SuppressWarnings("unchecked")
         List<Object> parsed = (List<Object>) JsonReader.parse(json);
         return parsed;
+    }
+
+    @Test
+    void compactAndFullModesPreserveTheirResultShapes() throws Exception {
+        Path file = tempDir.resolve("Test.java");
+        Files.writeString(file, "class Test {\n" + " // TODO\n".repeat(31) + "}\n");
+
+        var compactOutput = new ByteArrayOutputStream();
+        var compactContext = new CommandContext(List.of(file), tempDir.toString(), null,
+                new JsonFormatter(false, null, new PrintStream(compactOutput)), null, parser);
+        assertEquals(31, new SearchCommand("TODO").execute(compactContext));
+        @SuppressWarnings("unchecked")
+        var compact = (Map<String, Object>) JsonReader.parse(compactOutput.toString().trim());
+        assertEquals(31, ((Number) compact.get("total")).intValue());
+        assertEquals(30, ((List<?>) compact.get("matches")).size());
+        assertEquals(true, compact.get("truncated"));
+
+        var fullOutput = new ByteArrayOutputStream();
+        var fullContext = new CommandContext(List.of(file), tempDir.toString(), null,
+                new JsonFormatter(false, null, new PrintStream(fullOutput)), null, parser,
+                false, null, true);
+        assertEquals(31, new SearchCommand("TODO").execute(fullContext));
+        @SuppressWarnings("unchecked")
+        var full = (List<Object>) JsonReader.parse(fullOutput.toString().trim());
+        assertEquals(31, full.size());
     }
 
     @Test

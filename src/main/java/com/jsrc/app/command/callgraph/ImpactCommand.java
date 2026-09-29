@@ -2,34 +2,16 @@ package com.jsrc.app.command.callgraph;
 
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
+import com.jsrc.app.command.CommandEngineSource;
+import com.jsrc.app.engine.JsrcEngine;
 import com.jsrc.app.model.CommandHint;
-import com.jsrc.app.model.HintContext;
-
-import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
 
-import com.jsrc.app.analysis.CallGraph;
-import com.jsrc.app.parser.model.MethodCall;
-import com.jsrc.app.parser.model.MethodReference;
-import com.jsrc.app.util.MethodResolver;
-import com.jsrc.app.util.MethodTargetResolver;
-import com.jsrc.app.util.ClassLookup;
-
-/**
- * Pre-computes the impact of changing a method: who calls it (directly and
- * transitively), risk level, and affected classes.
- * Helps agents understand what breaks before making changes.
- */
+/** CLI adapter for change-impact analysis. */
 public class ImpactCommand implements Command {
-
-    private static final int MAX_DEPTH = 30;
-
     private final String methodInput;
     private final boolean whatIf;
 
@@ -44,150 +26,71 @@ public class ImpactCommand implements Command {
 
     @Override
     public int execute(CommandContext ctx) {
-        var ref = MethodResolver.parse(methodInput);
-        CallGraph graph = ctx.callGraph();
-        var resolved = MethodTargetResolver.resolve(ref, graph);
-
-        if (resolved.targets().isEmpty()) {
-            // Fallback: count usages of method name in code (without printing search results)
-            String searchTerm = ref.methodName();
-            long usageCount = 0;
-            for (var file : ctx.javaFiles()) {
-                try {
-                    for (String line : java.nio.file.Files.readAllLines(file)) {
-                        if (line.contains(searchTerm)) usageCount++;
-                    }
-                } catch (Exception e) { /* skip */ }
-            }
-
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("target", methodInput);
-            if (usageCount > 0) {
-                result.put("error", "Method not in call graph (class may be external)");
-                result.put("textUsages", usageCount);
-                result.put("hint", "Use --search '" + searchTerm + "' for detailed locations");
+        var result = new JsrcEngine().impact(
+                new CommandEngineSource(ctx), methodInput, whatIf);
+        if (result instanceof JsrcEngine.ImpactResult.Missing missing) {
+            Map<String, Object> output = new LinkedHashMap<>();
+            output.put("target", methodInput);
+            if (missing.textUsages() > 0) {
+                output.put("error", "Method not in call graph (class may be external)");
+                output.put("textUsages", missing.textUsages());
+                output.put("hint", "Use --search '"
+                        + com.jsrc.app.util.MethodResolver.parse(methodInput).methodName()
+                        + "' for detailed locations");
             } else {
-                result.put("error", "Method not found");
+                output.put("error", "Method not found");
             }
-            String closest = ClassLookup.findClosestClass(ctx.getAllClasses(),
-                    ref.hasClassName() ? ref.className() : ref.methodName());
-            if (closest != null) result.put("suggestion", closest);
-            ctx.formatter().printResult(result);
+            if (missing.suggestion() != null) output.put("suggestion", missing.suggestion());
+            ctx.formatter().printResult(output);
             return 0;
         }
 
-        // Direct callers
-        Set<String> directCallerClasses = new LinkedHashSet<>();
-        for (var target : resolved.targets()) {
-            for (MethodCall call : graph.getCallersOf(target)) {
-                String caller = call.caller().className();
-                if (!"?".equals(caller)) directCallerClasses.add(ctx.qualify(caller));
-            }
-        }
-
-        // Transitive callers via BFS
-        Set<String> allAffected = new LinkedHashSet<>(directCallerClasses);
-        Set<MethodReference> visited = new HashSet<>(resolved.targets());
-        Queue<MethodReference> queue = new LinkedList<>();
-        for (var target : resolved.targets()) {
-            for (MethodCall call : graph.getCallersOf(target)) {
-                if (visited.add(call.caller())) queue.add(call.caller());
-            }
-        }
-
-        int depth = 0;
-        while (!queue.isEmpty() && depth < MAX_DEPTH) {
-            int levelSize = queue.size();
-            for (int i = 0; i < levelSize; i++) {
-                MethodReference current = queue.poll();
-                if (!"?".equals(current.className())) {
-                    allAffected.add(ctx.qualify(current.className()));
-                }
-                for (MethodCall call : graph.getCallersOf(current)) {
-                    if (visited.add(call.caller())) {
-                        queue.add(call.caller());
-                    }
-                }
-            }
-            depth++;
-        }
-
-        // Risk level
-        int directCount = directCallerClasses.size();
-        String risk;
-        if (directCount == 0) risk = "none";
-        else if (directCount <= 3) risk = "low";
-        else if (directCount <= 10) risk = "medium";
-        else risk = "high";
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("target", methodInput);
-        result.put("directCallers", directCount);
-        result.put("transitiveCallers", allAffected.size());
-        result.put("affectedClasses", allAffected.stream().sorted().toList());
-        result.put("riskLevel", risk);
-
-        // --what-if: simulate which tests would fail
+        var found = (JsrcEngine.ImpactResult.Found) result;
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("target", found.target());
+        output.put("directCallers", found.directCallers());
+        output.put("transitiveCallers", found.transitiveCallers());
+        output.put("affectedClasses", found.affectedClasses().stream().sorted().toList());
+        output.put("riskLevel", found.riskLevel().name().toLowerCase(Locale.ROOT));
         if (whatIf) {
-            List<String> affectedTests = new java.util.ArrayList<>();
-            for (String cls : allAffected) {
-                String simple = cls.contains(".") ? cls.substring(cls.lastIndexOf('.') + 1) : cls;
-                // Look for corresponding test classes
-                for (var ci : ctx.getAllClasses()) {
-                    if (ci.name().equals(simple + "Test") || ci.name().equals(simple + "Tests")
-                            || ci.name().equals(simple + "IT")) {
-                        affectedTests.add(ci.qualifiedName());
-                    }
-                }
-            }
-            // Also check test-for via call graph (tests that transitively call the target)
-            for (var ci : ctx.getAllClasses()) {
-                if (ci.name().endsWith("Test") || ci.name().endsWith("Tests") || ci.name().endsWith("IT")) {
-                    if (allAffected.contains(ci.qualifiedName()) || allAffected.contains(ci.name())) {
-                        if (!affectedTests.contains(ci.qualifiedName())) {
-                            affectedTests.add(ci.qualifiedName());
-                        }
-                    }
-                }
-            }
-            result.put("affectedTests", affectedTests.stream().sorted().distinct().toList());
-            result.put("testCount", affectedTests.size());
+            output.put("affectedTests", found.affectedTests());
+            output.put("testCount", found.testCount());
         }
 
         if (ctx.mdOutput()) {
-            String md = toMarkdown(methodInput, directCount, allAffected, risk);
-            com.jsrc.app.output.MarkdownWriter.output(md, ctx.outDir(), "impact-" + methodInput.replace(".", "-"));
-            return allAffected.size();
+            String markdown = toMarkdown(found);
+            com.jsrc.app.output.MarkdownWriter.output(markdown, ctx.outDir(),
+                    "impact-" + methodInput.replace(".", "-"));
+            return found.transitiveCallers();
         }
 
-        ctx.formatter().printResultWithHints(result, buildHints());
-        return allAffected.size();
+        ctx.formatter().printResultWithHints(output, buildHints());
+        return found.transitiveCallers();
     }
 
     private List<CommandHint> buildHints() {
-        return java.util.List.of(
-            new CommandHint("test-for " + methodInput, "Check test coverage"),
-            new CommandHint("breaking-changes " + methodInput, "Full breaking change analysis"),
-            new CommandHint("read " + methodInput, "Read the method source")
-        );
+        return List.of(
+                new CommandHint("test-for " + methodInput, "Check test coverage"),
+                new CommandHint("breaking-changes " + methodInput, "Full breaking change analysis"),
+                new CommandHint("read " + methodInput, "Read the method source"));
     }
 
-    private String toMarkdown(String target, int direct, java.util.Set<String> affected, String risk) {
-        String badge = switch (risk) {
-            case "high" -> "🔴 HIGH";
-            case "medium" -> "🟡 MEDIUM";
-            case "low" -> "🟢 LOW";
-            default -> "⚪ NONE";
+    private static String toMarkdown(JsrcEngine.ImpactResult.Found found) {
+        String badge = switch (found.riskLevel()) {
+            case HIGH -> "🔴 HIGH";
+            case MEDIUM -> "🟡 MEDIUM";
+            case LOW -> "🟢 LOW";
+            case NONE -> "⚪ NONE";
         };
         var sb = new StringBuilder();
-        sb.append("# Impact Analysis: `").append(target).append("`\n\n");
+        sb.append("# Impact Analysis: `").append(found.target()).append("`\n\n");
         sb.append("**Risk Level:** ").append(badge).append("\n\n");
         sb.append("| Metric | Value |\n|--------|-------|\n");
-        sb.append("| Direct callers | ").append(direct).append(" |\n");
-        sb.append("| Transitive callers | ").append(affected.size()).append(" |\n\n");
-        if (!affected.isEmpty()) {
+        sb.append("| Direct callers | ").append(found.directCallers()).append(" |\n");
+        sb.append("| Transitive callers | ").append(found.transitiveCallers()).append(" |\n\n");
+        if (!found.affectedClasses().isEmpty()) {
             sb.append("## Affected Classes\n\n");
-            for (String cls : affected) sb.append("- `").append(cls).append("`\n");
+            for (String type : found.affectedClasses()) sb.append("- `").append(type).append("`\n");
         }
         return sb.toString();
     }

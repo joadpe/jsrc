@@ -1,5 +1,7 @@
 import importlib.util
+import fcntl
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -326,6 +328,34 @@ print(json.dumps({'ok': True}))
             self.assertFalse(result['ok'])
             self.assertIn('JSON', result['error'])
 
+
+    def test_competing_writers_are_detected_when_proc_locks_omits_waiters(self):
+        with tempfile.TemporaryDirectory() as temp:
+            lock_path = Path(temp) / 'index.lock'
+            with lock_path.open('w') as lock_file:
+                fcntl.lockf(lock_file, fcntl.LOCK_EX)
+                script = ('import fcntl, sys, time; '
+                          'lock = open(sys.argv[1], "w"); '
+                          'fcntl.lockf(lock, fcntl.LOCK_EX); time.sleep(30)')
+                children = [subprocess.Popen([sys.executable, '-c', script, str(lock_path)])
+                            for _ in range(2)]
+                try:
+                    real_lock_owners = perf.lock_owners
+                    from unittest.mock import patch
+                    with patch.object(perf, 'lock_owners',
+                                      side_effect=lambda path: (real_lock_owners(path)[0], set())):
+                        observed = perf.wait_for_competing_writers(
+                            lock_path, [child.pid for child in children], [sys.executable], 2)
+                    self.assertIsNotNone(observed)
+                    self.assertEqual([child.pid for child in children],
+                                     [pid for pid, _ in observed])
+                    self.assertEqual(['proc_wchan', 'proc_wchan'],
+                                     [method for _, method in observed])
+                finally:
+                    for child in children:
+                        child.terminate()
+                    for child in children:
+                        child.wait(timeout=5)
 
     def test_concurrent_publication_checks_readers_and_competing_writers(self):
         fake = """import fcntl, json, os, pathlib, sys, time

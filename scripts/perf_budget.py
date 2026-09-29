@@ -520,12 +520,32 @@ def wait_for_lock(lock_path, processes, waiting, timeout):
     return None
 
 
+def blocked_on_file_lock(pid, lock_path):
+    """Identify a blocked lock request when /proc/locks omits waiters."""
+    try:
+        channel = Path(f'/proc/{pid}/wchan').read_text().strip()
+        if channel not in ('fcntl_setlk', 'posix_lock_inode_wait',
+                           'locks_lock_inode_wait'):
+            return False
+        locked = lock_path.stat()
+        for fd in Path(f'/proc/{pid}/fd').iterdir():
+            try:
+                opened = fd.stat()
+            except OSError:
+                continue
+            if (opened.st_dev, opened.st_ino) == (locked.st_dev, locked.st_ino):
+                return True
+    except OSError:
+        return False
+    return False
+
+
 def wait_for_competing_writers(lock_path, wrappers, command, timeout):
     """Observe both processes inside the product's writer-lock wait path."""
     deadline = time.monotonic() + timeout
     jcmd = Path(command[0]).with_name('jcmd')
     while time.monotonic() < deadline:
-        _, posix_waiters = lock_owners(lock_path)
+        holders, posix_waiters = lock_owners(lock_path)
         observed = []
         for wrapper in wrappers:
             family = process_family(wrapper)
@@ -533,6 +553,12 @@ def wait_for_competing_writers(lock_path, wrappers, command, timeout):
             if blocking:
                 observed.append((next(iter(blocking)), 'proc_locks'))
                 continue
+            if holders:
+                blocked = next((pid for pid in family
+                                if blocked_on_file_lock(pid, lock_path)), None)
+                if blocked is not None:
+                    observed.append((blocked, 'proc_wchan'))
+                    continue
             for pid in family - {wrapper}:
                 try:
                     dump = subprocess.run([str(jcmd), str(pid), 'Thread.print'],

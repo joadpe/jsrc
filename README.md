@@ -179,6 +179,28 @@ For type and method identity resolution, including ambiguous candidates, use
 CLI; the engine's `resolve` operation preserves the existing receiver-resolution
 command contract.
 
+### Local IDE prototype
+
+The Java/Swing prototype uses the same `JsrcEngine` ports and typed results as
+the CLI. It searches project files, shows callers and change impact, and opens
+matching source locations in a read-only editor pane. No external service or
+IDE-specific SDK is required.
+
+```bash
+mvn -B -DskipTests package
+java --enable-native-access=ALL-UNNAMED \
+  -Djava.library.path="$HOME/lib" \
+  -cp target/jsrc.jar com.jsrc.app.ide.IdePrototype /path/to/java-project
+```
+
+Use a graphical session, Java 22+, and the same Tree-sitter libraries as the
+CLI. `IdeProject.open(root)` is the reusable filesystem adapter for an IDE
+host; the UI itself only calls the engine and renders its results. The prototype
+reads a snapshot from disk at launch and displays that same snapshot when
+navigating results: restart it to include file changes.
+Unsaved editor buffers and platform-specific plugin integration are outside
+this prototype.
+
 ## Commands
 
 <!-- BEGIN GENERATED COMMAND CATALOG -->

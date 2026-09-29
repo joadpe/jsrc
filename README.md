@@ -6,7 +6,7 @@ A Java source code navigator built for AI agents. Uses [Tree-sitter](https://tre
 
 An agent with ~200K tokens of context can't read a 10,000-file codebase. jsrc gives the agent structured navigation:
 
-- **"What classes are in this codebase?"** → `jsrc overview --json` (874ms for 8,323 files)
+- **"What classes are in this codebase?"** → `jsrc overview --json`
 - **"Show me OrderService"** → `jsrc summary OrderService --json`
 - **"Who calls validate()?"** → `jsrc callers validate --json`
 - **"Find God classes"** → `jsrc lint --all --json`
@@ -410,8 +410,8 @@ levels and build configuration before switching the manifest. Query filters
 such as `--no-test` select a result view; they do not shrink the canonical index.
 
 ```bash
-jsrc index                    # First run: ~60s for 8K files
-jsrc overview --json          # All commands: <1s (index loaded)
+jsrc index                    # Build the index
+jsrc overview --json          # Query the indexed project
 # Edit files...
 jsrc callers MyMethod --json  # Auto-refreshes changed files + edges
 ```
@@ -470,74 +470,6 @@ This eliminates redundant index loads during interactive sessions, making back-t
 - Input format: `{"command": "...", "arg": "..."}`
 - Quit: `{"command": "quit"}`
 
-## Performance
-
-All commands on Spring Boot (8,323 files, 52K methods, native binary):
-
-| Category | Commands | Time |
-|----------|----------|------|
-| 🟢 Navigation | overview, summary, read, hierarchy, deps, etc. | **<1s** |
-| 🟢 Call graph | callers, callees, impact, test-for | **<1s** |
-| 🟢 Analysis | smells, lint, complexity, hotspots, style | **<1s** |
-| 🟢 Architecture | check, endpoints, entry-points, validate | **<1s** |
-| 🟡 Heavy scan | unused, packages | **2-3s** |
-
-60 of 62 commands complete in <2s. Zero commands >6s.
-
-## Benchmarks
-
-### vs grep on Spring Boot (8,323 files)
-
-**Model: Claude Sonnet 4 (200K context)**
-
-| Metric | grep | jsrc |
-|--------|------|------|
-| Tasks completed | 14/30 | **26/30** |
-| Time | 4m49s | **3m24s** |
-| Tool calls | 78 | **59** |
-
-**Model: Qwen 3.5-9B (32K context)**
-
-| Metric | grep | jsrc |
-|--------|------|------|
-| Tasks completed | 0/6 | **5/6** |
-| Hallucinations | 3 | **0** |
-| Timeouts | 0 | **0** |
-
-**Key insight:** On small models (9B params), raw grep output overwhelms the context window. jsrc's structured JSON is pre-digested — the model just parses it. With the V2 binary index, all commands respond in <1s, eliminating timeouts that plagued earlier versions.
-
-**Detailed Results (Sonnet, 30 questions):**
-
-| # | Category | Question | grep | jsrc |
-|---|----------|----------|------|------|
-| Q1 | Find | All HealthIndicator implementations | ❌ | ✅ |
-| Q2 | Hierarchy | Superclass chain of a class | ✅ | ✅ |
-| Q3 | Search | Classes in config package | ✅ | ✅ |
-| Q4 | Annotation | @AutoConfiguration with dependencies | ❌ | ✅ |
-| Q5 | Search | Classes in configuration package | ✅ | ✅ |
-| Q6 | Aggregate | Top 5 classes by method count | ✅ | ✅ |
-| Q7 | Search | ConditionMessage source location | ❌ | ✅ |
-| Q8 | Code smell | Mutable static fields | ✅ | ✅ |
-| Q9 | Impact | Binder.bind callers and impact | ❌ | ✅ |
-| Q10 | Filter | Methods with >5 parameters | ❌ | ✅ |
-| Q11 | Code smell | Swallowed exception catch blocks | ✅ | ✅ |
-| Q12 | Callers | ConfigurationPropertyName.of callers | ❌ | ✅ |
-| Q13 | Pipeline | Auto-config processing pipeline | ✅ | ✅ |
-| Q17 | Write | DnsHealthIndicator from pattern | ❌ | ✅ |
-| Q18 | Write | Exception wrapper for HTTP client | ❌ | ✅ |
-| Q19 | Write | Add retry logic to service | ❌ | ✅ |
-| Q20 | Refactor | Extract interface from class | ❌ | ✅ |
-| Q21 | Fix | NPE in null check | ✅ | ✅ |
-| Q22 | Fix | Thread-safety issue | ✅ | ✅ |
-| Q23 | Compare | Logback vs Log4J2 methods | ❌ | ✅ |
-| Q24 | Compare | Two actuator endpoints | ❌ | ✅ |
-| Q25 | Compare | Two data classes | ✅ | ✅ |
-| Q26 | Compare | Request vs Response objects | ✅ | ✅ |
-| Q27 | Layers | Layer violations | ✅ | ✅ |
-| Q28 | Deps | Circular dependencies | ❌ | ✅ |
-| Q29 | Architecture | Package coupling | ❌ | ✅ |
-| Q30 | Architecture | God classes (>500 LOC, >20 methods) | ❌ | ✅ |
-
 ## Pre-Release Validation
 
 Run the smoke test before every release:
@@ -546,12 +478,12 @@ Run the smoke test before every release:
 ./scripts/smoke-test.sh ./target/jsrc-native /path/to/large-codebase
 ```
 
-Validates all 54 commands + flag combinations + error handling + JSON validity + performance gates (🟢 <2s, 🟡 2-6s, 🔴 ≥6s blocks release).
+Validates command output, flag combinations, error handling, and JSON validity.
 
 ## Test
 
 ```bash
-mvn test    # 494 tests
+mvn test
 ```
 
 ## License

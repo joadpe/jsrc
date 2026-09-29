@@ -561,6 +561,8 @@ def wait_for_competing_writers(lock_path, wrappers, command, timeout):
                     continue
             for pid in family - {wrapper}:
                 try:
+                    if Path(f'/proc/{pid}/exe').resolve().name != 'java':
+                        continue
                     dump = subprocess.run([str(jcmd), str(pid), 'Thread.print'],
                                           capture_output=True, text=True, timeout=3,
                                           check=False)

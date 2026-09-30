@@ -62,8 +62,8 @@ public class SmellsCommand implements Command {
 
     private int showTrend(CommandContext ctx) {
         // Compare current smells vs what changed files had before
-        var changedFiles = com.jsrc.app.util.GitHelper.changedFiles(
-                java.nio.file.Path.of(ctx.rootPath()), "HEAD");
+        Path root = Path.of(ctx.rootPath()).toAbsolutePath().normalize();
+        var changedFiles = com.jsrc.app.util.GitHelper.changedFiles(root, "HEAD");
 
         int currentSmells = 0;
         int changedFileSmells = 0;
@@ -72,7 +72,7 @@ public class SmellsCommand implements Command {
         for (Path file : ctx.javaFiles()) {
             var smells = ctx.parser().detectSmells(file);
             currentSmells += smells.size();
-            String rel = java.nio.file.Path.of(ctx.rootPath()).relativize(file).toString();
+            String rel = root.relativize(file.toAbsolutePath().normalize()).toString();
             if (changedFiles.contains(rel)) {
                 changedFileSmells += smells.size();
                 for (var s : smells) {
@@ -98,6 +98,7 @@ public class SmellsCommand implements Command {
         }
 
         // No cache — detect smells, collect all, cache, then output summary
+        Path root = Path.of(ctx.rootPath()).toAbsolutePath().normalize();
         List<Map<String, Object>> allFindings = new java.util.ArrayList<>();
         Map<String, Integer> bySeverity = new java.util.LinkedHashMap<>();
         Map<String, Integer> byRule = new java.util.LinkedHashMap<>();
@@ -108,7 +109,7 @@ public class SmellsCommand implements Command {
             var smells = ctx.parser().detectSmells(file);
             if (smells.isEmpty()) continue;
             filesWithSmells++;
-            String relativePath = java.nio.file.Path.of(ctx.rootPath()).relativize(file).toString();
+            String relativePath = root.relativize(file.toAbsolutePath().normalize()).toString();
 
             for (var s : smells) {
                 bySeverity.merge(s.severity().name(), 1, Integer::sum);

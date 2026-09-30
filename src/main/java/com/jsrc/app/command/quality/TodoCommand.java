@@ -3,6 +3,8 @@ package com.jsrc.app.command.quality;
 import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
@@ -23,63 +25,64 @@ public class TodoCommand implements Command {
     public int execute(CommandContext ctx) {
         List<Map<String, Object>> items = new ArrayList<>();
         Map<String, Integer> byType = new LinkedHashMap<>();
-        Path workdir = Path.of(ctx.rootPath());
+        Path workdir = Path.of(ctx.rootPath()).toAbsolutePath().normalize();
 
         for (Path file : ctx.javaFiles()) {
+            String source;
             try {
-                String source = java.nio.file.Files.readString(file);
-                String[] lines = source.split("\n");
-                String relativePath = workdir.relativize(file).toString();
+                source = Files.readString(file);
+            } catch (IOException ex) {
+                continue; // skip unreadable files
+            }
+            String[] lines = source.split("\n");
+            String relativePath = workdir.relativize(file.toAbsolutePath().normalize()).toString();
 
-                // Find containing class
-                String className = file.getFileName().toString().replace(".java", "");
+            // Find containing class
+            String className = file.getFileName().toString().replace(".java", "");
 
-                for (int i = 0; i < lines.length; i++) {
-                    String line = lines[i].trim();
-                    int lineNum = i + 1;
+            for (int i = 0; i < lines.length; i++) {
+                String line = lines[i].trim();
+                int lineNum = i + 1;
 
-                    for (String marker : MARKERS) {
-                        int idx = line.indexOf(marker);
-                        if (idx >= 0 && (line.startsWith("//") || line.startsWith("*") || line.startsWith("/*"))) {
-                            // Extract text after marker
-                            String text = line.substring(idx + marker.length()).trim();
-                            if (text.startsWith(":")) text = text.substring(1).trim();
-                            if (text.startsWith("-")) text = text.substring(1).trim();
+                for (String marker : MARKERS) {
+                    int idx = line.indexOf(marker);
+                    if (idx >= 0 && (line.startsWith("//") || line.startsWith("*") || line.startsWith("/*"))) {
+                        // Extract text after marker
+                        String text = line.substring(idx + marker.length()).trim();
+                        if (text.startsWith(":")) text = text.substring(1).trim();
+                        if (text.startsWith("-")) text = text.substring(1).trim();
 
-                            Map<String, Object> item = new LinkedHashMap<>();
-                            item.put("type", marker);
-                            item.put("text", text);
-                            item.put("file", relativePath);
-                            item.put("line", lineNum);
-                            item.put("class", className);
+                        Map<String, Object> item = new LinkedHashMap<>();
+                        item.put("type", marker);
+                        item.put("text", text);
+                        item.put("file", relativePath);
+                        item.put("line", lineNum);
+                        item.put("class", className);
 
-                            // Find enclosing method (simple heuristic: last method declaration above)
-                            String method = findEnclosingMethod(lines, i);
-                            if (method != null) item.put("method", method);
+                        // Find enclosing method (simple heuristic: last method declaration above)
+                        String method = findEnclosingMethod(lines, i);
+                        if (method != null) item.put("method", method);
 
-                            // Git blame for author + date
-                            var blame = GitHelper.blame(workdir, relativePath, lineNum);
-                            if (!blame.isEmpty()) {
-                                item.put("author", blame.getOrDefault("author", "unknown"));
-                                item.put("date", blame.getOrDefault("date", "unknown"));
-                                // Calculate age
-                                try {
-                                    var date = java.time.LocalDate.parse(blame.get("date"));
-                                    long days = java.time.temporal.ChronoUnit.DAYS.between(date, java.time.LocalDate.now());
-                                    if (days > 365) item.put("age", (days / 365) + " years");
-                                    else if (days > 30) item.put("age", (days / 30) + " months");
-                                    else item.put("age", days + " days");
-                                } catch (Exception e) { /* skip age */ }
-                            }
-
-                            items.add(item);
-                            byType.merge(marker, 1, Integer::sum);
-                            break; // one marker per line
+                        // Git blame for author + date
+                        var blame = GitHelper.blame(workdir, relativePath, lineNum);
+                        if (!blame.isEmpty()) {
+                            item.put("author", blame.getOrDefault("author", "unknown"));
+                            item.put("date", blame.getOrDefault("date", "unknown"));
+                            // Calculate age
+                            try {
+                                var date = java.time.LocalDate.parse(blame.get("date"));
+                                long days = java.time.temporal.ChronoUnit.DAYS.between(date, java.time.LocalDate.now());
+                                if (days > 365) item.put("age", (days / 365) + " years");
+                                else if (days > 30) item.put("age", (days / 30) + " months");
+                                else item.put("age", days + " days");
+                            } catch (Exception e) { /* skip age */ }
                         }
+
+                        items.add(item);
+                        byType.merge(marker, 1, Integer::sum);
+                        break; // one marker per line
                     }
                 }
-            } catch (Exception e) {
-                // skip unreadable files
             }
         }
 

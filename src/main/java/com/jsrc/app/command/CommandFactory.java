@@ -37,6 +37,7 @@ import com.jsrc.app.command.reverse.ContractCommand;
 import com.jsrc.app.command.reverse.DiffCommand;
 import com.jsrc.app.command.reverse.DriftCommand;
 import com.jsrc.app.command.reverse.HistoryCommand;
+import com.jsrc.app.command.reverse.ReviewCommand;
 import com.jsrc.app.command.analysis.ProfileCommand;
 import com.jsrc.app.command.search.FindCommand;
 import com.jsrc.app.command.search.MethodSearchCommand;
@@ -143,6 +144,7 @@ public final class CommandFactory {
             case "--resolve" -> arg != null ? new ResolveCommand(arg) : null;
             case "--lint" -> arg != null ? ("--all".equals(arg) ? new LintAllCommand() : new LintCommand(arg)) : null;
             case "--diff-impact" -> new DiffImpactCommand(arg);
+            case "--review" -> new ReviewCommand(arg);
             case "--test-for" -> arg != null ? new TestForCommand(arg) : null; // depth handled in App.resolveCommand
             case "--breaking-changes" -> arg != null ? new BreakingChangesCommand(arg) : null;
             case "--complexity" -> arg != null ? ("--all".equals(arg) ? new ComplexityAllCommand() : new ComplexityCommand(arg)) : null;

@@ -240,6 +240,22 @@ navigating results: restart it to include file changes.
 Unsaved editor buffers and platform-specific plugin integration are outside
 this prototype.
 
+## Offline change review (current source builds)
+
+```bash
+jsrc review --json                 # HEAD vs staged, unstaged and untracked files
+jsrc review main --json --protocol 1
+jsrc review --json --budget tiny
+```
+
+`review` reads local Git only. It reports changed files, parsed declarations,
+contract changes, call-graph impact and suggested tests with evidence and
+confidence. The `summary`, `unresolved` and `omitted` fields distinguish missing
+semantic evidence from low risk and show what a budget removed. Test suggestions
+are not executed. Invalid refs fail with a nonzero exit code. The command does
+not infer runtime or binary compatibility; duplicate qualified types across
+modules and constructor visibility are marked unresolved.
+
 ## Commands
 
 <!-- BEGIN GENERATED COMMAND CATALOG -->
@@ -299,6 +315,7 @@ this prototype.
 | `type-check` | meta | Type check a class |
 | `breaking-changes` | meta | Impact of breaking changes to a class |
 | `diff-impact` | meta | Impact analysis of changed files |
+| `review` | meta | Offline review of local Git changes: symbols, contracts, impact and tests |
 | `dump` | meta | Dump binary index as JSON to stdout (debugging) |
 | `perf` | meta | Detect performance bottlenecks (loops with linear scan, I/O, allocations) |
 | `security` | meta | Static security analysis — SQL injection, path traversal, XXE, secrets |

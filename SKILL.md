@@ -1,5 +1,14 @@
 # jsrc — Java Source Code Navigator for Agents
 
+This skill describes the current `master` checkout. The published v2.5.0 native
+release supports the core commands and budget profiles but not JSON protocol v1,
+`--source-set`, per-module Java source-level detection, or atomic index
+generations. Check your binary with `jsrc --version`, `jsrc describe --json`,
+and `jsrc help <command>`; the version string alone cannot distinguish a
+tagged release from a later build of `master`. See the
+[release/master capability matrix](README.md#documentation-scope) before using
+a `master`-only feature.
+
 ## What is jsrc?
 
 A CLI tool that lets you navigate and inspect large Java codebases without reading source files. It parses code structure (classes, methods, annotations, inheritance, dependencies) and returns compact JSON optimized for LLM context windows.
@@ -17,18 +26,17 @@ A CLI tool that lets you navigate and inspect large Java codebases without readi
 
 - Don't read `.java` files directly if jsrc can answer your question
 - Don't parse jsrc text output — always use `--json`
-- Don't skip `--index` on large codebases (>100 files) — without it, full-parse commands take minutes
 
 ## Required setup
 
-```bash
-# Java 21+ and Maven required
-java -version
-mvn --version
+Native release bundles include the executable and its Tree-sitter libraries;
+they do not need a JDK at runtime. For a JAR or source build, use Java 22+ and
+Maven (the compiler target is 22 in `pom.xml`), plus the matching native
+libraries when running the JAR. See [installation and build instructions](README.md#installation).
 
-# Build jsrc
-cd /path/to/jsrc
-mvn clean compile
+```bash
+jsrc --version
+jsrc describe --json
 ```
 
 ## Critical workflow
@@ -138,8 +146,12 @@ Always use `--json`. All commands work with or without explicit source root (def
 
 ## Global flags
 
+These flags describe `master`. Verify options on an installed release with
+`jsrc help <command>`; `--protocol` and `--source-set` are absent in v2.5.0.
+
 - `--json` — machine-readable JSON output (always use this)
-- `--protocol legacy|1|latest` — select JSON protocol (default: legacy)
+- `--protocol legacy|1|latest` — select JSON protocol (default: legacy; `master` only)
+- `--source-set main,test,...` — include selected project source sets (`master` only)
 - `--metrics` — append execution metrics to stderr
 - `--signature-only` — compact method output (1 line per method)
 - `--fields name,packageName` — limit JSON to specific fields (saves tokens)
@@ -148,7 +160,7 @@ Always use `--json`. All commands work with or without explicit source root (def
 - `--limit N` — maximum items in output lists
 - `--no-budget-meta` — omit _budget metadata from JSON output
 
-## Versioned JSON protocol
+## Versioned JSON protocol (`master` only)
 
 Use `--json --protocol 1` for a stable agent-facing envelope. Every response contains
 `schema`, `protocolVersion`, `command`, `status`, `data`, `diagnostics`, and `meta`.
@@ -207,7 +219,7 @@ jsrc read ClassName.methodName --json  # whole-class reads denied under tiny
 ## Invariants
 
 1. **Always use `--json`** — text output is for humans, not agents
-2. **Run `--index` first** on any new codebase — without it, navigation commands parse on-the-fly (slow)
+2. **Run `jsrc index` before repeated queries** — this builds the persistent index
 3. **Index auto-refreshes** — if files changed since indexing, jsrc re-parses only those files automatically
 4. **stdout = data, stderr = diagnostics** — parse stdout only
 5. **`--signature-only`** saves tokens — use it when you don't need full method metadata
@@ -215,12 +227,12 @@ jsrc read ClassName.methodName --json  # whole-class reads denied under tiny
 
 ## Output format (JSON)
 
-All JSON output is compact (no pretty-print) to minimize tokens. The examples below show
-the default legacy protocol; use `--protocol 1` for the versioned envelope.
+JSON output is compact. The examples below are illustrative legacy shapes,
+not measured corpus results. On `master`, use `--protocol 1` for the versioned envelope.
 
 ### overview
 ```json
-{"totalFiles":8323,"totalClasses":13335,"totalInterfaces":163,"totalMethods":12680,"totalPackages":124,"packages":["com.app","com.app.service"]}
+{"totalFiles":3,"totalClasses":2,"totalInterfaces":1,"totalMethods":4,"totalPackages":1,"packages":["com.app"]}
 ```
 
 ### classes
@@ -284,17 +296,17 @@ What do you need to do?
 
 ### Token budget guide (for small models)
 
-| Model size | Budget | Strategy |
+| Context size | Budget profile | Strategy |
 |------------|--------|----------|
-| 4K tokens  | ~2,800 usable | Use --mini (not --summary), --read method (not class), max 4-5 calls |
-| 8K tokens  | ~5,600 usable | Can use --summary for 1-2 classes, --related for context |
-| 16K+ tokens | ~11K+ usable | Full flexibility, can --read classes, use --context |
+| Small context | `tiny` | Use `mini` and method-level `read`; limit calls as needed |
+| Medium context | `small` | Use `summary` and `related` when they fit |
+| Larger context | `standard` | Use full command surface as needed |
 
 ### Rules for small models (≤8K)
 
 **For 4K context (use --budget tiny or export JSRC_BUDGET=tiny):**
 1. NEVER `cat` a Java file — use `jsrc read Class.method` for specific methods
-2. NEVER `jsrc summary` — use `jsrc mini` instead (10× smaller)
+2. Prefer `jsrc mini` to `jsrc summary` when a compact answer is enough
 3. NEVER `jsrc context`, `call-chain`, `dump`, `tour`, or `map` — denied under tiny budget
 4. ALWAYS start with `jsrc scope` when you don't know where code is
 5. ALWAYS validate method names before generating code
@@ -307,16 +319,16 @@ What do you need to do?
 3. Heavy commands still denied (context, call-chain, etc.)
 4. Use `jsrc skill --json` to see available commands for your budget
 
-## AI Agent Commands (new)
+## AI Agent Commands
 
 Commands designed specifically for AI agent workflows:
 
 ```bash
 # Anti-hallucination: verify method exists, suggest closest if not
 jsrc validate Class.method --json
-jsrc validate Class.method(Type1,Type2) --json
+jsrc validate 'Class.method(Type1,Type2)' --json
 
-# Ultra-compact summary (<500 chars) for small context windows
+# Compact summary for small context windows
 jsrc mini ClassName --json
 
 # Related classes ranked by coupling score
@@ -337,7 +349,9 @@ jsrc type-check Class.method --json
 
 ## Configuration (.jsrc.yaml)
 
-Optional. Place in project root:
+The `javaVersion` override sets the analyzed project's source language level,
+not the Java version required to run jsrc. On `master`, per-module detection
+and `moduleJavaVersions` add finer control. Optional; place in the project root:
 
 ```yaml
 sourceRoots:

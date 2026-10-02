@@ -2,9 +2,35 @@
 
 A Java source code navigator built for AI agents. Uses [Tree-sitter](https://tree-sitter.github.io/) for speed and [JavaParser](https://javaparser.org/) for semantic depth to let agents explore large Java codebases without filling their context window with source code.
 
+## Documentation scope
+
+This README describes the current `master` checkout. The installation commands below
+download the latest published release; at this revision, the latest tag is
+[`v2.5.0`](https://github.com/joadpe/jsrc/releases/tag/v2.5.0). Check the
+reported version with `jsrc --version` and its command surface with
+`jsrc describe --json`. The version string alone does not identify whether a
+binary was built from the tag or from later `master` commits; inspect its options
+with `jsrc help <command>`. The generated [command catalog](#commands) reflects
+`master`, not a promise that every option exists in the release.
+
+| Capability | Published v2.5.0 | Current `master` |
+|---|---|---|
+| Core navigation, indexing and budget profiles | Yes | Yes |
+| JSON protocol v1 (`--protocol 1`) | No | Yes |
+| Offline Maven/Gradle module and source-set discovery (`--source-set`) | No | Yes |
+| Per-module Java source-level detection and overrides | No | Yes |
+| Atomic index generations under `.jsrc/generations/` | No; uses `.jsrc/index.bin` | Yes |
+
+The matrix compares the [v2.5.0 tag](https://github.com/joadpe/jsrc/tree/v2.5.0)
+with the current [CLI options](src/main/java/com/jsrc/app/cli/GlobalOptions.java),
+[project model](src/main/java/com/jsrc/app/project/ProjectModelDetector.java), and
+[index store](src/main/java/com/jsrc/app/index/IndexSnapshotStore.java).
+Both versions require Java 22 to build or run the JAR (see [pom.xml](pom.xml));
+native release executables do not require a JDK at runtime.
+
 ## Why jsrc?
 
-An agent with ~200K tokens of context can't read a 10,000-file codebase. jsrc gives the agent structured navigation:
+jsrc gives an agent structured navigation without reading an entire codebase:
 
 - **"What classes are in this codebase?"** → `jsrc overview --json`
 - **"Show me OrderService"** → `jsrc summary OrderService --json`
@@ -12,6 +38,19 @@ An agent with ~200K tokens of context can't read a 10,000-file codebase. jsrc gi
 - **"Find God classes"** → `jsrc lint --all --json`
 
 All responses are compact JSON optimized for token efficiency.
+
+The command list below is generated from
+[`DefaultCommandRegistry`](src/main/java/com/jsrc/app/cli/DefaultCommandRegistry.java)
+and checked by
+[`CommandDocumentationContractTest`](src/test/java/com/jsrc/app/cli/CommandDocumentationContractTest.java).
+`jsrc describe --json` reports the installed binary's `totalCommands`; use a
+binary built from this checkout to verify the current catalog. The
+[semantic corpus](src/test/resources/semantic-corpus/) has one case per
+`case.properties` manifest; count them from a checkout with
+`rg --files src/test/resources/semantic-corpus -g case.properties | wc -l`.
+[`SemanticAccuracyCorpusTest`](src/test/java/com/jsrc/app/accuracy/SemanticAccuracyCorpusTest.java)
+exercises those fixtures and baselines, which are contract tests, not a general
+accuracy claim.
 
 ## Installation
 
@@ -282,12 +321,15 @@ this prototype.
 
 ## Global Flags
 
-Flags work before or after the subcommand: `jsrc --json overview` = `jsrc overview --json`.
+This table documents `master`; `--protocol` and `--source-set` are not available
+in v2.5.0. Flags work before or after the subcommand:
+`jsrc --json overview` = `jsrc overview --json`.
 
 | Flag | Description |
 |------|-------------|
 | `--json` | Machine-readable JSON (always use for agents) |
-| `--protocol legacy\|1\|latest` | JSON protocol version (default: legacy) |
+| `--protocol legacy\|1\|latest` | JSON protocol version (default: legacy; `master` only) |
+| `--source-set main,test,...` | Include selected project source sets (`master` only) |
 | `--md` | Markdown output (for context command) |
 | `--metrics` | Append execution metrics to stderr |
 | `--full` | Verbose output (full signatures, all details) |
@@ -299,7 +341,7 @@ Flags work before or after the subcommand: `jsrc --json overview` = `jsrc overvi
 | `--max-bytes N` | Maximum output size in bytes |
 | `--no-budget-meta` | Omit _budget metadata from JSON output |
 
-## Versioned JSON protocol
+## Versioned JSON protocol (`master` only)
 
 The existing JSON shapes remain the default under `--protocol legacy`. Agents that need a
 stable envelope can opt into protocol v1:
@@ -396,6 +438,8 @@ If a command fails with exit code 2, verify you are using the subcommand syntax,
 
 ## Configuration
 
+The per-module source-level behavior below describes `master`, not v2.5.0.
+
 Create `.jsrc.yaml` in your project root:
 
 When no source level can be verified from Maven/Gradle or this file, JSON v1
@@ -439,7 +483,8 @@ architecture:
 
 ## Persistent Index
 
-The index publishes immutable binary generations under `.jsrc/generations/`.
+The v2.5.0 release stores its persistent index at `.jsrc/index.bin`.
+On `master`, the index publishes immutable binary generations under `.jsrc/generations/`.
 The small `.jsrc/current` manifest selects the complete generation used by readers;
 writers serialize publication with `.jsrc/index.lock` and replace the manifest
 atomically. The previous generation is retained for recovery while older ones
@@ -480,9 +525,9 @@ Watch mode (`jsrc watch`) maintains an in-memory cache of the indexed codebase a
 
 This eliminates redundant index loads during interactive sessions, making back-to-back queries instant even without filesystem changes.
 
-#### Watch Envelope Format (Breaking Change)
+#### Watch Envelope Format
 
-**IMPORTANT:** As of PR #22, all watch command responses are wrapped in a standard envelope:
+Legacy `watch` responses use an exit/result envelope:
 
 ```json
 {"exit": 0, "result": {...}}

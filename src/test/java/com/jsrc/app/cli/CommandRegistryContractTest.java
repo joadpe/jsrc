@@ -29,7 +29,7 @@ class CommandRegistryContractTest {
         assertEquals(new LinkedHashSet<>(registeredNames), new LinkedHashSet<>(picocliNames));
         assertEquals(registeredNames, standardNames);
         assertEquals(registeredNames.size(), new LinkedHashSet<>(registeredNames).size());
-        assertEquals(72, registeredNames.size());
+        assertEquals(73, registeredNames.size());
     }
 
     @Test

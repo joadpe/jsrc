@@ -87,6 +87,7 @@ public final class DefaultCommandRegistry implements CommandCatalog {
                 command(TypeCheckAdapter::new, CommandCategory.META, CommandOutputType.OBJECT, CommandCost.LIGHT, Access.SMALL_TINY_ALLOWED),
                 command(BreakingChangesAdapter::new, CommandCategory.META, CommandOutputType.OBJECT, CommandCost.STANDARD, Access.STANDARD),
                 command(DiffImpactAdapter::new, CommandCategory.META, CommandOutputType.OBJECT, CommandCost.STANDARD, Access.STANDARD),
+                command(ReviewAdapter::new, CommandCategory.META, CommandOutputType.OBJECT, CommandCost.STANDARD, Access.TINY),
                 command(DumpAdapter::new, CommandCategory.META, CommandOutputType.OBJECT, CommandCost.HEAVY, Access.HEAVY,
                         "Not available under constrained budget profiles"),
                 command(PerfAdapter::new, CommandCategory.META, CommandOutputType.OBJECT, CommandCost.STANDARD, Access.STANDARD),

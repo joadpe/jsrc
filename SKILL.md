@@ -65,6 +65,11 @@ Returns: total files, classes, interfaces, methods, and package list.
 
 Always use `--json`. All commands work with or without explicit source root (defaults to `.`).
 
+For local changes on a current source build, use `jsrc review --json`
+(optionally with a Git ref and `--budget tiny|small`). The report includes
+ranked symbols, contract deltas, impact evidence, test candidates, and explicit
+`unresolved`/`omitted` counts. It does not run tests or access the network.
+
 ## Commands reference
 
 <!-- BEGIN GENERATED COMMAND CATALOG -->
@@ -124,6 +129,7 @@ Always use `--json`. All commands work with or without explicit source root (def
 | `type-check` | meta | Type check a class |
 | `breaking-changes` | meta | Impact of breaking changes to a class |
 | `diff-impact` | meta | Impact analysis of changed files |
+| `review` | meta | Offline review of local Git changes: symbols, contracts, impact and tests |
 | `dump` | meta | Dump binary index as JSON to stdout (debugging) |
 | `perf` | meta | Detect performance bottlenecks (loops with linear scan, I/O, allocations) |
 | `security` | meta | Static security analysis — SQL injection, path traversal, XXE, secrets |

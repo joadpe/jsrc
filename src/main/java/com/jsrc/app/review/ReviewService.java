@@ -283,7 +283,8 @@ public final class ReviewService {
                 ? changedPath.substring(0, changedPath.indexOf("/src/main/")) : "";
         for (Path file : javaFiles) {
             String path = relative(file);
-            if (!isTest(file) || !module.isEmpty() && !path.startsWith(module + "/")) continue;
+            if (!isTest(file) || (module.isEmpty() ? !path.startsWith("src/test/")
+                    : !path.startsWith(module + "/"))) continue;
             String name = file.getFileName().toString();
             if (name.equals(simple + "Test.java") || name.equals(simple + "Tests.java")) {
                 tests.putIfAbsent(path, new TestCandidate(path, "name matches " + type, "heuristic"));

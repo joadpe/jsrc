@@ -156,6 +156,32 @@ class ReviewServiceTest {
     }
 
     @Test
+    void rootSourceDoesNotSuggestSubmoduleHomonym(@TempDir Path root) throws Exception {
+        Path source = write(root, "src/main/java/demo/Service.java", """
+                package demo;
+                public class Service { public int run() { return 1; } }
+                """);
+        Path rootTest = write(root, "src/test/java/demo/ServiceTest.java", """
+                package demo;
+                class ServiceTest {}
+                """);
+        Path submoduleTest = write(root, "module/src/test/java/demo/ServiceTest.java", """
+                package demo;
+                class ServiceTest {}
+                """);
+        commit(root);
+        Files.writeString(source, """
+                package demo;
+                public class Service { public int run() { return 2; } }
+                """);
+
+        ReviewReport report = review(root, List.of(source, rootTest, submoduleTest));
+
+        assertEquals(1, report.tests().size());
+        assertEquals("src/test/java/demo/ServiceTest.java", report.tests().getFirst().path());
+    }
+
+    @Test
     void privateFieldChangeIsNotCalledPublicContract(@TempDir Path root) throws Exception {
         Path source = write(root, "src/main/java/demo/Api.java", """
                 package demo;

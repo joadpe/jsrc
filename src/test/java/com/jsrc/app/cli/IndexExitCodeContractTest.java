@@ -25,6 +25,21 @@ import static org.junit.jupiter.api.Assertions.*;
 class IndexExitCodeContractTest {
 
     @Test
+    void relativeAndAbsoluteRootIndexSameFixture(@TempDir Path project) throws Exception {
+        Files.writeString(project.resolve("Demo.java"), "class Demo { void run() {} }\n");
+
+        runIndex(project, "--dir", ".", "index");
+        var relative = com.jsrc.app.index.CodebaseIndex.loadPublished(project);
+        runIndex(project, "--dir", project.toAbsolutePath().toString(), "index");
+        var absolute = com.jsrc.app.index.CodebaseIndex.loadPublished(project);
+
+        assertEquals(1, relative.size());
+        assertEquals("Demo.java", relative.getFirst().path());
+        assertEquals(relative.getFirst().path(), absolute.getFirst().path());
+        assertEquals(relative.getFirst().classes(), absolute.getFirst().classes());
+    }
+
+    @Test
     void indexFromCurrentDirectoryPublishesRelativePaths(@TempDir Path tempDir) throws Exception {
         Files.writeString(tempDir.resolve("Demo.java"), "class Demo {}\n");
 

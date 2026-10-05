@@ -460,17 +460,33 @@ class IndexSnapshotStoreTest {
 
     @Test
     void publicationWaitsForAnotherJvmWriter(@TempDir Path projectRoot) throws Exception {
+        verifyPublicationWaitsForAnotherJvmWriter(projectRoot, false);
+    }
+
+    @Test
+    void publicationWaitsForAnotherJvmWriterWithJavaToolOptions(@TempDir Path projectRoot) throws Exception {
+        verifyPublicationWaitsForAnotherJvmWriter(projectRoot, true);
+    }
+
+    private static void verifyPublicationWaitsForAnotherJvmWriter(Path projectRoot,
+                                                                 boolean withJavaToolOptions) throws Exception {
         Path indexDir = projectRoot.resolve(".jsrc");
         Files.createDirectories(indexDir);
         Path java = Path.of(System.getProperty("java.home"), "bin", "java");
-        Process holder = new ProcessBuilder(java.toString(), "-cp",
+        Path diagnostics = projectRoot.resolve("lock-holder.stderr");
+        var builder = new ProcessBuilder(java.toString(), "-cp",
                 System.getProperty("java.class.path"), LockHolder.class.getName(),
                 indexDir.resolve("index.lock").toString())
-                .redirectErrorStream(true).start();
+                .redirectError(diagnostics.toFile());
+        if (withJavaToolOptions) {
+            String inherited = builder.environment().getOrDefault("JAVA_TOOL_OPTIONS", "");
+            builder.environment().put("JAVA_TOOL_OPTIONS", inherited + " -Djsrc.lock.holder.test=true");
+        }
+        Process holder = builder.start();
         try (var output = new java.io.BufferedReader(
                 new java.io.InputStreamReader(holder.getInputStream()));
              var executor = Executors.newSingleThreadExecutor()) {
-            assertEquals("LOCKED", output.readLine());
+            assertEquals("LOCKED", output.readLine(), () -> readDiagnostics(diagnostics));
             var entry = new IndexEntry("A.java", "hash", 0L, SourceSet.UNKNOWN,
                     List.of(), List.of(), List.of(), 0);
             var publication = executor.submit(() -> {
@@ -481,12 +497,24 @@ class IndexSnapshotStoreTest {
                     () -> publication.get(250, TimeUnit.MILLISECONDS));
             holder.getOutputStream().close();
             assertTrue(holder.waitFor(5, TimeUnit.SECONDS));
-            assertEquals(0, holder.exitValue());
+            assertEquals(0, holder.exitValue(), () -> readDiagnostics(diagnostics));
             publication.get(5, TimeUnit.SECONDS);
         } finally {
             holder.destroyForcibly();
         }
         assertTrue(Files.isRegularFile(indexDir.resolve("current")));
+        if (withJavaToolOptions) {
+            assertTrue(Files.readString(diagnostics).contains("Picked up JAVA_TOOL_OPTIONS"),
+                    "JVM diagnostics must remain available on stderr");
+        }
+    }
+
+    private static String readDiagnostics(Path path) {
+        try {
+            return Files.readString(path);
+        } catch (java.io.IOException e) {
+            return "Cannot read lock-holder diagnostics: " + e;
+        }
     }
 
     public static final class LockHolder {

@@ -794,7 +794,7 @@ public class IndexedCodebase {
 
         return new ClassInfo(
                 ic.name(), ic.packageName(), ic.startLine(), ic.endLine(),
-                List.of(), methods, superClass,
+                ic.modifiers(), methods, superClass,
                 ic.interfaces(), annotations, ic.isInterface(),
                 ic.typeParameters(), fields);
     }

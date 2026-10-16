@@ -50,7 +50,7 @@ class AutoRefreshTest {
         return IndexedCodebase.tryLoad(tempDir, files);
     }
 
-    /** Converts like {@code jsrc index}, keeping type parameters and fields. */
+    /** Converts like {@code jsrc index}, keeping modifiers, type parameters and fields. */
     private static IndexedClass toIndexedClass(ClassInfo ci) {
         List<IndexedMethod> methods = ci.methods().stream()
                 .map(m -> new IndexedMethod(
@@ -63,7 +63,7 @@ class AutoRefreshTest {
                 .map(f -> new IndexedField(f.name(), f.type(), f.modifiers()))
                 .toList();
         return new IndexedClass(
-                ci.name(), ci.packageName(), ci.startLine(), ci.endLine(),
+                ci.name(), ci.packageName(), ci.startLine(), ci.endLine(), ci.modifiers(),
                 ci.isInterface(), ci.isAbstract(),
                 ci.superClass().isEmpty() ? List.of() : List.of(ci.superClass()),
                 ci.interfaces(), ci.typeParameters(), methods,

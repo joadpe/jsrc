@@ -810,6 +810,7 @@ public class CodebaseIndex {
         String pkg = str(map, "packageName");
         int startLine = startLine(map);
         int endLine = intVal(map, "endLine");
+        List<String> modifiers = strList(map.get("modifiers"));
         boolean isInterface = bool(map, "isInterface");
         boolean isAbstract = bool(map, "isAbstract");
         List<String> superClass = strList(map.get("superClass"));
@@ -841,7 +842,7 @@ public class CodebaseIndex {
             }
         }
 
-        return new IndexedClass(name, pkg, startLine, endLine,
+        return new IndexedClass(name, pkg, startLine, endLine, modifiers,
                 isInterface, isAbstract, superClass, interfaces, typeParameters,
                 methods, annotations, imports, fields);
     }
@@ -906,7 +907,7 @@ public class CodebaseIndex {
                 .toList();
 
         return new IndexedClass(
-                ci.name(), ci.packageName(), ci.startLine(), ci.endLine(),
+                ci.name(), ci.packageName(), ci.startLine(), ci.endLine(), ci.modifiers(),
                 ci.isInterface(), ci.isAbstract(),
                 ci.superClass().isEmpty() ? List.of() : List.of(ci.superClass()),
                 ci.interfaces(), ci.typeParameters(), methods, annotations, fileImports, fields);
@@ -920,20 +921,7 @@ public class CodebaseIndex {
 
         List<IndexedMethod> methods = new ArrayList<>(indexedClass.methods());
         methods.addAll(additional);
-        return new IndexedClass(
-                indexedClass.name(),
-                indexedClass.packageName(),
-                indexedClass.startLine(),
-                indexedClass.endLine(),
-                indexedClass.isInterface(),
-                indexedClass.isAbstract(),
-                indexedClass.superClass(),
-                indexedClass.interfaces(),
-                indexedClass.typeParameters(),
-                methods,
-                indexedClass.annotations(),
-                indexedClass.imports(),
-                indexedClass.fields());
+        return indexedClass.withMethods(methods);
     }
 
     private static IndexedClass syntheticIndexedClass(
@@ -1036,6 +1024,9 @@ public class CodebaseIndex {
         map.put("qualifiedName", ic.qualifiedName());
         map.put("line", ic.startLine());
         map.put("endLine", ic.endLine());
+        if (!ic.modifiers().isEmpty()) {
+            map.put("modifiers", ic.modifiers());
+        }
         map.put("isInterface", ic.isInterface());
         map.put("isAbstract", ic.isAbstract());
         map.put("superClass", ic.superClass());

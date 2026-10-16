@@ -609,6 +609,7 @@ public class BinaryIndexV2Reader {
             byte flags = in.readByte();
             boolean isInterface = (flags & 1) != 0;
             boolean isAbstract = (flags & 2) != 0;
+            List<String> classModifiers = readStringRefs(in, strings);
 
             List<String> superClass = readStringRefs(in, strings);
             List<String> interfaces = readStringRefs(in, strings);
@@ -641,7 +642,7 @@ public class BinaryIndexV2Reader {
                         retType, mAnns, mTypeParameters, complexity, paramCount));
             }
 
-            classes.add(new IndexedClass(name, pkg, startLine, endLine,
+            classes.add(new IndexedClass(name, pkg, startLine, endLine, classModifiers,
                     isInterface, isAbstract, superClass, interfaces, typeParameters, methods,
                     annotations, imports, fields));
         }

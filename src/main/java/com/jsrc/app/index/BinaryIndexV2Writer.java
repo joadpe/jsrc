@@ -299,6 +299,7 @@ public class BinaryIndexV2Writer {
             out.writeInt(ic.startLine());
             out.writeInt(ic.endLine());
             out.writeByte((ic.isInterface() ? 1 : 0) | (ic.isAbstract() ? 2 : 0));
+            writeStringRefs(out, ic.modifiers(), stringTable);
 
             writeStringRefs(out, ic.superClass(), stringTable);
             writeStringRefs(out, ic.interfaces(), stringTable);
@@ -331,6 +332,7 @@ public class BinaryIndexV2Writer {
     private static void internClass(IndexedClass ic, Map<String, Integer> table, List<String> list) {
         intern(ic.name(), table, list);
         intern(ic.packageName(), table, list);
+        for (String s : ic.modifiers()) intern(s, table, list);
         for (String s : ic.superClass()) intern(s, table, list);
         for (String s : ic.interfaces()) intern(s, table, list);
         for (String s : ic.typeParameters()) intern(s, table, list);

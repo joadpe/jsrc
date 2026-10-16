@@ -11,7 +11,7 @@ class EdgeResolverMetadataTest {
 
     @Test
     void resolvingFieldMarkerPreservesSourceMetadata() {
-        IndexedClass holder = new IndexedClass("Holder", "example", 1, 1,
+        IndexedClass holder = new IndexedClass("Holder", "example", 1, 1, List.of(),
                 false, false, List.of(), List.of(), List.of(), List.of(),
                 List.of(), List.of(), List.of(new IndexedField("service", "example.Service")));
         CallEdge marker = new CallEdge("example.Caller", "call", List.of(), 0,

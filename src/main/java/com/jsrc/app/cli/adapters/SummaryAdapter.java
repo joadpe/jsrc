@@ -6,6 +6,7 @@ import picocli.CommandLine.Parameters;
 import com.jsrc.app.cli.BudgetContext;
 import com.jsrc.app.cli.BudgetProfile;
 import com.jsrc.app.cli.PicocliAdapter;
+import com.jsrc.app.command.CommandContext;
 import com.jsrc.app.command.navigate.SummaryCommand;
 
 @Command(name = "summary", description = "Class metadata + method signatures")
@@ -16,8 +17,13 @@ public class SummaryAdapter extends PicocliAdapter {
 
     @Override
     protected com.jsrc.app.command.Command createCommand() {
+        return new SummaryCommand(className);
+    }
+
+    @Override
+    protected com.jsrc.app.command.Command createCommand(CommandContext ctx) {
         // Budget degradation: summary → mini under TINY profile
-        BudgetContext budgetCtx = parent.buildBudgetContext();
+        BudgetContext budgetCtx = ctx.budgetContext();
         BudgetProfile profile = budgetCtx.profile();
         
         if (profile == BudgetProfile.TINY) {
@@ -25,6 +31,6 @@ public class SummaryAdapter extends PicocliAdapter {
             return new com.jsrc.app.command.navigate.MiniCommand(className);
         }
         
-        return new SummaryCommand(className);
+        return createCommand();
     }
 }

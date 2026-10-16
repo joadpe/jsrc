@@ -10,12 +10,14 @@ import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
 import com.jsrc.app.ExitCode;
+import com.jsrc.app.output.JsonReader;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 /**
  * B3: Tests that exercise actual adapter/command behavior, not just BudgetPolicy metadata.
@@ -50,7 +52,7 @@ class BudgetAdapterBehaviorTest {
     }
 
     @Test
-    @DisplayName("B3/A4: SummaryAdapter under TINY degrades to mini - verify actual output behavior")
+    @DisplayName("B3/A4: SummaryAdapter under TINY degrades to mini and reports degradedFrom")
     void summaryAdapterUnderTinyDegradesToMini() throws IOException {
         // Test that summary command actually runs MiniCommand under TINY
         ByteArrayOutputStream outContent = new ByteArrayOutputStream();
@@ -64,22 +66,18 @@ class BudgetAdapterBehaviorTest {
             CommandLine cli = JsrcCliFactory.create();
             int exitCode = cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "summary", "TestClass");
             
-            // Should succeed or be NOT_FOUND, not BAD_USAGE (not denied)
-            assertNotEquals(ExitCode.BAD_USAGE, exitCode,
+            assertEquals(ExitCode.OK, exitCode,
                 "summary should degrade to mini, not be denied");
-            
-            String output = outContent.toString();
-            
-            // Verify output indicates degradation (should have _budget metadata with degradedFrom)
-            if (!output.isEmpty() && output.contains("{")) {
-                assertTrue(
-                    output.contains("\"degradedFrom\":\"summary\"") || 
-                    output.contains("methodCount") || 
-                    output.contains("TestClass"),
-                    "summary under TINY should execute mini behavior or show degradation metadata"
-                );
-            }
-            
+
+            Map<?, ?> output = lastJsonObject(outContent.toString());
+            assertTrue(output.containsKey("keyMethods"),
+                "summary under TINY should execute mini: " + output);
+            Map<?, ?> budget = assertInstanceOf(Map.class, output.get("_budget"),
+                "summary under TINY should include _budget metadata: " + output);
+            assertEquals("tiny", budget.get("profile"));
+            assertEquals("summary", budget.get("degradedFrom"),
+                "summary under TINY should report the degradation: " + output);
+
             // Should NOT be denied
             String errOutput = errContent.toString();
             assertFalse(errOutput.contains("budget_denied"),
@@ -92,17 +90,70 @@ class BudgetAdapterBehaviorTest {
     }
 
     @Test
-    @DisplayName("B3/A5: read command under TINY has DEGRADE policy (denies whole-class reads)")
+    @DisplayName("B3/A4: protocol v1 reports the summary degradation in meta.budget")
+    void summaryDegradationUnderTinyIsReportedInVersionOneMeta() {
+        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        ByteArrayOutputStream errContent = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
+        System.setOut(new PrintStream(outContent));
+        System.setErr(new PrintStream(errContent));
+
+        try {
+            CommandLine cli = JsrcCliFactory.create();
+            cli.execute("--dir", rootDir.toString(), "--json", "--protocol", "1",
+                    "--budget", "tiny", "summary", "TestClass");
+
+            Map<?, ?> envelope = lastJsonObject(outContent.toString());
+            assertEquals("summary", envelope.get("command"));
+            Map<?, ?> meta = assertInstanceOf(Map.class, envelope.get("meta"));
+            Map<?, ?> budget = assertInstanceOf(Map.class, meta.get("budget"));
+            assertEquals("tiny", budget.get("profile"));
+            assertEquals("summary", budget.get("degradedFrom"),
+                "v1 summary under TINY should report the degradation: " + envelope);
+
+        } finally {
+            System.setOut(originalOut);
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
+    @DisplayName("B3/A5: ReadAdapter under TINY denies whole-class reads and reports degradedFrom")
     void readAdapterUnderTinyDeniesWholeClassReads() {
-        // Verify that BudgetPolicy marks read as DEGRADE under TINY
-        // ReadAdapter implements this by denying whole-class reads
+        // read has a DEGRADE policy under TINY: ReadAdapter denies whole-class reads
         var action = BudgetPolicy.getAction("read", BudgetProfile.TINY);
         assertEquals(BudgetPolicy.Action.DEGRADE, action,
             "read under TINY should have DEGRADE action (degrades to deny whole-class reads)");
         
-        // Note: ReadAdapter.createCommand() checks if target contains "." to distinguish
-        // whole-class reads (denied) from method reads (allowed).
-        // Full end-to-end testing requires tree-sitter native libraries.
+        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        ByteArrayOutputStream errContent = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
+        System.setOut(new PrintStream(outContent));
+        System.setErr(new PrintStream(errContent));
+
+        try {
+            CommandLine cli = JsrcCliFactory.create();
+            // Whole-class read (no method)
+            cli.execute("--dir", rootDir.toString(), "--json", "--budget", "tiny", "read", "TestClass");
+
+            assertTrue(outContent.toString().isBlank(),
+                "whole-class read under TINY should not print source: " + outContent);
+
+            Map<?, ?> error = lastJsonObject(errContent.toString());
+            assertEquals("budget_denied", error.get("error"));
+            assertEquals("read", error.get("command"));
+            Map<?, ?> budget = assertInstanceOf(Map.class, error.get("_budget"),
+                "read denial under TINY should include _budget metadata: " + error);
+            assertEquals("tiny", budget.get("profile"));
+            assertEquals("read", budget.get("degradedFrom"),
+                "read denial under TINY should report the degradation: " + error);
+
+        } finally {
+            System.setOut(originalOut);
+            System.setErr(originalErr);
+        }
     }
 
     @Test
@@ -127,6 +178,8 @@ class BudgetAdapterBehaviorTest {
             String errOutput = errContent.toString();
             assertFalse(errOutput.contains("budget_denied"),
                 "Method reads should not be denied under TINY");
+            assertFalse(outContent.toString().contains("degradedFrom"),
+                "Method reads should not be degraded under TINY");
             
         } finally {
             System.setOut(originalOut);
@@ -200,14 +253,21 @@ class BudgetAdapterBehaviorTest {
             
             // Under SMALL, should NOT degrade (no degradedFrom metadata for SMALL summary)
             String output = outContent.toString();
-            if (output.contains("_budget")) {
-                assertFalse(output.contains("\"degradedFrom\":\"summary\""),
-                    "summary under SMALL should not degrade");
-            }
+            assertFalse(output.contains("degradedFrom"),
+                "summary under SMALL should not degrade");
             
         } finally {
             System.setOut(originalOut);
             System.setErr(originalErr);
         }
+    }
+
+    /** Parses the last JSON object line, skipping diagnostics printed before it. */
+    private static Map<?, ?> lastJsonObject(String text) {
+        String json = text.lines()
+                .filter(line -> line.startsWith("{"))
+                .reduce((first, second) -> second)
+                .orElseThrow(() -> new AssertionError("no JSON object in: " + text));
+        return assertInstanceOf(Map.class, JsonReader.parse(json));
     }
 }

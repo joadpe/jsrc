@@ -34,6 +34,15 @@ public abstract class PicocliAdapter implements Callable<Integer> {
     protected abstract Command createCommand();
 
     /**
+     * Creates the Command to execute with the invocation's context.
+     * Adapters that degrade under a budget override this and record the degradation
+     * on {@code ctx.budgetContext()}, the instance the output formatter reports.
+     */
+    protected Command createCommand(CommandContext ctx) {
+        return createCommand();
+    }
+
+    /**
      * Returns the command name for metrics. Derived from the @Command annotation.
      */
     protected String commandName() {
@@ -78,7 +87,7 @@ public abstract class PicocliAdapter implements Callable<Integer> {
             long contextStarted = System.nanoTime();
             CommandContext ctx = parent.buildContext(skipIndex(), commandName());
             com.jsrc.app.index.IndexPhaseMetrics.recordPhase("cli.context", contextStarted);
-            Command cmd = createCommand();
+            Command cmd = createCommand(ctx);
 
             if (cmd == null) {
                 System.err.println("Error: missing required argument");

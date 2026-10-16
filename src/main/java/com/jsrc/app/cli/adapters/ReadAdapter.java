@@ -6,6 +6,7 @@ import picocli.CommandLine.Parameters;
 import com.jsrc.app.cli.BudgetContext;
 import com.jsrc.app.cli.BudgetProfile;
 import com.jsrc.app.cli.PicocliAdapter;
+import com.jsrc.app.command.CommandContext;
 import com.jsrc.app.command.navigate.ReadCommand;
 
 @Command(name = "read", description = "Source code of a class or method")
@@ -17,8 +18,13 @@ public class ReadAdapter extends PicocliAdapter {
 
     @Override
     protected com.jsrc.app.command.Command createCommand() {
+        return new ReadCommand(target);
+    }
+
+    @Override
+    protected com.jsrc.app.command.Command createCommand(CommandContext ctx) {
         // Budget degradation for read: deny whole-class reads under TINY
-        BudgetContext budgetCtx = parent.buildBudgetContext();
+        BudgetContext budgetCtx = ctx.budgetContext();
         BudgetProfile profile = budgetCtx.profile();
         
         // If target is a class without method (no dot, no parens)
@@ -35,6 +41,6 @@ public class ReadAdapter extends PicocliAdapter {
             );
         }
         
-        return new ReadCommand(target);
+        return createCommand();
     }
 }

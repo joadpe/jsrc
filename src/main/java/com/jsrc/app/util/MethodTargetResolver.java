@@ -189,7 +189,7 @@ public final class MethodTargetResolver {
 
     /**
      * Resolves the fully qualified display name including package.
-     * E.g. "com.agbar.occam.facturacion.Service.process(String, int)"
+     * E.g. "com.app.billing.Service.process(String, int)"
      */
     public static String qualifiedDisplayName(com.jsrc.app.parser.model.MethodReference ref,
                                                java.util.Map<String, String> signatures,

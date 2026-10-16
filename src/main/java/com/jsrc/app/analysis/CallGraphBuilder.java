@@ -497,7 +497,7 @@ public class CallGraphBuilder {
 
     /**
      * Resolves a simple return type name to a qualified name using the declaring
-     * class's imports. E.g. "Explotacion" → "com.agbar.occam.negocio.modelos.Explotacion"
+     * class's imports. E.g. "Explotacion" → "com.app.modelos.Explotacion"
      * if the declaring class imports that package.
      *
      * @param simpleType        simple type name from return type

@@ -72,6 +72,69 @@ class SourceReaderTest {
     }
 
     @Test
+    @DisplayName("Should find a class after files that cannot declare it")
+    void shouldReadClassAfterUnrelatedFiles() throws IOException {
+        Path unrelated = writeFile("Unrelated.java", "public class Unrelated {}");
+        Path mention = writeFile("Mention.java", """
+                package com.app;
+                // Mentions Target in a comment but declares nothing named so.
+                public class Mention { Target target; }
+                """);
+        Path declaring = writeFile("Holder.java", """
+                package com.app;
+                public class Holder {
+                    public static class Target { void run() {} }
+                }
+                """);
+
+        var result = reader.readClass(List.of(unrelated, mention, declaring), "Target");
+        assertTrue(result.isPresent());
+        assertEquals(declaring, result.get().file());
+        assertEquals("Holder$Target", result.get().className());
+        assertTrue(reader.readClass(List.of(declaring), "com.app.Holder.Target").isPresent());
+        assertTrue(reader.readClass(List.of(unrelated, mention), "Target").isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should read local classes by binary name")
+    void shouldReadLocalClassByBinaryName() throws IOException {
+        Path file = writeFile("Outer.java", """
+                public class Outer {
+                    void run() {
+                        class Local { int value; }
+                    }
+                }
+                """);
+
+        var result = reader.readClass(List.of(file), "Outer$run$1$Local$1");
+        assertTrue(result.isPresent());
+        assertTrue(result.get().content().contains("class Local"));
+    }
+
+    @Test
+    @DisplayName("Should read classes whose name is spelled with unicode escapes as the parser reports them")
+    void shouldReadClassSpelledWithUnicodeEscape() throws IOException {
+        Path file = writeFile("Escaped.java", "public class \\u0045scaped { }\n");
+        HybridJavaParser parser = new HybridJavaParser();
+
+        boolean parsed = parser.parseClasses(file).stream()
+                .anyMatch(info -> info.name().equals("Escaped"));
+        assertEquals(parsed, reader.readClass(List.of(file), "Escaped").isPresent());
+    }
+
+    @Test
+    @DisplayName("Should only derive a declared name from plain identifiers")
+    void shouldDeriveDeclaredSimpleName() {
+        assertEquals("Target", SourceReader.declaredSimpleName("Target"));
+        assertEquals("Target", SourceReader.declaredSimpleName("com.app.Holder$Target"));
+        assertEquals("_Old2", SourceReader.declaredSimpleName("pkg._Old2"));
+        assertNull(SourceReader.declaredSimpleName("Outer$run$1$Local$1"));
+        assertNull(SourceReader.declaredSimpleName("Map.Entry<K,V>"));
+        assertNull(SourceReader.declaredSimpleName("Señal"));
+        assertNull(SourceReader.declaredSimpleName("pkg."));
+    }
+
+    @Test
     @DisplayName("Should return null for nonexistent method")
     void shouldReturnNullForMissingMethod() throws IOException {
         Path file = writeFile("Svc.java", """

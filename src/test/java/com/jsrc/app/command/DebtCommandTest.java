@@ -51,6 +51,30 @@ class DebtCommandTest {
                 .allMatch(IndexEntry::smellsComputed), "debt should cache what it analyzed");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void frozenIndexCountsUncachedFilesWithoutPublishing() throws Exception {
+        Path risky = writeEmptyCatch("Risky");
+        Path other = writeEmptyCatch("Other");
+        var files = List.of(risky, other);
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), files, tempDir, List.of());
+        index.saveWithGraph(tempDir, null);
+        String published = Files.readString(tempDir.resolve(".jsrc/current"));
+
+        var out = new ByteArrayOutputStream();
+        new DebtCommand(false).execute(new CommandContext(files, tempDir.toString(), null,
+                new JsonFormatter(false, null, new PrintStream(out)),
+                IndexedCodebase.tryLoad(tempDir, files, true), new HybridJavaParser(),
+                false, null, false, false, null, true));
+
+        var result = (Map<String, Object>) JsonReader.parse(out.toString());
+        assertEquals(2L, ((Map<String, Object>) result.get("byCategory")).get("maintainability"));
+        assertEquals(published, Files.readString(tempDir.resolve(".jsrc/current")));
+        assertTrue(CodebaseIndex.loadPublished(tempDir).stream()
+                .noneMatch(IndexEntry::smellsComputed), "A frozen index must stay unchanged");
+    }
+
     private Path writeEmptyCatch(String className) throws Exception {
         return Files.writeString(tempDir.resolve(className + ".java"), """
                 public class %s {

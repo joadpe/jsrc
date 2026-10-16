@@ -428,10 +428,6 @@ public class BinaryIndexV2Reader {
         }
     }
 
-    /**
-     * Skips the graph section by reading and discarding its data.
-     * Used by readLazy to continue to smells/migrations sections.
-     */
     /** Reads cached smells; every listed file counts as analyzed, even with no smells. */
     private static void readSmells(DataInputStream in, String[] strings, List<IndexEntry> entries)
             throws IOException {
@@ -462,6 +458,10 @@ public class BinaryIndexV2Reader {
         }
     }
 
+    /**
+     * Skips the graph section by reading and discarding its data.
+     * Used by readLazy to continue to smells/migrations sections.
+     */
     private static void skipGraphSection(DataInputStream in, String[] strings) throws IOException {
         int methodCount = checkedCount(in, "graph methods", 14);
         for (int i = 0; i < methodCount; i++) {

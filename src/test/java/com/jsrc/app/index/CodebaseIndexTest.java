@@ -825,7 +825,9 @@ class CodebaseIndexTest {
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
         String classpath = System.getProperty("surefire.test.class.path",
                 System.getProperty("java.class.path"));
+        // Pass the library path on, so the child finds Tree-sitter wherever this JVM did.
         Process process = new ProcessBuilder(java, "--enable-native-access=ALL-UNNAMED",
+                "-Djava.library.path=" + System.getProperty("java.library.path", ""),
                 "-cp", classpath, SingleFileIndexer.class.getName(),
                 tempDir.toString(), tempDir.relativize(file).toString())
                 .redirectOutput(output.toFile())

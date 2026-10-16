@@ -39,6 +39,11 @@ native release executables do not require a JDK at runtime.
 - **Ambiguous chained calls stay unresolved.** When two calls on one line could
   each be the receiver of a chained call, the call graph leaves it unresolved
   instead of picking one.
+- **`smells --all` and `debt` analyze every file and cache the results.** They
+  no longer skip files missing from the smell cache, so results can grow and
+  `debt` scores can rise compared with 2.6.0. Both commands store what they
+  detect in `.jsrc` unless `--frozen-index` is set; the first run on a fresh
+  index analyzes every file.
 
 ### Upgrading from 2.5.0
 

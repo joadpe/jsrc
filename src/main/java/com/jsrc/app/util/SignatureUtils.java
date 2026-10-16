@@ -2,12 +2,17 @@ package com.jsrc.app.util;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Shared utilities for parsing Java method signatures.
  * Eliminates duplication across CallGraphBuilder, MethodTargetResolver, and SmellsCommand.
  */
 public final class SignatureUtils {
+
+    // Compiled once: these run for every type lookup during index resolution.
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+    private static final Pattern FINAL_MODIFIER = Pattern.compile("^(?:final\\s+)");
 
     private SignatureUtils() {}
 
@@ -43,11 +48,29 @@ public final class SignatureUtils {
      * Normalizes a type for canonical method identity.
      */
     public static String normalizeType(String type) {
-        String normalized = type.trim()
-                .replace("...", "[]")
-                .replaceAll("\\s+", "")
+        String normalized = withoutWhitespace(type.trim().replace("...", "[]"))
                 .replace(",", ",");
         return normalized;
+    }
+
+    /** Same result as {@code value.replaceAll("\\s+", "")}. */
+    private static String withoutWhitespace(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            if (isRegexWhitespace(value.charAt(i))) {
+                return WHITESPACE.matcher(value).replaceAll("");
+            }
+        }
+        return value;
+    }
+
+    /** The characters of the regex class {@code \s}: [ \t\n\x0B\f\r]. */
+    private static boolean isRegexWhitespace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\f' || c == '\r';
+    }
+
+    /** Same result as {@code type.matches("[A-Z]")}: a single-letter type variable. */
+    public static boolean isTypeVariable(String type) {
+        return type.length() == 1 && type.charAt(0) >= 'A' && type.charAt(0) <= 'Z';
     }
 
     /**
@@ -55,6 +78,7 @@ public final class SignatureUtils {
      */
     public static String eraseType(String type) {
         String normalized = normalizeType(type);
+        if (normalized.indexOf('<') < 0 && normalized.indexOf('>') < 0) return normalized;
         StringBuilder erased = new StringBuilder(normalized.length());
         int genericDepth = 0;
         for (int i = 0; i < normalized.length(); i++) {
@@ -73,7 +97,7 @@ public final class SignatureUtils {
     /** Erases a method parameter type, mapping unbounded type variables to Object. */
     public static String eraseParameterType(String type) {
         String erasedType = eraseType(type);
-        return erasedType.matches("[A-Z]") ? "Object" : erasedType;
+        return isTypeVariable(erasedType) ? "Object" : erasedType;
     }
 
     /** Compares parameter types after erasure, qualification, and boxing normalization. */
@@ -92,7 +116,7 @@ public final class SignatureUtils {
         if (sameQualifiedType(parameter, argument)) return 0;
         if (boxedType(parameter).equals(boxedType(argument))) return 1;
         if (isPrimitiveWidening(argument, parameter)) return 2;
-        if ((parameter.matches("[A-Z]") || "Object".equals(simpleType(parameter)))
+        if ((isTypeVariable(parameter) || "Object".equals(simpleType(parameter)))
                 && !isPrimitive(argument)) {
             return 3;
         }
@@ -211,8 +235,10 @@ public final class SignatureUtils {
     }
 
     private static String extractParameterType(String parameter) {
-        String value = parameter.trim()
-                .replaceFirst("^(?:final\\s+)", "");
+        String value = parameter.trim();
+        if (value.startsWith("final")) {
+            value = FINAL_MODIFIER.matcher(value).replaceFirst("");
+        }
         int genericDepth = 0;
         for (int i = value.length() - 1; i >= 0; i--) {
             char c = value.charAt(i);

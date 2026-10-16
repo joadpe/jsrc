@@ -10,6 +10,7 @@ import com.jsrc.app.symbol.SymbolResolver.Resolution;
 import com.jsrc.app.symbol.SymbolResolver.TypeSymbol;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -25,6 +26,8 @@ public final class SemanticCallResolver {
     private final List<IndexedClass> classes;
     private final List<TypeId> classIds;
     private final List<String> classNames;
+    /** Class indices, ascending, keyed by {@link #lastSegment} of their canonical name. */
+    private final Map<String, List<Integer>> classesByLastSegment;
     private final Map<String, IndexedClass> classesByName;
     private final Map<TypeId, List<Integer>> directSubtypes;
     private final Map<TypeId, List<IndexedClass>> concreteSubtypes = new ConcurrentHashMap<>();
@@ -39,6 +42,12 @@ public final class SemanticCallResolver {
                         indexedClass.packageName(), indexedClass.name()))
                 .toList();
         this.classNames = classIds.stream().map(TypeId::canonicalName).toList();
+        this.classesByLastSegment = new HashMap<>();
+        for (int index = 0; index < classNames.size(); index++) {
+            classesByLastSegment.computeIfAbsent(
+                    lastSegment(classNames.get(index)), ignored -> new ArrayList<>())
+                    .add(index);
+        }
         this.classesByName = new HashMap<>();
         for (IndexedClass indexedClass : classes) {
             classesByName.put(indexedClass.qualifiedName(), indexedClass);
@@ -506,29 +515,37 @@ public final class SemanticCallResolver {
     private List<IndexedClass> findConcreteSubtypes(TypeId receiverId) {
         List<Integer> pending = new ArrayList<>();
         String receiverName = receiverId.canonicalName();
-        for (int index = 0; index < classes.size(); index++) {
+        // Every name accepted by namesMatch shares the receiver's last segment.
+        for (int index : classesByLastSegment.getOrDefault(
+                lastSegment(receiverName), List.of())) {
             if (TypeId.namesMatch(classNames.get(index), receiverName)) {
                 pending.add(index);
             }
         }
 
-        Set<Integer> descendants = new HashSet<>();
+        BitSet descendants = new BitSet();
         for (int next = 0; next < pending.size(); next++) {
             int index = pending.get(next);
-            if (descendants.add(index)) {
+            if (!descendants.get(index)) {
+                descendants.set(index);
                 pending.addAll(directSubtypes.getOrDefault(classIds.get(index), List.of()));
             }
         }
 
         List<IndexedClass> subtypes = new ArrayList<>();
-        for (int index = 0; index < classes.size(); index++) {
+        for (int index = descendants.nextSetBit(0); index >= 0;
+                index = descendants.nextSetBit(index + 1)) {
             IndexedClass candidate = classes.get(index);
-            if (descendants.contains(index) && !candidate.isInterface()
-                    && !candidate.isAbstract()) {
+            if (!candidate.isInterface() && !candidate.isAbstract()) {
                 subtypes.add(candidate);
             }
         }
         return List.copyOf(subtypes);
+    }
+
+    /** The simple name after the last '.' or '$', as compared by {@link TypeId#namesMatch}. */
+    private static String lastSegment(String name) {
+        return name.substring(Math.max(name.lastIndexOf('.'), name.lastIndexOf('$')) + 1);
     }
 
     private boolean isConcrete(MethodSymbol method) {
@@ -548,21 +565,27 @@ public final class SemanticCallResolver {
     private IndexedMethod findMethod(MethodSymbol method) {
         IndexedClass owner = classesByName.get(method.owner().canonicalName());
         if (owner == null) return null;
-        List<IndexedMethod> candidates = owner.methods().stream()
-                .filter(candidate -> candidate.name().equals(method.name()))
-                .filter(candidate -> candidate.paramCount() == method.parameterTypes().size())
-                .toList();
-        return candidates.stream()
-                .filter(candidate -> method.startLine() > 0
-                        && candidate.startLine() == method.startLine())
-                .findFirst()
-                .or(() -> candidates.stream()
-                        .filter(candidate -> sameParameterIdentity(
-                                com.jsrc.app.util.SignatureUtils.extractParameterTypes(
-                                        candidate.signature()),
-                                method.parameterTypes()))
-                        .findFirst())
-                .orElse(null);
+        List<IndexedMethod> candidates = new ArrayList<>();
+        for (IndexedMethod candidate : owner.methods()) {
+            if (candidate.name().equals(method.name())
+                    && candidate.paramCount() == method.parameterTypes().size()) {
+                candidates.add(candidate);
+            }
+        }
+        for (IndexedMethod candidate : candidates) {
+            if (method.startLine() > 0 && candidate.startLine() == method.startLine()) {
+                return candidate;
+            }
+        }
+        for (IndexedMethod candidate : candidates) {
+            if (sameParameterIdentity(
+                    com.jsrc.app.util.SignatureUtils.extractParameterTypes(
+                            candidate.signature()),
+                    method.parameterTypes())) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private static boolean sameParameterIdentity(List<String> left, List<String> right) {

@@ -45,6 +45,33 @@ class SemanticCallResolverTest {
     }
 
     @Test
+    void receiversMatchedByQualifiedNameSuffixContributeImplementations() {
+        IndexedMethod abstractWork = method("work", "public abstract void work()");
+        IndexedMethod work = method("work", "public void work()");
+        List<IndexedClass> classes = List.of(
+                classIn("example", "Service", true, List.of(), abstractWork),
+                classIn("example", "Impl", false, List.of("example.Service"), work),
+                // "lib.example.Service" ends with ".example.Service".
+                classIn("lib.example", "Service", true, List.of(), abstractWork),
+                classIn("lib.example", "LibImpl", false, List.of("lib.example.Service"), work),
+                // "example.Service" ends with ".Service".
+                classIn("", "Service", true, List.of(), abstractWork),
+                classIn("", "DefaultImpl", false, List.of("Service"), work),
+                classIn("other", "Service", true, List.of(), abstractWork),
+                classIn("other", "OtherImpl", false, List.of("other.Service"), work),
+                classIn("example", "Caller", false, List.of(),
+                        method("call", "public void call()")));
+        SemanticCallResolver resolver = new SemanticCallResolver(List.of(
+                new IndexEntry("example/Types.java", "hash", 0, classes)));
+
+        List<CallEdge> resolved = resolver.resolve(new CallEdge("example.Caller", "call",
+                List.of(), 0, "example.Service", "work", List.of(), 10, 0));
+
+        assertEquals(List.of("example.Impl", "lib.example.LibImpl", "DefaultImpl"),
+                resolved.stream().map(CallEdge::calleeClass).toList());
+    }
+
+    @Test
     void unknownFunctionalTypeWithoutAstContextRemainsUnresolved() {
         assertNull(EdgeResolver.functionalInputTypes("CustomAction", null));
         assertEquals(List.of("String"),
@@ -56,6 +83,12 @@ class SemanticCallResolverTest {
             IndexedMethod... methods) {
         return new IndexedClass(name, "example", 1, 1, isInterface, isAbstract,
                 superClass, interfaces, List.of(methods), List.of(), List.of());
+    }
+
+    private static IndexedClass classIn(String packageName, String name, boolean isInterface,
+            List<String> interfaces, IndexedMethod... methods) {
+        return new IndexedClass(name, packageName, 1, 1, isInterface, isInterface,
+                List.of(), interfaces, List.of(methods), List.of(), List.of());
     }
 
     private static IndexedMethod method(String name, String signature) {

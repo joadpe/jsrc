@@ -177,9 +177,10 @@ public final class SymbolResolver {
             return new Resolution.Found<>(exact.getFirst(), Evidence.EXACT);
         }
 
+        String importedSuffix = "." + normalizedQuery;
         for (String imported : context.imports()) {
             if (imported.startsWith("static ") || imported.endsWith(".*")) continue;
-            if (!imported.endsWith("." + normalizedQuery)) continue;
+            if (!imported.endsWith(importedSuffix)) continue;
             List<TypeSymbol> importedMatches = qualifiedTypes.getOrDefault(imported, List.of());
             if (importedMatches.size() == 1) {
                 return new Resolution.Found<>(
@@ -206,15 +207,20 @@ public final class SymbolResolver {
             }
         }
 
-        List<TypeSymbol> wildcardMatches = context.imports().stream()
-                .filter(imported -> imported.endsWith(".*"))
-                .map(imported -> imported.substring(0, imported.length() - 2)
-                        + "." + normalizedQuery)
-                .flatMap(candidate -> qualifiedTypes.getOrDefault(
-                        candidate, List.of()).stream())
-                .distinct()
-                .sorted(java.util.Comparator.comparing(type -> type.id().canonicalName()))
-                .toList();
+        List<TypeSymbol> wildcardMatches = new ArrayList<>();
+        for (String imported : context.imports()) {
+            if (imported.endsWith(".*")) {
+                wildcardMatches.addAll(qualifiedTypes.getOrDefault(
+                        imported.substring(0, imported.length() - 2) + importedSuffix,
+                        List.of()));
+            }
+        }
+        if (wildcardMatches.size() > 1) {
+            wildcardMatches = wildcardMatches.stream()
+                    .distinct()
+                    .sorted(java.util.Comparator.comparing(type -> type.id().canonicalName()))
+                    .toList();
+        }
         if (wildcardMatches.size() == 1) {
             return new Resolution.Found<>(
                     wildcardMatches.getFirst(), Evidence.WILDCARD_IMPORT);
@@ -398,7 +404,7 @@ public final class SymbolResolver {
         List<String> variables = declaringType.methods().stream()
                 .flatMap(candidate -> candidate.parameterTypes().stream())
                 .map(SignatureUtils::eraseType)
-                .filter(type -> type.matches("[A-Z]"))
+                .filter(SignatureUtils::isTypeVariable)
                 .distinct()
                 .toList();
         if (variables.size() != arguments.size()) return method;

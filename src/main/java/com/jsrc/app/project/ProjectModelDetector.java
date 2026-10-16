@@ -31,6 +31,59 @@ import org.xml.sax.helpers.DefaultHandler;
 public final class ProjectModelDetector {
 
     private static final Pattern QUOTED_VALUE = Pattern.compile("[\"']([^\"']+)[\"']");
+    /** The source sets whose sources jsrc looks for at their conventional roots. */
+    private static final Set<String> CONVENTIONAL_SOURCE_SETS = Set.of("main", "test");
+    private static final Pattern GRADLE_SOURCE_SETS = Pattern.compile("\\bsourceSets\\b");
+    /** A source-set container call that adds or removes source sets. */
+    private static final Pattern GRADLE_SOURCE_SET_CHANGE = Pattern.compile(
+            "create|register|maybeCreate|creating|registering|add|addAll|remove|removeAll"
+                    + "|removeIf|retainAll|clear");
+    /** A source-set container call that applies to every source set, or to those it selects. */
+    private static final Pattern GRADLE_EVERY_SOURCE_SET = Pattern.compile(
+            "all|configureEach|each|forEach|matching|withType|whenObjectAdded");
+    /** A source-set container call that looks one source set up by name. */
+    private static final Pattern GRADLE_SOURCE_SET_LOOKUP = Pattern.compile(
+            "named|getByName|findByName|getAt");
+    /**
+     * The name in such a lookup, as in named("main") or getByName<SourceSet>('test'). The white
+     * space around the type argument is possessive, so that a long run of it is not retried at
+     * every split between the two.
+     */
+    private static final Pattern GRADLE_SOURCE_SET_ARGUMENT = Pattern.compile(
+            "\\s*+(?:<[^<>]*>)?\\s*+\\(\\s*[\"'](\\w+)[\"']\\s*(?:,[^()]*)?\\)");
+    /** A source set read from the container, as in .main or ["main"], or a container call. */
+    private static final Pattern GRADLE_SOURCE_SET_ACCESS = Pattern.compile(
+            "\\s*(?:\\??\\.\\s*(\\w+)|\\[\\s*[\"'](\\w+)[\"']\\s*])");
+    /** One entry of a sourceSets block, which starts with a source set or a container call. */
+    private static final Pattern GRADLE_SOURCE_SET_ENTRY = Pattern.compile(
+            "(?:(\\w+)|[\"'](\\w+)[\"'])");
+    /** A statement that only Gradle evaluates, as in if (...) { main { ... } }. */
+    private static final Pattern GRADLE_STATEMENT_KEYWORD = Pattern.compile(
+            "if|else|for|while|switch|when|try|def|val|var|return");
+    /** A source set created through a Kotlin delegate, as in val intTest by creating. */
+    private static final Pattern GRADLE_DELEGATED_SOURCE_SET = Pattern.compile(
+            "\\bby\\s+(?:creating|registering)\\b");
+    private static final Pattern GRADLE_PROVIDER_GET = Pattern.compile(
+            "\\s*\\??\\.\\s*get\\s*\\(\\s*\\)");
+    /**
+     * What opens a closure that configures the source set just named. The white space around
+     * the optional parenthesis is possessive, as in GRADLE_SOURCE_SET_ARGUMENT.
+     */
+    private static final Pattern GRADLE_SOURCE_SET_CLOSURE = Pattern.compile(
+            "\\s*(?:\\??\\.\\s*(?:configure|configureEach|all|with|apply|run)\\s*+\\(?\\s*+)?\\{");
+    private static final String JAVA_SOURCE_CHANGE = "(?:java|getJava\\s*\\(\\s*\\))\\s*"
+            + "(?:\\{|[?*]?\\.\\s*(?:srcDirs?|setSrcDirs|source|include|exclude|includes"
+            + "|excludes|setIncludes|setExcludes|filter|getFilter)\\b)";
+    /**
+     * A change to the java directory set of a source set, as in java.exclude '...' or a
+     * java { } block. Its other members, such as output, resources or compileClasspath, do
+     * not change which files are Java sources.
+     */
+    private static final Pattern GRADLE_JAVA_SOURCE_CHANGE =
+            Pattern.compile("\\b" + JAVA_SOURCE_CHANGE);
+    /** The same change as a member of the source set just named, as in .java.exclude. */
+    private static final Pattern GRADLE_JAVA_MEMBER_CHANGE =
+            Pattern.compile("\\s*[?*]?\\.\\s*" + JAVA_SOURCE_CHANGE);
     private static final Pattern GRADLE_PROJECT = Pattern.compile(
             "project\\s*\\(\\s*[\"']:(.*?)[\"']\\s*\\)");
     /** Gradle API calls whose names start with include and that do not add a project. */
@@ -76,16 +129,18 @@ public final class ProjectModelDetector {
      * tool of tests or Javadoc. Only the block's target counts, so a condition such as
      * if (name != 'compileTestJava') { ... } does not hide what it guards. A dotted name is
      * checked whole before it is searched, so that a long header takes linear time, and the
-     * repeated groups are possessive, so that they do not recurse once per repetition.
+     * repeated groups are possessive, so that they do not recurse once per repetition. The
+     * white space next to an optional token is possessive too, so that a long run of it is not
+     * retried at every split between the quantifiers that could take it.
      */
     private static final Pattern GRADLE_OTHER_TARGET = Pattern.compile(
             "(?=\\w++(?:\\s*+\\.\\s*+\\w++)*+$).*?\\b(?:eclipse|idea|jdt|" + OTHER_COMPILE_TASK
                     + ")\\b.*"
-                    + "|(?:[\\w.]*\\.)?(?:named|getByName)\\s*(?:<[\\w.]+>)?\\s*\\(\\s*"
+                    + "|(?:[\\w.]*\\.)?(?:named|getByName)\\s*+(?:<[\\w.]+>)?\\s*+\\(\\s*"
                     + OTHER_COMPILE_TASK_NAME + "(?:\\s*,\\s*[\\w.:]+)?\\s*\\)(?:\\s*\\.\\s*\\w+)*+"
-                    + "|configure\\s*\\(\\s*\\[?\\s*(?:tasks\\s*\\.\\s*)?" + OTHER_COMPILE_TASK
+                    + "|configure\\s*\\(\\s*+\\[?\\s*+(?:tasks\\s*\\.\\s*)?" + OTHER_COMPILE_TASK
                     + "(?:\\s*,\\s*(?:tasks\\s*\\.\\s*)?" + OTHER_COMPILE_TASK
-                    + ")*+\\s*,?\\s*\\]?\\s*\\)"
+                    + ")*+\\s*+,?\\s*+\\]?\\s*+\\)"
                     + "|" + OTHER_COMPILE_TASK_CONDITION
                     + "|(?:val\\s+\\w+\\s+by\\s+)?(?:[\\w.]*\\.)?"
                     + "(?:register|create|registering|creating)\\b[^{};]*"
@@ -395,16 +450,17 @@ public final class ProjectModelDetector {
             String content,
             List<ProjectDiagnostic> diagnostics,
             String javaVersion) {
-        if (content.contains("sourceSets") && !containsSimpleSourceDirectory(content)) {
+        String activeBuild = withoutComments(content);
+        if (configuresJavaSourceSets(activeBuild) && !containsSimpleSourceDirectory(activeBuild)) {
             diagnostics.add(new ProjectDiagnostic(
                     "BUILD_MODEL_PARTIAL",
                     "Dynamic Gradle source-set configuration in " + path));
         }
         List<Path> mainRoots = gradleSourceRoots(
-                        content, "main", projectRoot, path, diagnostics)
+                        activeBuild, "main", projectRoot, path, diagnostics)
                 .orElse(List.of(path.resolve("src/main/java")));
         List<Path> testRoots = gradleSourceRoots(
-                        content, "test", projectRoot, path, diagnostics)
+                        activeBuild, "test", projectRoot, path, diagnostics)
                 .orElse(List.of(path.resolve("src/test/java"), path.resolve("src/testFixtures/java")));
         return module(path, name, dependencies, mainRoots, testRoots, javaVersion);
     }
@@ -1435,6 +1491,123 @@ public final class ProjectModelDetector {
 
     private static String valueOrDefault(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    /**
+     * Whether a build script without comments changes which Java files belong to a source
+     * set: through the java directory set of one, by adding or removing source sets, or by
+     * configuring one other than main and test, whose sources jsrc does not look for. Reading a
+     * source set, as in sourceSets.main.runtimeClasspath, or changing something else about
+     * main or test, such as its output or compileClasspath, does not count.
+     */
+    private static boolean configuresJavaSourceSets(String script) {
+        Matcher use = GRADLE_SOURCE_SETS.matcher(script);
+        int from = 0;
+        while (from < script.length() && use.find(from)) {
+            int index = use.end();
+            while (index < script.length() && Character.isWhitespace(script.charAt(index))) {
+                index++;
+            }
+            if (index < script.length() && script.charAt(index) == '{') {
+                int closing = closingEnd(script, index, '{', '}');
+                int bodyEnd = closing < 0 ? script.length() : closing - 1;
+                if (sourceSetBlockConfiguresJava(script.substring(index + 1, bodyEnd))) {
+                    return true;
+                }
+                from = closing < 0 ? script.length() : closing;
+                continue;
+            }
+            int end = statementEnd(script, index, script.length());
+            if (sourceSetUseConfiguresJava(script.substring(index, end))) {
+                return true;
+            }
+            from = Math.max(end, use.end());
+        }
+        return false;
+    }
+
+    /** Whether one use of the container, from just after its name, configures Java sources. */
+    private static boolean sourceSetUseConfiguresJava(String use) {
+        if (use.startsWith("*")) {
+            // A spread, as in sourceSets*.java.exclude '...', reaches every source set.
+            return GRADLE_JAVA_SOURCE_CHANGE.matcher(use).find();
+        }
+        Matcher access = GRADLE_SOURCE_SET_ACCESS.matcher(use);
+        if (!access.lookingAt()) {
+            return false;
+        }
+        return access.group(1) != null
+                ? sourceSetConfiguresJava(use, access.end(), access.group(1), true, false)
+                : sourceSetConfiguresJava(use, access.end(), access.group(2), false, false);
+    }
+
+    /** Whether the body of a sourceSets { } block configures Java sources, entry by entry. */
+    private static boolean sourceSetBlockConfiguresJava(String body) {
+        int start = 0;
+        while (start < body.length()) {
+            char character = body.charAt(start);
+            if (Character.isWhitespace(character) || ";)]}".indexOf(character) >= 0) {
+                start++;
+                continue;
+            }
+            int end = statementEnd(body, start, body.length());
+            String entry = body.substring(start, end);
+            Matcher name = GRADLE_SOURCE_SET_ENTRY.matcher(entry);
+            if (GRADLE_DELEGATED_SOURCE_SET.matcher(entry).find()) {
+                return true;
+            }
+            if (name.lookingAt()) {
+                boolean configures = name.group(1) == null
+                        ? sourceSetConfiguresJava(entry, name.end(), name.group(2), false, true)
+                        : GRADLE_STATEMENT_KEYWORD.matcher(name.group(1)).matches()
+                                ? GRADLE_JAVA_SOURCE_CHANGE.matcher(entry).find()
+                                : sourceSetConfiguresJava(
+                                        entry, name.end(), name.group(1), true, true);
+                if (configures) {
+                    return true;
+                }
+            }
+            start = Math.max(end, start + 1);
+        }
+        return false;
+    }
+
+    /**
+     * Whether {@code text}, from {@code index} on, configures the Java sources of the source
+     * set {@code name}, or of those a container call named {@code name} reaches when
+     * {@code call} allows one. A closure for main or test counts only when it changes their
+     * java directory set; a closure for any other source set counts, and so does its bare
+     * name in a sourceSets block ({@code inBlock}), which creates it.
+     */
+    private static boolean sourceSetConfiguresJava(
+            String text, int index, String name, boolean call, boolean inBlock) {
+        if (call && GRADLE_SOURCE_SET_CHANGE.matcher(name).matches()) {
+            return true;
+        }
+        if (call && GRADLE_EVERY_SOURCE_SET.matcher(name).matches()) {
+            return GRADLE_JAVA_SOURCE_CHANGE.matcher(text).region(index, text.length()).find();
+        }
+        if (call && GRADLE_SOURCE_SET_LOOKUP.matcher(name).matches()) {
+            Matcher argument = GRADLE_SOURCE_SET_ARGUMENT.matcher(text)
+                    .region(index, text.length());
+            if (!argument.lookingAt()) {
+                return GRADLE_JAVA_SOURCE_CHANGE.matcher(text).region(index, text.length())
+                        .find();
+            }
+            name = argument.group(1);
+            index = argument.end();
+        }
+        Matcher get = GRADLE_PROVIDER_GET.matcher(text).region(index, text.length());
+        if (get.lookingAt()) {
+            index = get.end();
+        }
+        if (GRADLE_SOURCE_SET_CLOSURE.matcher(text).region(index, text.length()).lookingAt()
+                || inBlock && text.substring(index).isBlank()) {
+            return !CONVENTIONAL_SOURCE_SETS.contains(name)
+                    || GRADLE_JAVA_SOURCE_CHANGE.matcher(text).region(index, text.length())
+                            .find();
+        }
+        return GRADLE_JAVA_MEMBER_CHANGE.matcher(text).region(index, text.length()).lookingAt();
     }
 
     private static boolean containsSimpleSourceDirectory(String buildFile) {

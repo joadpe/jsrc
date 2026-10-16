@@ -1105,6 +1105,215 @@ class ProjectModelDetectorTest {
     }
 
     @Test
+    void doesNotReportGradleBuildThatOnlyReadsSourceSets() throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                plugins { id 'java' }
+                java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+                tasks.register('runApp', JavaExec) {
+                    classpath = sourceSets.main.runtimeClasspath
+                    mainClass = 'com.example.App'
+                }
+                tasks.register('fatJar', Jar) {
+                    from sourceSets.main.output
+                }
+                tasks.register('integrationTest', Test) {
+                    testClassesDirs = sourceSets.test.output.classesDirs
+                    classpath = sourceSets.test.runtimeClasspath
+                }
+                javadoc {
+                    source = sourceSets.main.allJava
+                    classpath = sourceSets.main.compileClasspath
+                }
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(List.of(), model.diagnostics());
+        assertEquals(
+                List.of(projectRoot.resolve("src/main/java")),
+                model.modules().getFirst().mainSourceRoots());
+    }
+
+    @Test
+    void doesNotReportKotlinGradleBuildThatOnlyReadsSourceSets() throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle.kts"), """
+                plugins { java }
+                tasks.register<Jar>("fatJar") {
+                    from(sourceSets["main"].output)
+                }
+                tasks.register<JavaExec>("runApp") {
+                    classpath = sourceSets.main.get().runtimeClasspath
+                }
+                tasks.register<Test>("integrationTest") {
+                    testClassesDirs = sourceSets.getByName("test").output.classesDirs
+                    classpath = sourceSets.named("test").get().runtimeClasspath
+                }
+                tasks.register<Jar>("sourcesJar") {
+                    from(sourceSets.main.map { it.allSource })
+                }
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(List.of(), model.diagnostics());
+    }
+
+    @Test
+    void doesNotReportGradleSourceSetChangesThatLeaveJavaSourcesAlone() throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                plugins { id 'java' }
+                sourceSets.test.compileClasspath += configurations.compileOnly
+                sourceSets.main.output.resourcesDir = file("$buildDir/classes/java/main")
+                sourceSets.main.resources.exclude '**/*.bak'
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(List.of(), model.diagnostics());
+    }
+
+    @Test
+    void reportsDynamicSourceSetsOnlyForTheGradleModuleThatConfiguresThem() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'app', 'lib'");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                subprojects {
+                    apply plugin: 'java'
+                    tasks.register('runApp', JavaExec) {
+                        classpath = sourceSets.main.runtimeClasspath
+                    }
+                }
+                """);
+        writeBuildFile("app/build.gradle", "jar { from sourceSets.main.allSource }\n");
+        writeBuildFile("lib/build.gradle", """
+                sourceSets {
+                    main {
+                        java { exclude '**/Legacy*.java' }
+                    }
+                }
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(List.of(dynamicSourceSets("lib")), model.diagnostics());
+    }
+
+    @Test
+    void reportsGradleSourceSetConfigurationWithoutSourceDirectories() throws Exception {
+        writeBuildFile("block/build.gradle", """
+                sourceSets {
+                    main { java { exclude '**/Legacy*.java' } }
+                }
+                """);
+        writeBuildFile("member/build.gradle", "sourceSets.main.java.exclude 'legacy/**'\n");
+        writeBuildFile("created/build.gradle", "sourceSets.create('integrationTest')\n");
+        writeBuildFile("all/build.gradle", "sourceSets.all { java.exclude 'legacy/**' }\n");
+        writeBuildFile("closure/build.gradle.kts", """
+                sourceSets.main { java.setSrcDirs(listOf("src")) }
+                """);
+        writeBuildFile("indexed/build.gradle.kts", """
+                sourceSets["main"].java.exclude("legacy/**")
+                """);
+        writeBuildFile("named/build.gradle.kts", """
+                sourceSets.named("main") { java.exclude("legacy/**") }
+                """);
+        writeBuildFile("delegated/build.gradle.kts", """
+                val integrationTest by sourceSets.creating
+                """);
+        List<String> modules = List.of(
+                "block", "member", "created", "all", "closure", "indexed", "named", "delegated");
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include "
+                + String.join(", ", modules.stream().map(module -> "'" + module + "'").toList()));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(
+                modules.stream().map(this::dynamicSourceSets).toList(), model.diagnostics());
+    }
+
+    @Test
+    void reportsGradleSourceSetBlocksOnlyWhenTheyChangeJavaSources() throws Exception {
+        writeBuildFile("output/build.gradle", """
+                sourceSets {
+                    main {
+                        output.dir(generatedResources, builtBy: 'generateResources')
+                    }
+                    test {
+                        compileClasspath += configurations.compileOnly
+                    }
+                }
+                """);
+        writeBuildFile("bare/build.gradle", """
+                sourceSets {
+                    test
+                }
+                """);
+        writeBuildFile("excluded/build.gradle", """
+                sourceSets {
+                    test { java { exclude '**/Slow*.java' } }
+                }
+                """);
+        writeBuildFile("extra/build.gradle", """
+                sourceSets {
+                    main { output.dir(generatedResources) }
+                    intTest {
+                        compileClasspath += sourceSets.main.output
+                    }
+                }
+                """);
+        writeBuildFile("declared/build.gradle", "sourceSets { integrationTest }\n");
+        writeBuildFile("named/build.gradle.kts", """
+                sourceSets.named("intTest") { compileClasspath += sourceSets.main.get().output }
+                """);
+        writeBuildFile("spread/build.gradle", "sourceSets*.java*.exclude 'legacy/**'\n");
+        List<String> modules = List.of(
+                "output", "bare", "excluded", "extra", "declared", "named", "spread");
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include "
+                + String.join(", ", modules.stream().map(module -> "'" + module + "'").toList()));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(
+                List.of("excluded", "extra", "declared", "named", "spread").stream()
+                        .map(this::dynamicSourceSets).toList(),
+                model.diagnostics());
+    }
+
+    @Test
+    void ignoresGradleSourceSetsAndSourceDirectoriesInComments() throws Exception {
+        Files.writeString(
+                projectRoot.resolve("settings.gradle"), "include 'commented', 'configured'");
+        writeBuildFile("commented/build.gradle", """
+                // sourceSets { main { java { exclude 'legacy/**' } } }
+                /*
+                sourceSets.main.java.exclude 'legacy'
+                */
+                """);
+        writeBuildFile("configured/build.gradle", """
+                sourceSets {
+                    main {
+                        java { exclude 'legacy/' } // was srcDirs = ['src/old/java']
+                    }
+                }
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(List.of(dynamicSourceSets("configured")), model.diagnostics());
+    }
+
+    private ProjectDiagnostic dynamicSourceSets(String module) {
+        return new ProjectDiagnostic(
+                "BUILD_MODEL_PARTIAL",
+                "Dynamic Gradle source-set configuration in " + projectRoot.resolve(module));
+    }
+
+    private void writeBuildFile(String path, String content) throws Exception {
+        Path file = projectRoot.resolve(path);
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, content);
+    }
+
+    @Test
     void rejectsMavenModulesAndSourceRootsOutsideProjectRoot() throws Exception {
         Path outside = Files.createDirectories(projectRoot.getParent().resolve("outside"));
         Files.writeString(outside.resolve("pom.xml"), """
@@ -1730,5 +1939,96 @@ class ProjectModelDetectorTest {
                 """);
         assertEquals("11", new ProjectModelDetector().detect(projectRoot)
                 .module("b").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void readsTaskListHeaderWithLongWhitespaceRunInBoundedTime() throws Exception {
+        assertGradleLevelInBoundedTime("11",
+                "configure([compileTestJava" + " ".repeat(5_000) + ", compileJava]) {\n"
+                        + "    options.release = 11\n"
+                        + "}\n");
+    }
+
+    @Test
+    void readsConfigureHeaderWithLongWhitespaceRunInBoundedTime() throws Exception {
+        assertGradleLevelInBoundedTime("11",
+                "configure(" + " ".repeat(150_000) + "[compileJava]) {\n"
+                        + "    options.release = 11\n"
+                        + "}\n");
+    }
+
+    @Test
+    void readsNamedTaskHeaderWithLongWhitespaceRunInBoundedTime() throws Exception {
+        assertGradleLevelInBoundedTime("11",
+                "tasks.named" + " ".repeat(150_000) + "(\"compileJava\") {\n"
+                        + "    options.release = 11\n"
+                        + "}\n");
+    }
+
+    @Test
+    void readsSourceSetLookupWithLongWhitespaceRunInBoundedTime() throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle"),
+                "sourceSets.named" + " ".repeat(150_000)
+                        + "(sourceSetName) { java.exclude('legacy/**') }\n");
+
+        ProjectModel model = detectInBoundedTime();
+
+        assertEquals("BUILD_MODEL_PARTIAL", model.diagnostics().getFirst().code());
+    }
+
+    @Test
+    void readsSourceSetClosureWithLongWhitespaceRunInBoundedTime() throws Exception {
+        assertGradleLevelInBoundedTime("11",
+                "sourceCompatibility = 11\n"
+                        + "sourceSets.main.configure" + " ".repeat(150_000) + "(closure)\n");
+    }
+
+    private void assertGradleLevelInBoundedTime(String expected, String build) throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle"), "plugins { id 'java' }\n" + build);
+        assertEquals(expected, detectInBoundedTime().javaVersion());
+    }
+
+    private ProjectModel detectInBoundedTime() {
+        return org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                java.time.Duration.ofSeconds(20),
+                () -> new ProjectModelDetector().detect(projectRoot));
+    }
+
+    @Test
+    void readsGradleSourceRootsFromCodeAndNotFromComments() throws Exception {
+        Files.writeString(
+                projectRoot.resolve("settings.gradle"), "include 'commented', 'declared'");
+        writeBuildFile("commented/build.gradle", """
+                // sourceSets.main.java.srcDirs = ['generated/java']
+                /* sourceSets.test.java.srcDirs = ['generated/test'] */
+                plugins { id 'java' }
+                """);
+        writeBuildFile("declared/build.gradle", """
+                // sourceSets.main.java.srcDirs = ['old/java']
+                /* sourceSets.test.java.srcDirs = ['old/test'] */
+                sourceSets {
+                    main.java.srcDirs = ['src/core/java']
+                    test.java.srcDirs = ['src/spec/java']
+                }
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        ProjectModule commented = model.module("commented").orElseThrow();
+        assertEquals(
+                List.of(projectRoot.resolve("commented/src/main/java")),
+                commented.mainSourceRoots());
+        assertEquals(
+                List.of(projectRoot.resolve("commented/src/test/java"),
+                        projectRoot.resolve("commented/src/testFixtures/java")),
+                commented.testSourceRoots());
+        ProjectModule declared = model.module("declared").orElseThrow();
+        assertEquals(
+                List.of(projectRoot.resolve("declared/src/core/java")),
+                declared.mainSourceRoots());
+        assertEquals(
+                List.of(projectRoot.resolve("declared/src/spec/java")),
+                declared.testSourceRoots());
+        assertEquals(List.of(), model.diagnostics());
     }
 }

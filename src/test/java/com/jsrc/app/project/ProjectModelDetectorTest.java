@@ -277,6 +277,416 @@ class ProjectModelDetectorTest {
     }
 
     @Test
+    void appliesGradleProjectBlocksToTheirModuleInsteadOfTheRoot() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing', 'reports'");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                subprojects { apply plugin: 'java' }
+                project(':billing') { sourceCompatibility = JavaVersion.VERSION_11 }
+                """);
+        writeGradleModule("billing", "");
+        writeGradleModule("reports", "");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("unknown", model.javaVersion());
+        assertEquals("11", model.module("billing").orElseThrow().javaVersion());
+        assertEquals("unknown", model.module("reports").orElseThrow().javaVersion());
+
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                subprojects { apply plugin: 'java'; sourceCompatibility = JavaVersion.VERSION_1_8 }
+                project(':billing') { sourceCompatibility = JavaVersion.VERSION_11 }
+                """);
+        model = new ProjectModelDetector().detect(projectRoot);
+
+        // Like a module's own build file, a project block that disagrees with subprojects is
+        // not settled by evaluation order.
+        assertEquals("unknown", model.javaVersion());
+        assertEquals("unknown", model.module("billing").orElseThrow().javaVersion());
+        assertEquals("8", model.module("reports").orElseThrow().javaVersion());
+
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                subprojects { apply plugin: 'java' }
+                project(':billing') { sourceCompatibility = JavaVersion.VERSION_11 }
+                project(':billing') { dependencies { implementation project(':reports') } }
+                """);
+        assertEquals("11", new ProjectModelDetector().detect(projectRoot)
+                .module("billing").orElseThrow().javaVersion());
+
+        // The subprojects block runs after the project block and sets a level that cannot
+        // be read.
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                project(':billing') { sourceCompatibility = JavaVersion.VERSION_11 }
+                subprojects { apply plugin: 'java'; sourceCompatibility = javaLevel }
+                """);
+        assertEquals("unknown", new ProjectModelDetector().detect(projectRoot)
+                .module("billing").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void appliesGradleConfigureBlocksOnlyToTheProjectsTheyName() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing', 'reports'");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                configure([project(':billing'), project(':reports')]) {
+                    apply plugin: 'java'
+                    sourceCompatibility = JavaVersion.VERSION_11
+                }
+                """);
+        writeGradleModule("billing", "");
+        writeGradleModule("reports", "");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("unknown", model.javaVersion());
+        assertEquals("11", model.module("billing").orElseThrow().javaVersion());
+        assertEquals("11", model.module("reports").orElseThrow().javaVersion());
+
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                subprojects { apply plugin: 'java'; sourceCompatibility = JavaVersion.VERSION_1_8 }
+                configure(subprojects.findAll { it.name == 'billing' }) {
+                    sourceCompatibility = JavaVersion.VERSION_11
+                }
+                """);
+        model = new ProjectModelDetector().detect(projectRoot);
+
+        // findAll may select any subproject, so each of them may compile at 8 or at 11.
+        assertEquals("unknown", model.javaVersion());
+        assertEquals("unknown", model.module("billing").orElseThrow().javaVersion());
+        assertEquals("unknown", model.module("reports").orElseThrow().javaVersion());
+
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                subprojects { apply plugin: 'java'; sourceCompatibility = JavaVersion.VERSION_1_8 }
+                configure(subprojects.findAll { it.name != 'docs' }) {
+                    targetCompatibility = sourceCompatibility
+                }
+                """);
+        model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+        assertEquals("8", model.module("reports").orElseThrow().javaVersion());
+
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                configure(rootProject) { sourceCompatibility = JavaVersion.VERSION_11 }
+                subprojects { apply plugin: 'java'; sourceCompatibility = JavaVersion.VERSION_1_8 }
+                """);
+        model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("11", model.javaVersion());
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+
+        // Selectors that may hold the root project make its level unknown too.
+        assertEquals("unknown", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                configure(subprojects.findAll { it.name != 'docs' } + rootProject) {
+                    sourceCompatibility = JavaVersion.VERSION_11
+                }
+                """));
+        assertEquals("unknown", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                configure(javaProjects) { sourceCompatibility = JavaVersion.VERSION_11 }
+                """));
+
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                subprojects { apply plugin: 'java' }
+                configure([project(':billing'), project(':reports'),]) {
+                    sourceCompatibility = JavaVersion.VERSION_11
+                }
+                """);
+        model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("11", model.module("billing").orElseThrow().javaVersion());
+        assertEquals("11", model.module("reports").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void ignoresGradleLevelsForIdeMetadataAndTestCompilation() throws Exception {
+        assertEquals("11", gradleLevel("""
+                plugins { id 'java'; id 'eclipse' }
+                eclipse { jdt { sourceCompatibility = JavaVersion.VERSION_1_8 } }
+                compileTestJava { options.release = 17 }
+                tasks.named('compileTestJava') {
+                    javaCompiler = javaToolchains.compilerFor {
+                        languageVersion = JavaLanguageVersion.of(21)
+                    }
+                }
+                java { sourceCompatibility = JavaVersion.VERSION_11 }
+                """));
+        assertEquals("11", gradleLevel("""
+                eclipse.jdt.sourceCompatibility = JavaVersion.VERSION_1_8
+                compileTestJava.sourceCompatibility = JavaVersion.VERSION_17
+                sourceCompatibility = JavaVersion.VERSION_11
+                """));
+        assertEquals("11", gradleLevel("""
+                java { toolchain { languageVersion = JavaLanguageVersion.of(11) } }
+                tasks.withType(Test).configureEach {
+                    javaLauncher = javaToolchains.launcherFor {
+                        languageVersion = JavaLanguageVersion.of(21)
+                    }
+                }
+                tasks.withType(Javadoc).configureEach {
+                    javadocTool = javaToolchains.javadocToolFor {
+                        languageVersion = JavaLanguageVersion.of(17)
+                    }
+                }
+                """));
+        assertEquals("17", gradleLevel("""
+                java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }
+                tasks.withType<KotlinCompile> { kotlinOptions { languageVersion = "1.9" } }
+                """));
+
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing'");
+        Files.writeString(projectRoot.resolve("build.gradle"),
+                "subprojects { sourceCompatibility = JavaVersion.VERSION_1_8 }");
+        writeGradleModule("billing",
+                "eclipse { jdt { sourceCompatibility = JavaVersion.VERSION_1_6 } }");
+
+        assertEquals("8", new ProjectModelDetector().detect(projectRoot)
+                .module("billing").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void doesNotHideGradleLevelsWhoseConditionNamesAnotherCompileTask() throws Exception {
+        // A level that depends on the task name cannot be read, but it is not test-only.
+        assertEquals("unknown", gradleLevel("""
+                tasks.withType(JavaCompile).configureEach {
+                    if (name != 'compileTestJava') {
+                        options.release = 8
+                    } else {
+                        options.release = 17
+                    }
+                }
+                """));
+        assertEquals("unknown", gradleLevel("""
+                java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+                tasks.withType(JavaCompile).configureEach {
+                    options.release = name == 'compileTestJava' ? 21 : 8
+                }
+                """));
+        assertEquals("8", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_1_6
+                (tasks.withType(JavaCompile) - compileTestJava).each { it.options.release = 8 }
+                """));
+        assertEquals("8", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_1_6
+                [compileJava, compileTestJava].each { it.options.release = 8 }
+                """));
+        assertEquals("8", gradleLevel("""
+                configure([compileJava, compileTestJava]) {
+                    sourceCompatibility = JavaVersion.VERSION_1_8
+                    targetCompatibility = JavaVersion.VERSION_1_8
+                }
+                """));
+    }
+
+    @Test
+    void ignoresGradleLevelsOfOtherCompileTasksInEveryForm() throws Exception {
+        // The brace of a block may start the line after its header.
+        assertEquals("11", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_11
+                tasks.named('compileTestJava')
+                {
+                    options.release = 17
+                }
+                eclipse
+                {
+                    jdt { sourceCompatibility = JavaVersion.VERSION_1_6 }
+                }
+                """));
+        // A receiver may go through a call, a cast or an index.
+        assertEquals("8", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                tasks.getByName('compileTestJava').options.release = 17
+                """));
+        assertEquals("11", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_11
+                (compileTestJava as JavaCompile).options.release = 17
+                """));
+        assertEquals("11", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_11
+                tasks['compileTestJava'].options.release = 17
+                """));
+        // A condition that holds for that task alone.
+        assertEquals("11", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_11
+                tasks.withType(JavaCompile).configureEach {
+                    if (name == 'compileTestJava') {
+                        options.release = 17
+                    }
+                    if (it.name == 'compileTestJava') options.release = 17
+                    if (name.equals('compileTestJava')) {
+                        options.release = 17
+                    }
+                    if ('compileTestJava' == it.name) {
+                        options.release = 17
+                    }
+                }
+                """));
+        assertEquals("8", gradleLevel("""
+                tasks.withType(JavaCompile) {
+                    if (name == 'compileTestJava') {
+                        options.release = 17
+                    } else {
+                        options.release = 8
+                    }
+                }
+                """));
+        assertEquals("11", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_11
+                configure([compileTestJava]) { options.release = 17 }
+                """));
+        // Tasks that the build registers, and the compile task of another source set.
+        assertEquals("8", gradleLevel("""
+                compileJava { options.release = 8 }
+                compileJava9Java { options.release = 9 }
+                task compileModuleInfo(type: JavaCompile) {
+                    options.release = 9
+                }
+                """));
+    }
+
+    @Test
+    void ignoresKotlinGradleLevelsOfOtherCompileTasksAndOfKotlin() throws Exception {
+        assertEquals("11", kotlinGradleLevel("""
+                plugins { java }
+                java { sourceCompatibility = JavaVersion.VERSION_11 }
+                tasks.named<JavaCompile>("compileTestJava").get().options.release.set(17)
+                """));
+        assertEquals("8", kotlinGradleLevel("""
+                plugins { java }
+                tasks.compileJava { options.release.set(8) }
+                val compileModuleInfo by tasks.registering(JavaCompile::class) {
+                    options.release.set(9)
+                }
+                """));
+        assertEquals("8", kotlinGradleLevel("""
+                plugins { java }
+                tasks.withType<JavaCompile>().configureEach {
+                    when (name) {
+                        "compileTestJava" -> { options.release.set(17) }
+                        else -> { options.release.set(8) }
+                    }
+                }
+                """));
+        assertEquals("8", kotlinGradleLevel("""
+                plugins { java }
+                tasks.withType<JavaCompile>().configureEach {
+                    when (name) {
+                        "compileTestJava" -> options.release.set(17)
+                        else -> options.release.set(8)
+                    }
+                }
+                """));
+        assertEquals("17", kotlinGradleLevel("""
+                plugins { java; kotlin("jvm") }
+                java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }
+                kotlin { compilerOptions { languageVersion.set(KotlinVersion.KOTLIN_1_9) } }
+                tasks.compileTestKotlin {
+                    compilerOptions { languageVersion.set(KotlinVersion.KOTLIN_2_0) }
+                }
+                """));
+    }
+
+    @Test
+    void readsGradleLevelsWrittenOverSeveralLines() throws Exception {
+        assertEquals("11", gradleLevel("""
+                sourceCompatibility =
+                        JavaVersion.VERSION_11
+                """));
+        assertEquals("17", gradleLevel("""
+                java {
+                    toolchain {
+                        languageVersion.set(
+                                JavaLanguageVersion.of(17)
+                        )
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void readsLargeGradleBuildsInLinearTime() throws Exception {
+        StringBuilder settings = new StringBuilder();
+        StringBuilder build = new StringBuilder("// header\n".repeat(20_000))
+                .append(" ".repeat(100_000)).append('\n');
+        for (int index = 0; index < 5_000; index++) {
+            settings.append("include 'm").append(index).append("'\n");
+            build.append("\n".repeat(20))
+                    .append("project(':m").append(index)
+                    .append("') { sourceCompatibility = JavaVersion.VERSION_11 }\n")
+                    .append("configure(subprojects.findAll { it.name == 'm").append(index)
+                    .append("' }) { apply plugin: 'java' }\n");
+        }
+        build.append("subprojects { ")
+                .append("sourceCompatibility = JavaVersion.VERSION_11 ".repeat(20_000))
+                .append("}\n");
+        Files.writeString(projectRoot.resolve("settings.gradle"), settings);
+        Files.writeString(projectRoot.resolve("build.gradle"), build);
+
+        ProjectModel model = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                java.time.Duration.ofSeconds(10),
+                () -> new ProjectModelDetector().detect(projectRoot));
+
+        assertEquals("11", model.module("m4999").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void readsGradleToolchainSetThroughPropertyMethods() throws Exception {
+        assertEquals("17", gradleLevel("""
+                java { toolchain { languageVersion.value(JavaLanguageVersion.of(17)) } }
+                """));
+        assertEquals("17", gradleLevel("""
+                java { toolchain { languageVersion.convention(JavaLanguageVersion.of(17)) } }
+                """));
+    }
+
+    @Test
+    void gradleScopeWhoseDeclarationsDisagreeIsUnknown() throws Exception {
+        assertEquals("unknown", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                sourceCompatibility = 11
+                """));
+        assertEquals("unknown", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                java { sourceCompatibility = JavaVersion.toVersion(findProperty('javaLevel')) }
+                """));
+        assertEquals("unknown", gradleLevel("""
+                java {
+                    toolchain {
+                        languageVersion = legacy ? JavaLanguageVersion.of(8) : JavaLanguageVersion.of(17)
+                    }
+                }
+                """));
+        assertEquals("8", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                compileJava { sourceCompatibility = JavaVersion.VERSION_1_8 }
+                targetCompatibility = sourceCompatibility
+                """));
+        // Groovy sets a property through a method of the same name, too.
+        assertEquals("unknown", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                sourceCompatibility(JavaVersion.VERSION_11)
+                """));
+        assertEquals("unknown", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                sourceCompatibility JavaVersion.VERSION_11
+                """));
+
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'child'");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                subprojects {
+                    if (name.startsWith('legacy')) {
+                        sourceCompatibility = JavaVersion.VERSION_1_6
+                    } else {
+                        sourceCompatibility = JavaVersion.VERSION_1_8
+                    }
+                }
+                """);
+        writeGradleModule("child", "");
+
+        assertEquals("unknown", new ProjectModelDetector().detect(projectRoot)
+                .module("child").orElseThrow().javaVersion());
+    }
+
+    @Test
     void dynamicGradleReleaseDoesNotFallBackToStaticSource() throws Exception {
         Files.writeString(projectRoot.resolve("build.gradle.kts"), """
                 sourceCompatibility = JavaVersion.VERSION_17
@@ -862,6 +1272,16 @@ class ProjectModelDetectorTest {
                 """ + body + "</project>");
     }
 
+    private String gradleLevel(String rootBuild) throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle"), rootBuild);
+        return new ProjectModelDetector().detect(projectRoot).javaVersion();
+    }
+
+    private String kotlinGradleLevel(String rootBuild) throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle.kts"), rootBuild);
+        return new ProjectModelDetector().detect(projectRoot).javaVersion();
+    }
+
     private void writeGradleModule(String module, String body) throws Exception {
         Path directory = Files.createDirectories(projectRoot.resolve(module));
         Files.writeString(directory.resolve("build.gradle.kts"), "plugins { java }\n" + body);
@@ -872,5 +1292,216 @@ class ProjectModelDetectorTest {
                 "plugins { id 'java' }\n" + declaration + "\n");
         assertEquals(expected, new ProjectModelDetector().detect(projectRoot).javaVersion(),
                 declaration);
+    }
+
+    @Test
+    void braceInAGradleStringDoesNotEndTheBlockAroundIt() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing'");
+        Files.createDirectories(projectRoot.resolve("billing"));
+        // A closing brace in a string of any form, before the level or right before the closing
+        // brace of the block, does not end the project block.
+        for (String declaration : List.of(
+                "ext.pattern = '}'",
+                "ext.pattern = \"}\"",
+                "ext.pattern = 'it\\'s }'",
+                "ext.pattern = \"${'}'}\"",
+                "ext.pattern = '''it's }'''",
+                "ext.pattern = \"\"\"say \"}\" \"\"\"")) {
+            Files.writeString(projectRoot.resolve("build.gradle"), """
+                    subprojects { apply plugin: 'java' }
+                    project(':billing') {
+                        %s
+                        sourceCompatibility = JavaVersion.VERSION_11
+                        %s}
+                    apply plugin: 'java'
+                    sourceCompatibility = JavaVersion.VERSION_1_8
+                    """.formatted(declaration, declaration));
+
+            ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+            assertEquals("8", model.javaVersion(), declaration);
+            assertEquals("11", model.module("billing").orElseThrow().javaVersion(), declaration);
+        }
+
+        // An opening brace in a string does not keep the shared block open.
+        for (String declaration : List.of(
+                "description = '{'", "description = \"{\"", "description = '''{'''")) {
+            Files.writeString(projectRoot.resolve("build.gradle"), """
+                    subprojects {
+                        apply plugin: 'java'
+                        %s
+                        sourceCompatibility = JavaVersion.VERSION_1_8
+                    }
+                    """.formatted(declaration));
+
+            ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+            assertEquals("unknown", model.javaVersion(), declaration);
+            assertEquals("8", model.module("billing").orElseThrow().javaVersion(), declaration);
+        }
+
+        // Nor does a parenthesis in a string end the selector of a configure(...) call, whose
+        // block then configures some subprojects, not the root.
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                configure(subprojects.findAll { it.name == 'a)' }) {
+                    sourceCompatibility = JavaVersion.VERSION_11
+                }
+                """);
+
+        assertEquals("unknown", new ProjectModelDetector().detect(projectRoot).javaVersion());
+    }
+
+    @Test
+    void readsRepeatedGradleProjectBlocksInLinearTime() throws Exception {
+        // Joining the bodies of one project block after block copied them all each time, which
+        // took more than a minute for this build.
+        assertGradleProjectBlocksReadInLinearTime(":x");
+    }
+
+    @Test
+    void readsGradleProjectBlocksThatShareADirectoryInLinearTime() throws Exception {
+        // Each path is different but all of them resolve to the directory of x.
+        assertGradleProjectBlocksReadInLinearTime(":p%d:..:x");
+    }
+
+    private void assertGradleProjectBlocksReadInLinearTime(String pathFormat) throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'x'");
+        Files.createDirectories(projectRoot.resolve("x"));
+        StringBuilder build = new StringBuilder("apply plugin: 'java'\n");
+        for (int index = 0; index < 200_000; index++) {
+            build.append("project('").append(pathFormat.formatted(index))
+                    .append("') { sourceCompatibility = JavaVersion.VERSION_11 }\n");
+        }
+        Files.writeString(projectRoot.resolve("build.gradle"), build);
+
+        ProjectModel model = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                java.time.Duration.ofSeconds(30),
+                () -> new ProjectModelDetector().detect(projectRoot));
+
+        assertEquals("11", model.module("x").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void doesNotKeepModuleLevelThatAStrongerKindInTheRootBuildOverrides() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'b'");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                subprojects {
+                    apply plugin: 'java'
+                    compileJava.options.release = 8
+                }
+                allprojects {
+                    apply plugin: 'java'
+                    java.sourceCompatibility = JavaVersion.VERSION_21
+                }
+                """);
+        writeGradleModule("b", "java { sourceCompatibility = JavaVersion.VERSION_17 }");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        // Gradle compiles b with release 8, which wins over every source level, and the root
+        // blocks do not agree on one level for b to be read from.
+        assertEquals("21", model.javaVersion());
+        assertEquals("unknown", model.module("b").orElseThrow().javaVersion());
+
+        // The same holds when allprojects sets the release and subprojects the source level.
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                allprojects {
+                    apply plugin: 'java'
+                    compileJava.options.release = 8
+                }
+                subprojects { java.sourceCompatibility = JavaVersion.VERSION_11 }
+                """);
+        assertEquals("unknown", new ProjectModelDetector().detect(projectRoot)
+                .module("b").orElseThrow().javaVersion());
+
+        // A project block counts like the shared ones.
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                allprojects {
+                    apply plugin: 'java'
+                    java.sourceCompatibility = JavaVersion.VERSION_21
+                }
+                subprojects { java.sourceCompatibility = JavaVersion.VERSION_11 }
+                project(':b') { compileJava.options.release = 8 }
+                """);
+        assertEquals("unknown", new ProjectModelDetector().detect(projectRoot)
+                .module("b").orElseThrow().javaVersion());
+
+        // A source level wins over a toolchain.
+        writeGradleModule("b",
+                "java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                allprojects {
+                    apply plugin: 'java'
+                    java.sourceCompatibility = JavaVersion.VERSION_21
+                }
+                subprojects { java.sourceCompatibility = JavaVersion.VERSION_11 }
+                """);
+        assertEquals("unknown", new ProjectModelDetector().detect(projectRoot)
+                .module("b").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void keepsModuleLevelWhenRootBlocksDisagreeOnTheSameKindOrAWeakerOne() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'b'");
+        writeGradleModule("b", "java { sourceCompatibility = JavaVersion.VERSION_17 }");
+
+        // The module's build file runs after the root blocks, so its level stands when they
+        // disagree on the same kind of declaration,
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                allprojects {
+                    apply plugin: 'java'
+                    java.sourceCompatibility = JavaVersion.VERSION_21
+                }
+                subprojects { java.sourceCompatibility = JavaVersion.VERSION_11 }
+                """);
+        assertEquals("17", new ProjectModelDetector().detect(projectRoot)
+                .module("b").orElseThrow().javaVersion());
+
+        // when one of them cannot be read,
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                allprojects {
+                    apply plugin: 'java'
+                    java.sourceCompatibility = JavaVersion.VERSION_21
+                }
+                subprojects {
+                    java.sourceCompatibility = JavaVersion.toVersion(findProperty('level') ?: 11)
+                }
+                """);
+        assertEquals("17", new ProjectModelDetector().detect(projectRoot)
+                .module("b").orElseThrow().javaVersion());
+
+        // when the only one cannot be read,
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                allprojects {
+                    apply plugin: 'java'
+                    java.sourceCompatibility = JavaVersion.toVersion(findProperty('level') ?: 21)
+                }
+                """);
+        assertEquals("17", new ProjectModelDetector().detect(projectRoot)
+                .module("b").orElseThrow().javaVersion());
+
+        // or when they only disagree on a weaker kind.
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                allprojects {
+                    apply plugin: 'java'
+                    java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+                }
+                subprojects { java.toolchain.languageVersion = JavaLanguageVersion.of(11) }
+                """);
+        assertEquals("17", new ProjectModelDetector().detect(projectRoot)
+                .module("b").orElseThrow().javaVersion());
+
+        // A stronger kind in the module itself wins over them all.
+        writeGradleModule("b",
+                "tasks.withType<JavaCompile>().configureEach { options.release.set(11) }");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                allprojects {
+                    apply plugin: 'java'
+                    java.sourceCompatibility = JavaVersion.VERSION_21
+                }
+                subprojects { java.sourceCompatibility = JavaVersion.VERSION_1_8 }
+                """);
+        assertEquals("11", new ProjectModelDetector().detect(projectRoot)
+                .module("b").orElseThrow().javaVersion());
     }
 }

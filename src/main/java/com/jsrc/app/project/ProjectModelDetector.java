@@ -33,8 +33,86 @@ public final class ProjectModelDetector {
     private static final Pattern QUOTED_VALUE = Pattern.compile("[\"']([^\"']+)[\"']");
     private static final Pattern GRADLE_PROJECT = Pattern.compile(
             "project\\s*\\(\\s*[\"']:(.*?)[\"']\\s*\\)");
+    /**
+     * A root-build block for one project, or a configure(...) call that may open one. Only
+     * spaces and tabs may come before it on its line: a {@code \s*} after the line start would
+     * also cross blank lines, and retrying it from each of them takes quadratic time.
+     */
+    private static final Pattern GRADLE_TARGETED_BLOCK = Pattern.compile(
+            "(?m)^[^\\S\\r\\n]*(?:(?<project>project\\s*\\(\\s*[\"'][^\"']*[\"']\\s*\\))\\s*\\{"
+                    + "|configure\\s*\\()");
+    private static final Pattern GRADLE_PROJECT_PATH = Pattern.compile(
+            "project\\s*\\(\\s*[\"']:?([^\"']*)[\"']\\s*\\)");
+    /** A configure(...) selector of tasks, not projects, such as [compileJava, compileTestJava]. */
+    private static final Pattern GRADLE_TASK_SELECTOR = Pattern.compile(
+            "(?s)(?!.*\\b(?:subprojects|allprojects|rootProject|projects?|childProjects)\\b)"
+                    + ".*\\b(?:tasks|compile\\w*Java|JavaCompile)\\b");
+    /** A selector that may add the root project to subprojects. */
+    private static final Pattern GRADLE_ROOT_SELECTOR = Pattern.compile(
+            "\\brootProject\\b|\\ballprojects\\b|\\+|\\bplus\\b");
+    /** The compile task of a source set other than main, or of another language. */
+    private static final String OTHER_COMPILE_TASK =
+            "compile(?!Java\\b)\\w*(?:Java|Groovy|Scala|Kotlin)";
+    private static final String OTHER_COMPILE_TASK_NAME = "[\"']" + OTHER_COMPILE_TASK + "[\"']";
+    /**
+     * A condition that holds for that task alone, as in if (name == 'compileTestJava'), or a
+     * Kotlin when branch for it. if (name != 'compileTestJava') holds for compileJava too.
+     */
+    private static final String OTHER_COMPILE_TASK_CONDITION =
+            "(?:else\\s+)?if\\s*\\(\\s*(?:(?:[\\w.]+\\.)?name\\s*==\\s*" + OTHER_COMPILE_TASK_NAME
+                    + "|" + OTHER_COMPILE_TASK_NAME + "\\s*==\\s*(?:[\\w.]+\\.)?name"
+                    + "|(?:[\\w.]+\\.)?name\\s*\\.\\s*equals\\s*\\(\\s*" + OTHER_COMPILE_TASK_NAME
+                    + "\\s*\\))\\s*\\)"
+                    + "|" + OTHER_COMPILE_TASK_NAME + "\\s*->";
+    /**
+     * The header of a block that configures something other than the main compilation: IDE
+     * metadata; the compile task of another source set or language, by name, through a
+     * condition on its name or in configure(...); a task that the block registers; or the Java
+     * tool of tests or Javadoc. Only the block's target counts, so a condition such as
+     * if (name != 'compileTestJava') { ... } does not hide what it guards. A dotted name is
+     * checked whole before it is searched, so that a long header takes linear time, and the
+     * repeated groups are possessive, so that they do not recurse once per repetition.
+     */
+    private static final Pattern GRADLE_OTHER_TARGET = Pattern.compile(
+            "(?=\\w++(?:\\s*+\\.\\s*+\\w++)*+$).*?\\b(?:eclipse|idea|jdt|" + OTHER_COMPILE_TASK
+                    + ")\\b.*"
+                    + "|(?:[\\w.]*\\.)?(?:named|getByName)\\s*(?:<[\\w.]+>)?\\s*\\(\\s*"
+                    + OTHER_COMPILE_TASK_NAME + "(?:\\s*,\\s*[\\w.:]+)?\\s*\\)(?:\\s*\\.\\s*\\w+)*+"
+                    + "|configure\\s*\\(\\s*\\[?\\s*(?:tasks\\s*\\.\\s*)?" + OTHER_COMPILE_TASK
+                    + "(?:\\s*,\\s*(?:tasks\\s*\\.\\s*)?" + OTHER_COMPILE_TASK
+                    + ")*+\\s*,?\\s*\\]?\\s*\\)"
+                    + "|" + OTHER_COMPILE_TASK_CONDITION
+                    + "|(?:val\\s+\\w+\\s+by\\s+)?(?:[\\w.]*\\.)?"
+                    + "(?:register|create|registering|creating)\\b[^{};]*"
+                    + "|task\\s+\\w+\\s*(?:\\([^{};]*\\))?|task\\s*\\([^{};]*\\)"
+                    + "|.*\\b(?:launcherFor|javadocToolFor)");
+    /** The same targets as the receiver of a statement, as in eclipse.jdt.sourceCompatibility. */
+    private static final Pattern GRADLE_OTHER_RECEIVER = Pattern.compile(
+            "\\b(?:eclipse|idea|jdt)\\b|\\b" + OTHER_COMPILE_TASK + "\\b");
+    /** What may precede such a statement on its own, as in "compileTestJava" -> ... */
+    private static final Pattern GRADLE_OTHER_CONDITION = Pattern.compile(
+            "\\s*(?:" + OTHER_COMPILE_TASK_CONDITION + ")\\s*");
+    /** The level keywords, strongest first, as gradleJavaVersion checks them. */
+    private static final List<String> GRADLE_LEVEL_KEYWORDS =
+            List.of("options.release", "sourceCompatibility", "languageVersion");
+    private static final Pattern GRADLE_LEVEL_KEYWORD = Pattern.compile(
+            "\\boptions\\.release\\b|\\bsourceCompatibility\\b|\\blanguageVersion\\b");
+    /**
+     * What follows a keyword that sets it: =, a property method such as set(...), or Groovy's
+     * method form, with or without parentheses.
+     */
+    private static final Pattern GRADLE_LEVEL_WRITE = Pattern.compile(
+            "[ \\t]*(?:=(?!=)|\\(|\\.\\s*(?:set|value|convention)\\s*\\()"
+                    + "|[ \\t]+(?!(?:as|in|instanceof)\\b)[\\w'\"]");
+    /** A Kotlin language version such as "1.9" or KotlinVersion.KOTLIN_2_0, not a toolchain. */
+    private static final Pattern KOTLIN_LANGUAGE_VERSION = Pattern.compile(
+            "languageVersion\\s*(?:=|\\.\\s*(?:set|value|convention)\\s*\\()\\s*"
+                    + "(?:[\"']|KotlinVersion\\b)");
+    private static final Pattern GRADLE_BLOCK_OPENING = Pattern.compile("\\s*\\{");
+    /** A toolchain set to a literal right after its keyword, not a computed one. */
     private static final Pattern GRADLE_TOOLCHAIN = Pattern.compile(
-            "JavaLanguageVersion\\.of\\s*\\(\\s*(\\d+)\\s*\\)");
+            "languageVersion\\s*(?:=|\\.\\s*(?:set|value|convention)\\s*\\()\\s*"
+                    + "JavaLanguageVersion\\.of\\s*\\(\\s*(\\d+)\\s*\\)");
     /** A whole number; the lookahead keeps 1.8 from reading as Java 1. */
     private static final Pattern GRADLE_RELEASE = Pattern.compile(
             "options\\.release(?:\\.set\\s*\\(\\s*|\\s*=\\s*)(\\d+)(?![\\w.])\\s*\\)?");
@@ -49,8 +127,9 @@ public final class ProjectModelDetector {
             "sourceCompatibility\\s*=\\s*(?:JavaVersion\\.toVersion\\s*\\(\\s*)?"
                     + "(?:JavaVersion\\.VERSION_(?<constant>(?:1_)?\\d+)"
                     + "|(?<quote>[\"']?)(?<number>\\d+(?:\\.\\d+)*+)(?![\\w.])\\k<quote>)");
+    /** An allprojects or subprojects block; see GRADLE_TARGETED_BLOCK for the line start. */
     private static final Pattern GRADLE_SHARED_BLOCK = Pattern.compile(
-            "(?m)^\\s*(allprojects|subprojects)\\s*\\{");
+            "(?m)^[^\\S\\r\\n]*(allprojects|subprojects)\\s*\\{");
     private static final Pattern XML_DECLARED_ENCODING = Pattern.compile(
             "<\\?xml\\s[^>]*?\\sencoding\\s*=\\s*[\"']([^\"']*)[\"']");
     /**
@@ -144,10 +223,7 @@ public final class ProjectModelDetector {
             String buildText = rootBuild == null ? "" : readGradleScript(rootBuild);
             List<String> modulePaths = gradleModules(settingsText);
             GradleScopes scopes = gradleScopes(buildText);
-            String javaVersion = combineGradleLevels(
-                    scopes.root(), scopes.allProjects());
-            String sharedVersion = combineGradleLevels(
-                    scopes.allProjects(), scopes.subprojects());
+            String javaVersion = scopes.rootLevel();
             if (modulePaths.isEmpty()) {
                 return new ProjectModel(root, BuildSystem.GRADLE, javaVersion,
                         List.of(gradleModule(
@@ -194,6 +270,7 @@ public final class ProjectModelDetector {
             if (hasExistingSources(rootModule)) {
                 modules.add(rootModule);
             }
+            java.util.Map<Path, String> projectBlocks = scopes.projectBlocksByDirectory(root);
             for (GradleModuleData data : moduleData) {
                 modules.add(gradleModule(
                         root,
@@ -202,7 +279,7 @@ public final class ProjectModelDetector {
                         intersection(gradleDependencies(data.buildFile()), moduleNames),
                         data.buildFile(),
                         diagnostics,
-                        effectiveGradleModuleVersion(data.buildFile(), sharedVersion)));
+                        scopes.moduleLevel(projectBlocks.get(data.path()), data.buildFile())));
             }
             return new ProjectModel(root, BuildSystem.GRADLE, javaVersion, modules, diagnostics);
         } catch (IOException exception) {
@@ -578,6 +655,7 @@ public final class ProjectModelDetector {
         return dependencies;
     }
 
+    /** The level that one declaration, from its keyword to its end, states. */
     private static String gradleJavaVersion(String buildFile) {
         String activeBuild = withoutComments(buildFile);
         Matcher release = GRADLE_RELEASE.matcher(activeBuild);
@@ -601,10 +679,12 @@ public final class ProjectModelDetector {
         return "unknown";
     }
 
-    private static String effectiveGradleModuleVersion(
-            String moduleBuild, String sharedVersion) {
-        String ownVersion = gradleJavaVersion(moduleBuild);
-        if (!hasGradleVersionDeclaration(moduleBuild)) {
+    /**
+     * A module's own level against the level that the root build gives it: unknown when both
+     * are known and differ, the shared one when the module sets none (null).
+     */
+    private static String effectiveGradleModuleVersion(String ownVersion, String sharedVersion) {
+        if (ownVersion == null) {
             return sharedVersion;
         }
         if (!"unknown".equals(sharedVersion)
@@ -615,25 +695,204 @@ public final class ProjectModelDetector {
         return ownVersion;
     }
 
+    /** Two levels that apply together: null when neither scope sets one, unknown when they differ. */
     private static String combineGradleLevels(String first, String second) {
-        boolean firstDeclared = hasGradleVersionDeclaration(first);
-        boolean secondDeclared = hasGradleVersionDeclaration(second);
-        if (!firstDeclared) {
-            return gradleJavaVersion(second);
+        if (first == null) {
+            return second;
         }
-        if (!secondDeclared) {
-            return gradleJavaVersion(first);
+        if (second == null) {
+            return first;
         }
-        String firstVersion = gradleJavaVersion(first);
-        String secondVersion = gradleJavaVersion(second);
-        return firstVersion.equals(secondVersion) ? firstVersion : "unknown";
+        return first.equals(second) ? first : "unknown";
     }
 
-    private static boolean hasGradleVersionDeclaration(String buildFile) {
-        String active = withoutComments(buildFile);
-        return active.contains("options.release")
-                || active.contains("sourceCompatibility")
-                || active.contains("languageVersion");
+    private static String orUnknown(String level) {
+        return level == null ? "unknown" : level;
+    }
+
+    /**
+     * The level that a scope sets for the main compilation, "unknown" when it cannot be read,
+     * or null when the scope sets none. Every write of the strongest kind must state the same
+     * literal level: Gradle keeps whichever runs last, which depends on conditions and
+     * evaluation order that are not modeled here. A read, as in
+     * targetCompatibility = sourceCompatibility, sets nothing, and neither does a write for
+     * another target, as in eclipse.jdt.sourceCompatibility = 1.8 or
+     * if (name == 'compileTestJava') options.release = 17.
+     */
+    private static String scopeLevel(String scope) {
+        return writtenLevel(scope).level();
+    }
+
+    /**
+     * The level that scopeLevel reads from a scope, with the rank of the kind of declaration
+     * that sets it, higher for a stronger one (see GRADLE_LEVEL_KEYWORDS), or 0 when the scope
+     * sets none. Gradle prefers the kinds in that order whichever scope sets them, so a scope
+     * that writes a stronger kind than another overrides its level.
+     */
+    private static WrittenLevel writtenLevel(String scope) {
+        String text = mainCompilationText(scope);
+        java.util.Map<String, Set<String>> levels = new java.util.HashMap<>();
+        Matcher keyword = GRADLE_LEVEL_KEYWORD.matcher(text);
+        Matcher write = GRADLE_LEVEL_WRITE.matcher(text);
+        Matcher otherReceiver = GRADLE_OTHER_RECEIVER.matcher(text);
+        Matcher otherCondition = GRADLE_OTHER_CONDITION.matcher(text);
+        int previousEnd = 0;
+        boolean found = keyword.find();
+        while (found) {
+            String name = keyword.group();
+            int start = keyword.start();
+            int end = keyword.end();
+            found = keyword.find();
+            int limit = found ? keyword.start() : text.length();
+            // The receiver and what precedes it are read back, but not into the previous keyword.
+            int receiver = receiverStart(text, previousEnd, start);
+            boolean other = otherReceiver.region(receiver, start).find()
+                    || otherCondition.region(statementStart(text, previousEnd, receiver), receiver)
+                            .matches();
+            previousEnd = end;
+            if (other || !write.region(end, text.length()).lookingAt()) {
+                continue;
+            }
+            String statement = text.substring(start, statementEnd(text, end, limit));
+            if (name.equals("languageVersion")
+                    && KOTLIN_LANGUAGE_VERSION.matcher(statement).lookingAt()) {
+                continue;
+            }
+            levels.computeIfAbsent(name, key -> new LinkedHashSet<>())
+                    .add(gradleJavaVersion(statement));
+        }
+        for (int index = 0; index < GRADLE_LEVEL_KEYWORDS.size(); index++) {
+            Set<String> written = levels.get(GRADLE_LEVEL_KEYWORDS.get(index));
+            if (written != null) {
+                return new WrittenLevel(
+                        written.size() == 1 ? written.iterator().next() : "unknown",
+                        GRADLE_LEVEL_KEYWORDS.size() - index);
+            }
+        }
+        return new WrittenLevel(null, 0);
+    }
+
+    /**
+     * Where the receiver of the keyword at {@code keyword} starts, such as eclipse.jdt. in
+     * eclipse.jdt.sourceCompatibility or tasks.getByName('compileTestJava'). before
+     * options.release, but not before {@code from}. A call or index counts when a dot follows it.
+     */
+    private static int receiverStart(String text, int from, int keyword) {
+        int start = keyword;
+        while (start > from) {
+            char character = text.charAt(start - 1);
+            if (Character.isJavaIdentifierPart(character) || character == '.') {
+                start--;
+            } else if (")]>".indexOf(character) >= 0 && text.charAt(start) == '.') {
+                int opening = openingBefore(text, from, start - 1);
+                if (opening < 0) {
+                    break;
+                }
+                start = opening;
+            } else {
+                break;
+            }
+        }
+        return start;
+    }
+
+    /** The bracket that opens the one at {@code closing}, or -1 when it is before {@code from}. */
+    private static int openingBefore(String text, int from, int closing) {
+        char close = text.charAt(closing);
+        char open = close == ')' ? '(' : close == ']' ? '[' : '<';
+        int depth = 0;
+        for (int index = closing; index >= from; index--) {
+            char character = text.charAt(index);
+            if (character == close) {
+                depth++;
+            } else if (character == open && --depth == 0) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    /** Where the statement that reaches {@code end} starts, but not before {@code from}. */
+    private static int statementStart(String text, int from, int end) {
+        int start = end;
+        while (start > from && "\n;{}".indexOf(text.charAt(start - 1)) < 0) {
+            start--;
+        }
+        return start;
+    }
+
+    /**
+     * Where a declaration that continues at {@code from} ends: at the end of its line or
+     * statement outside brackets, unless the line ends with "=", at the bracket that closes
+     * the block or call around it, or at {@code limit}.
+     */
+    private static int statementEnd(String text, int from, int limit) {
+        int depth = 0;
+        char last = ' ';
+        for (int index = from; index < limit; index++) {
+            char character = text.charAt(index);
+            if (character == '(' || character == '[' || character == '{') {
+                depth++;
+            } else if (character == ')' || character == ']' || character == '}') {
+                if (depth == 0) {
+                    return index;
+                }
+                depth--;
+            } else if ((character == '\n' || character == ';') && depth == 0 && last != '=') {
+                return index;
+            }
+            if (!Character.isWhitespace(character)) {
+                last = character;
+            }
+        }
+        return limit;
+    }
+
+    /**
+     * A scope without comments and without the blocks that configure something other than the
+     * main compilation (see GRADLE_OTHER_TARGET). A block's header is the code before its
+     * brace on the same line, or on the line above when the brace starts its line.
+     */
+    private static String mainCompilationText(String scope) {
+        String active = withoutComments(scope);
+        StringBuilder text = new StringBuilder(active.length());
+        int cursor = 0;
+        int headerStart = 0;
+        int lineAboveStart = -1;
+        boolean lineHasCode = false;
+        for (int index = 0; index < active.length(); index++) {
+            char character = active.charAt(index);
+            if (character == '{') {
+                int start = !lineHasCode && lineAboveStart >= 0 ? lineAboveStart : headerStart;
+                if (GRADLE_OTHER_TARGET.matcher(active.substring(start, index).strip())
+                        .matches()) {
+                    int closing = closingEnd(active, index, '{', '}');
+                    if (closing < 0) {
+                        break;
+                    }
+                    text.append(active, cursor, start).append('\n');
+                    cursor = closing;
+                    index = closing - 1;
+                }
+                headerStart = index + 1;
+                lineAboveStart = -1;
+                lineHasCode = false;
+            } else if (character == '\n') {
+                if (lineHasCode) {
+                    lineAboveStart = headerStart;
+                }
+                headerStart = index + 1;
+                lineHasCode = false;
+            } else if (character == ';' || character == '}') {
+                headerStart = index + 1;
+                lineAboveStart = -1;
+                lineHasCode = false;
+            } else if (!Character.isWhitespace(character)) {
+                lineHasCode = true;
+            }
+        }
+        text.append(active, cursor, active.length());
+        return text.toString();
     }
 
     private static GradleScopes gradleScopes(String buildFile) {
@@ -641,29 +900,135 @@ public final class ProjectModelDetector {
         StringBuilder root = new StringBuilder();
         StringBuilder allProjects = new StringBuilder();
         StringBuilder subprojects = new StringBuilder();
-        Matcher blocks = GRADLE_SHARED_BLOCK.matcher(active);
+        java.util.Map<String, StringBuilder> projectBodies = new java.util.LinkedHashMap<>();
+        StringBuilder someProjects = new StringBuilder();
+        StringBuilder someSubprojects = new StringBuilder();
         int cursor = 0;
-        while (blocks.find(cursor)) {
-            int opening = blocks.end() - 1;
-            int depth = 1;
-            int closing = opening + 1;
-            while (closing < active.length() && depth > 0) {
-                char character = active.charAt(closing++);
-                if (character == '{') depth++;
-                if (character == '}') depth--;
+        for (ScopeBlock block : scopeBlocks(active)) {
+            if (block.start() < cursor) {
+                // Inside a block already read, so not a block of the root build.
+                continue;
             }
-            if (depth != 0) {
+            int closing = closingEnd(active, block.opening(), '{', '}');
+            if (closing < 0) {
                 break;
             }
-            root.append(active, cursor, blocks.start());
-            String body = active.substring(opening + 1, closing - 1);
-            ("allprojects".equals(blocks.group(1)) ? allProjects : subprojects)
-                    .append(body).append('\n');
+            root.append(active, cursor, block.start());
+            String body = active.substring(block.opening() + 1, closing - 1) + '\n';
+            String selector = block.selector().strip();
+            List<String> paths = projectPaths(selector);
+            if ("allprojects".equals(selector)) {
+                allProjects.append(body);
+            } else if ("subprojects".equals(selector)) {
+                subprojects.append(body);
+            } else if (paths != null) {
+                for (String path : paths) {
+                    if (path.isEmpty()) {
+                        root.append(body);
+                    } else {
+                        projectBodies.computeIfAbsent(path, key -> new StringBuilder())
+                                .append(body);
+                    }
+                }
+            } else if (selector.startsWith("subprojects")
+                    && !GRADLE_ROOT_SELECTOR.matcher(selector).find()) {
+                someSubprojects.append(body);
+            } else {
+                someProjects.append(body);
+            }
             cursor = closing;
         }
         root.append(active.substring(cursor));
-        return new GradleScopes(
-                root.toString(), allProjects.toString(), subprojects.toString());
+        java.util.Map<String, String> projects = new java.util.LinkedHashMap<>();
+        projectBodies.forEach((path, bodies) -> projects.put(path, bodies.toString()));
+        WrittenLevel all = writtenLevel(allProjects.toString());
+        WrittenLevel sub = writtenLevel(subprojects.toString());
+        return new GradleScopes(scopeLevel(root.toString()), all.level(), sub.level(), projects,
+                scopeLevel(someProjects.toString()), scopeLevel(someSubprojects.toString()),
+                Math.max(all.rank(), sub.rank()));
+    }
+
+    /**
+     * The allprojects, subprojects, project(...) and configure(...) blocks in text order. A
+     * configure(...) inside the selector of an earlier one, or after a selector that never
+     * closes, is not a block of its own: skipping it keeps each selector scanned once.
+     */
+    private static List<ScopeBlock> scopeBlocks(String text) {
+        List<ScopeBlock> blocks = new ArrayList<>();
+        Matcher shared = GRADLE_SHARED_BLOCK.matcher(text);
+        while (shared.find()) {
+            blocks.add(new ScopeBlock(shared.start(), shared.end() - 1, shared.group(1)));
+        }
+        Matcher targeted = GRADLE_TARGETED_BLOCK.matcher(text);
+        Matcher opening = GRADLE_BLOCK_OPENING.matcher(text);
+        int selectorsEnd = 0;
+        while (targeted.find()) {
+            if (targeted.group("project") != null) {
+                blocks.add(new ScopeBlock(
+                        targeted.start(), targeted.end() - 1, targeted.group("project")));
+                continue;
+            }
+            if (targeted.start() < selectorsEnd) {
+                continue;
+            }
+            int selectorEnd = closingEnd(text, targeted.end() - 1, '(', ')');
+            selectorsEnd = selectorEnd < 0 ? text.length() : selectorEnd;
+            if (selectorEnd > 0 && opening.region(selectorEnd, text.length()).lookingAt()) {
+                String selector = text.substring(targeted.end(), selectorEnd - 1);
+                // configure([compileJava, ...]) { } configures tasks of the enclosing project.
+                if (!GRADLE_TASK_SELECTOR.matcher(selector).lookingAt()) {
+                    blocks.add(new ScopeBlock(targeted.start(), opening.end() - 1, selector));
+                }
+            }
+        }
+        blocks.sort(java.util.Comparator.comparingInt(ScopeBlock::start));
+        return blocks;
+    }
+
+    /**
+     * The paths that a selector names, without the leading colon and with "" for the root:
+     * project(':a'), [project(':a'), project(':b')] or rootProject. Null for anything else,
+     * such as subprojects.findAll { ... }, whose projects are only known when Gradle runs.
+     */
+    private static List<String> projectPaths(String selector) {
+        if ("rootProject".equals(selector)) {
+            return List.of("");
+        }
+        String list = selector.startsWith("[") && selector.endsWith("]")
+                ? selector.substring(1, selector.length() - 1)
+                : selector;
+        List<String> paths = new ArrayList<>();
+        for (String item : list.split(",")) {
+            if (item.isBlank()) {
+                // After the trailing comma of a list written one project per line.
+                continue;
+            }
+            Matcher project = GRADLE_PROJECT_PATH.matcher(item.strip());
+            if (!project.matches()) {
+                return null;
+            }
+            paths.add(project.group(1));
+        }
+        return paths;
+    }
+
+    /**
+     * The index just past the bracket that closes the one at {@code opening}, or -1. A bracket
+     * in a string does not count.
+     */
+    private static int closingEnd(String text, int opening, char open, char close) {
+        int depth = 0;
+        for (int index = opening; index < text.length(); index++) {
+            char character = text.charAt(index);
+            if (character == '\'' || character == '"') {
+                index = stringEnd(text, index) - 1;
+            } else if (character == open) {
+                depth++;
+            } else if (character == close && --depth == 0) {
+                return index + 1;
+            }
+        }
+        return -1;
     }
 
     /**
@@ -877,5 +1242,84 @@ public final class ProjectModelDetector {
 
     private record GradleModuleData(String name, Path path, String buildFile) {}
 
-    private record GradleScopes(String root, String allProjects, String subprojects) {}
+    /**
+     * The levels that the parts of the root build set, each read once, or null where a part
+     * sets none: {@code own} for the root project's code outside the blocks below and its
+     * rootProject blocks, {@code allProjects} and {@code subprojects} for those blocks, and
+     * {@code someProjects} and {@code someSubprojects} for configure(...) blocks whose
+     * selector, such as subprojects.findAll { ... }, is only evaluated by Gradle.
+     * {@code projects} maps a project path to the bodies of its project(...) and
+     * configure(...) blocks. {@code sharedRank} is the rank of the strongest kind of
+     * declaration that the allprojects and subprojects blocks write.
+     */
+    private record GradleScopes(
+            String own,
+            String allProjects,
+            String subprojects,
+            java.util.Map<String, String> projects,
+            String someProjects,
+            String someSubprojects,
+            int sharedRank) {
+
+        /** The bodies of the project blocks by the directory of the project they configure. */
+        java.util.Map<Path, String> projectBlocksByDirectory(Path root) {
+            java.util.Map<Path, StringBuilder> bodies = new java.util.HashMap<>();
+            projects.forEach((path, body) -> {
+                try {
+                    bodies.computeIfAbsent(root.resolve(path.replace(':', '/')).toAbsolutePath()
+                            .normalize(), directory -> new StringBuilder()).append(body);
+                } catch (java.nio.file.InvalidPathException exception) {
+                    // Not a directory path, so not an included module either.
+                }
+            });
+            java.util.Map<Path, String> blocks = new java.util.HashMap<>();
+            bodies.forEach((directory, text) -> blocks.put(directory, text.toString()));
+            return blocks;
+        }
+
+        String rootLevel() {
+            return unlessSelectedOtherwise(
+                    orUnknown(combineGradleLevels(own, allProjects)), false);
+        }
+
+        /**
+         * The level of a module with these root-build project blocks (null for none) and this
+         * build file. The project blocks run in the same script as the allprojects and
+         * subprojects blocks, in an order not modeled here, so they keep their level only when
+         * those set none or the same one, readable or not. When they do not, the module's own
+         * level stands unless they write a stronger kind of declaration than the module does,
+         * which Gradle applies instead of it, whatever level it states.
+         */
+        String moduleLevel(String projectBlocks, String moduleBuild) {
+            WrittenLevel block = projectBlocks == null
+                    ? new WrittenLevel(null, 0) : writtenLevel(projectBlocks);
+            WrittenLevel own = writtenLevel(moduleBuild);
+            String rootBuildLevel = combineGradleLevels(
+                    block.level(), combineGradleLevels(allProjects, subprojects));
+            if ("unknown".equals(orUnknown(rootBuildLevel))
+                    && Math.max(block.rank(), sharedRank) > own.rank()) {
+                return "unknown";
+            }
+            return unlessSelectedOtherwise(effectiveGradleModuleVersion(
+                    own.level(), orUnknown(rootBuildLevel)), true);
+        }
+
+        /**
+         * {@code level}, or unknown when a configure(...) block that may select the project
+         * sets a different level.
+         */
+        String unlessSelectedOtherwise(String level, boolean subproject) {
+            boolean differs = differs(someProjects, level)
+                    || subproject && differs(someSubprojects, level);
+            return differs ? "unknown" : level;
+        }
+
+        private static boolean differs(String selectedLevel, String level) {
+            return selectedLevel != null && !selectedLevel.equals(level);
+        }
+    }
+
+    private record ScopeBlock(int start, int opening, String selector) {}
+
+    private record WrittenLevel(String level, int rank) {}
 }

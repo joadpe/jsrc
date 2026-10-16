@@ -304,16 +304,30 @@ public class WatchCommand implements Command {
                 .filter(selectedPaths::contains).toList();
         cachedAcceptedFiles = freshFiles;
         var fileSourceSets = projectSources.allSourceSets();
+        com.jsrc.app.index.SourceSnapshot sourceSnapshot;
         try {
-            pendingSourceSnapshot = com.jsrc.app.index.SourceSnapshot.capture(
+            sourceSnapshot = com.jsrc.app.index.SourceSnapshot.capture(
                     root, activeConfigPath, config, projectSources, compatibility);
         } catch (IOException ex) {
             throw new com.jsrc.app.exception.JsrcIOException(
                     "Cannot capture watch source snapshot: " + ex.getMessage(), ex);
         }
-        IndexedCodebase refreshed = callTryLoadWithSourceLevels(
-                root, freshFiles, projectSources.allFiles(), compatibility.files(), frozenIndex,
-                fileSourceSets, projectSources.model(), config);
+        pendingSourceSnapshot = sourceSnapshot;
+        IndexedCodebase refreshed;
+        try {
+            refreshed = callTryLoadWithSourceLevels(
+                    root, freshFiles, projectSources.allFiles(), compatibility.files(),
+                    frozenIndex, fileSourceSets, projectSources.model(), config);
+        } catch (com.jsrc.app.exception.JsrcIOException ex) {
+            // The session keeps the config it started with, and publishing checks that config
+            // against the file, so no retry can publish until watch restarts and reads it.
+            if (configChangedSince(sourceSnapshot)) {
+                throw new com.jsrc.app.exception.JsrcIOException(
+                        "Project config changed since watch started; "
+                                + "restart watch to pick up the change", ex);
+            }
+            throw ex;
+        }
         lastStamp = new IndexStamp(
                 indexMtime(root), currentStamp.files(), currentStamp.sourceVersions());
         return new RefreshResult(
@@ -321,6 +335,19 @@ public class WatchCommand implements Command {
                 freshFiles,
                 projectSources.model(),
                 fileSourceSets);
+    }
+
+    /** Whether the config file no longer reads as the config the snapshot was captured with. */
+    private static boolean configChangedSince(com.jsrc.app.index.SourceSnapshot snapshot) {
+        Path configPath = snapshot.configPath();
+        try {
+            var current = Files.exists(configPath)
+                    ? com.jsrc.app.config.ProjectConfig.loadFrom(configPath).orElse(null)
+                    : null;
+            return !java.util.Objects.equals(snapshot.config(), current);
+        } catch (RuntimeException unreadable) {
+            return true;
+        }
     }
 
     protected com.jsrc.app.project.SourceCompatibilityScanner.Result scanSources(

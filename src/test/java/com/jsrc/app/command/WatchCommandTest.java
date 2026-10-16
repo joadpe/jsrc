@@ -124,6 +124,148 @@ class WatchCommandTest {
         assertNotEquals(0, ((Number) ((Map<?, ?>) responses.get(0)).get("exit")).intValue());
     }
 
+    @Test
+    void configChangedOutsideWatchAsksForARestart(@TempDir Path tempDir) throws Exception {
+        Path config = tempDir.resolve(".jsrc.yaml");
+        String invokers = """
+                javaVersion: 17
+                architecture:
+                  invokers:
+                    - method: invoke
+                      targetArg: 0
+                      resolveClass: %s
+                      callerSuffixes: [View]
+                """;
+        Files.writeString(config, invokers.formatted("handler"));
+        Files.writeString(tempDir.resolve("OrderView.java"), """
+                class OrderView {
+                    void save() { invoke("store"); }
+                    void invoke(String name) {}
+                }
+                """);
+        Files.writeString(tempDir.resolve("OrderHandler.java"),
+                "class OrderHandler { void store() {} }");
+        Files.writeString(tempDir.resolve("OrderService.java"),
+                "class OrderService { void store() {} }");
+        assertEquals(0, com.jsrc.app.cli.JsrcCliFactory.create().execute(
+                "--dir", tempDir.toString(), "index"));
+        var outsideIndexExit = new AtomicInteger(-1);
+
+        // After the first answer, the invokers change and jsrc index runs outside watch.
+        List<Map<?, ?>> responses = cliWatch(tempDir, """
+                {"command":"callers","arg":"OrderHandler.store"}
+                {"command":"callers","arg":"OrderService.store"}
+                {"command":"classes"}
+                """, () -> {
+                    try {
+                        Files.writeString(config, invokers.formatted("service"));
+                    } catch (IOException ex) {
+                        throw new UncheckedIOException(ex);
+                    }
+                    outsideIndexExit.set(com.jsrc.app.cli.JsrcCliFactory.create().execute(
+                            "--dir", tempDir.toString(), "index"));
+                });
+
+        assertEquals(0, outsideIndexExit.get());
+        assertEquals(3, responses.size(), responses.toString());
+        assertEquals(0L, responses.get(0).get("exit"));
+        assertEquals(List.of("OrderView.save"),
+                ((Map<?, ?>) responses.get(0).get("result")).get("callers"));
+        for (Map<?, ?> response : responses.subList(1, 3)) {
+            assertEquals(Set.of("exit", "result"), response.keySet());
+            assertEquals(3L, response.get("exit"));
+            assertEquals(Map.of("error", "Project config changed since watch started; "
+                            + "restart watch to pick up the change"),
+                    response.get("result"));
+        }
+
+        List<Map<?, ?>> restarted = cliWatch(tempDir,
+                "{\"command\":\"callers\",\"arg\":\"OrderService.store\"}\n", () -> {});
+        assertEquals(0L, restarted.getFirst().get("exit"));
+        assertEquals(List.of("OrderView.save"),
+                ((Map<?, ?>) restarted.getFirst().get("result")).get("callers"));
+    }
+
+    @Test
+    void refreshFailureKeepsItsOwnMessageWhileTheConfigReadsTheSame(@TempDir Path tempDir)
+            throws Exception {
+        Path config = tempDir.resolve(".jsrc.yaml");
+        Files.writeString(config, "javaVersion: 17\n");
+        Path source = createSimpleJavaFile(tempDir);
+        assertEquals(0, com.jsrc.app.cli.JsrcCliFactory.create().execute(
+                "--dir", tempDir.toString(), "index"));
+        var sessionConfig = com.jsrc.app.config.ProjectConfig.loadFrom(config).orElseThrow();
+        // Only a comment is added after watch read the config, so the config reads the same.
+        Files.writeString(config, "# edited\njavaVersion: 17\n");
+        String retry = "Could not publish refreshed index: "
+                + "Source changed after compatibility scan: App.java; retry the command";
+
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var output = new ByteArrayOutputStream();
+        System.setIn(new ByteArrayInputStream(
+                "{\"command\":\"classes\"}\n{\"command\":\"classes\"}\n".getBytes()));
+        System.setOut(new PrintStream(output, true));
+        try {
+            var context = new CommandContext(List.of(source), tempDir.toString(), sessionConfig,
+                    OutputFormatter.create(true, false, null), null,
+                    new com.jsrc.app.parser.HybridJavaParser(), false, null,
+                    false, false, null, false);
+            new WatchCommand() {
+                private boolean failed;
+
+                @Override
+                protected IndexedCodebase callTryLoad(Path root, List<Path> files,
+                                                      boolean frozenIndex) {
+                    if (!failed) {
+                        failed = true;
+                        throw new com.jsrc.app.exception.JsrcIOException(retry);
+                    }
+                    return super.callTryLoad(root, files, frozenIndex);
+                }
+            }.execute(context);
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+        var responses = output.toString().lines().filter(line -> line.startsWith("{"))
+                .map(com.jsrc.app.output.JsonReader::parse).toList();
+        assertEquals(2, responses.size(), output.toString());
+        assertEquals(3L, ((Map<?, ?>) responses.get(0)).get("exit"), output.toString());
+        assertEquals(Map.of("error", retry), ((Map<?, ?>) responses.get(0)).get("result"));
+        assertEquals(0L, ((Map<?, ?>) responses.get(1)).get("exit"), output.toString());
+    }
+
+    /** Runs jsrc watch on {@code requests} and calls {@code afterFirstResponse} once. */
+    private static List<Map<?, ?>> cliWatch(Path root, String requests,
+                                            Runnable afterFirstResponse) {
+        var originalIn = System.in;
+        var originalOut = System.out;
+        var output = new ByteArrayOutputStream();
+        System.setIn(new ByteArrayInputStream(requests.getBytes()));
+        System.setOut(new PrintStream(output, true) {
+            private boolean answered;
+
+            @Override
+            public void println(String line) {
+                super.println(line);
+                if (!answered && line.startsWith("{")) {
+                    answered = true;
+                    afterFirstResponse.run();
+                }
+            }
+        });
+        try {
+            com.jsrc.app.cli.JsrcCliFactory.create().execute(
+                    "--dir", root.toString(), "watch");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+        return output.toString().lines().filter(line -> line.startsWith("{"))
+                .<Map<?, ?>>map(line -> (Map<?, ?>) JsonReader.parse(line)).toList();
+    }
+
     private static void runGit(Path root, String... args) throws Exception {
         var command = new java.util.ArrayList<String>(List.of("git", "-C", root.toString()));
         command.addAll(List.of(args));

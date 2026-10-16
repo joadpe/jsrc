@@ -613,6 +613,8 @@ Watch mode (`jsrc watch`) maintains an in-memory cache of the indexed codebase a
 
 This eliminates redundant index loads during interactive sessions, making back-to-back queries instant even without filesystem changes.
 
+Watch reads the project config (`.jsrc.yaml`) once, when it starts. After you edit the config, restart watch. Until then, a request whose refresh fails because the config changed answers with exit 3 and `Project config changed since watch started; restart watch to pick up the change`.
+
 #### Watch Envelope Format
 
 Legacy `watch` responses use an exit/result envelope:

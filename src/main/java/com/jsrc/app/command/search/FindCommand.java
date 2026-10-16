@@ -4,11 +4,13 @@ import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.SequencedMap;
 import java.util.Set;
 
 import com.jsrc.app.model.CommandHint;
@@ -21,10 +23,14 @@ import com.jsrc.app.parser.model.ClassInfo;
  */
 public class FindCommand implements Command {
 
-    private static final Map<String, List<String>> SYNONYMS = Map.ofEntries(
+    /**
+     * A word listed under several concepts expands to the first one declared. The generic
+     * handle concept comes last, since its "on" matches almost every class: handler and catch
+     * expand to error, listener to message.
+     */
+    private static final SequencedMap<String, List<String>> SYNONYMS = inOrder(
             Map.entry("database", List.of("database", "datasource", "jdbc", "jpa", "repository", "sql", "persistence", "hibernate", "entity", "db")),
             Map.entry("error", List.of("error", "exception", "failureanalyzer", "handler", "fallback", "catch", "throw", "fault")),
-            Map.entry("handle", List.of("handle", "handler", "process", "catch", "on", "listener", "intercept")),
             Map.entry("auth", List.of("security", "authentication", "authorization", "token", "credential", "principal", "login", "oauth")),
             Map.entry("http", List.of("controller", "servlet", "request", "response", "endpoint", "mapping", "rest", "web", "filter")),
             Map.entry("config", List.of("configuration", "properties", "settings", "preference", "profile", "environment", "yaml")),
@@ -37,8 +43,21 @@ public class FindCommand implements Command {
             Map.entry("valid", List.of("valid", "constraint", "validator", "bindingresult", "error", "reject")),
             Map.entry("schedule", List.of("schedule", "cron", "timer", "periodic", "trigger", "taskscheduler")),
             Map.entry("file", List.of("file", "path", "resource", "stream", "reader", "writer", "io", "nio")),
-            Map.entry("ssl", List.of("ssl", "tls", "certificate", "keystore", "truststore", "pem", "jks"))
+            Map.entry("ssl", List.of("ssl", "tls", "certificate", "keystore", "truststore", "pem", "jks")),
+            Map.entry("handle", List.of("handle", "handler", "process", "catch", "on", "listener", "intercept"))
     );
+
+    /** Keeps the declaration order, which Map.ofEntries would salt per JVM. */
+    @SafeVarargs
+    private static SequencedMap<String, List<String>> inOrder(Map.Entry<String, List<String>>... entries) {
+        SequencedMap<String, List<String>> concepts = new LinkedHashMap<>();
+        for (var entry : entries) {
+            if (concepts.putIfAbsent(entry.getKey(), entry.getValue()) != null) {
+                throw new IllegalArgumentException("Duplicate concept: " + entry.getKey());
+            }
+        }
+        return Collections.unmodifiableSequencedMap(concepts);
+    }
 
     private static final Set<String> STOP_WORDS = Set.of(
             "the", "a", "an", "in", "on", "at", "to", "for", "of", "with",
@@ -130,7 +149,7 @@ public class FindCommand implements Command {
     private List<String> findSynonyms(String word) {
         // Direct match
         if (SYNONYMS.containsKey(word)) return SYNONYMS.get(word);
-        // Check if word IS a synonym value
+        // Check if word IS a synonym value (the first concept declared wins)
         for (var entry : SYNONYMS.entrySet()) {
             if (entry.getValue().contains(word)) return entry.getValue();
         }

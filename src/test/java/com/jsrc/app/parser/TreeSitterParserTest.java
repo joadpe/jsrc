@@ -131,6 +131,101 @@ class TreeSitterParserTest {
     }
 
     @Test
+    @DisplayName("Should match declared names only, not comments, strings, calls or longer names")
+    void shouldMatchOnlyDeclaredMethodNames() throws IOException {
+        Path file = writeFile("Mentions.java", """
+                public class Mentions {
+                    // greet is mentioned here
+                    private final String label = "greet";
+                    public void greeting() { greet(); }
+                }
+                """);
+
+        assertTrue(parser.findMethods(file, "greet").isEmpty());
+        assertEquals(List.of("greeting"),
+                parser.findMethods(file, "greeting").stream().map(MethodInfo::name).toList());
+    }
+
+    @Test
+    @DisplayName("Should extract modifiers, return type and parameters of a declaration")
+    void shouldExtractSignatureParts() throws IOException {
+        Path file = writeFile("Sig.java", """
+                public class Sig {
+                    @Deprecated
+                    protected static <T> java.util.List<T> pick(final int count, String... names) {
+                        return null;
+                    }
+                    void plain() {}
+                }
+                """);
+
+        MethodInfo pick = parser.findMethods(file, "pick").getFirst();
+        assertEquals(List.of("protected", "static"), pick.modifiers());
+        assertEquals("java.util.List<T>", pick.returnType());
+        // tree-sitter-java's spread_parameter has no type or name fields.
+        assertEquals(List.of(new MethodInfo.ParameterInfo("int", "count"),
+                new MethodInfo.ParameterInfo("?", "?")), pick.parameters());
+        assertEquals(2, pick.startLine());
+        assertEquals(5, pick.endLine());
+
+        MethodInfo plain = parser.findMethods(file, "plain").getFirst();
+        assertEquals(List.of(), plain.modifiers());
+        assertEquals("void", plain.returnType());
+        assertEquals(List.of(), plain.parameters());
+    }
+
+    @Test
+    @DisplayName("Should give the same results when one parser is reused across files")
+    void shouldReuseParserAcrossFiles() throws IOException {
+        Path first = writeFile("First.java", """
+                package demo.one;
+                public class First {
+                    public int size(String s) { return s.length(); }
+                    static class Inner { void size() {} }
+                }
+                """);
+        Path second = writeFile("Second.java", """
+                package demo.two;
+                interface Second { void size(); void clear(); }
+                """);
+
+        for (int round = 0; round < 3; round++) {
+            assertEquals(List.of("First", "Inner"), parser.findMethods(first, "size").stream()
+                    .map(MethodInfo::className).toList());
+            assertEquals(List.of("size"), parser.findMethods(second, "size").stream()
+                    .map(MethodInfo::name).toList());
+            assertEquals(2, parser.findAllMethods(second).size());
+
+            List<ClassInfo> classes = parser.parseClasses(first);
+            assertEquals(List.of("First", "Inner"), classes.stream().map(ClassInfo::name).toList());
+            assertEquals(List.of("demo.one", "demo.one"),
+                    classes.stream().map(ClassInfo::packageName).toList());
+            assertEquals(List.of(1, 1), classes.stream().map(c -> c.methods().size()).toList());
+
+            ClassInfo iface = parser.parseClasses(second).getFirst();
+            assertEquals("demo.two", iface.packageName());
+            assertTrue(iface.isInterface());
+            assertEquals(2, iface.methods().size());
+        }
+    }
+
+    @Test
+    @DisplayName("Should still locate methods in files with syntax errors")
+    void shouldFindMethodsInBrokenFile() throws IOException {
+        Path file = writeFile("Broken.java", """
+                public class Broken {
+                    public void ok() {}
+                    public void broken( {
+                    public int after() { return 1; }
+                """);
+
+        assertEquals(List.of("ok"), parser.findMethods(file, "ok").stream()
+                .map(MethodInfo::name).toList());
+        assertEquals(parser.findAllMethods(file).stream().filter(m -> m.name().equals("after")).toList(),
+                parser.findMethods(file, "after"));
+    }
+
+    @Test
     @DisplayName("findMethodsByAnnotation should return empty (not supported)")
     void shouldReturnEmptyForAnnotationSearch() throws IOException {
         Path file = writeFile("Ann.java", """

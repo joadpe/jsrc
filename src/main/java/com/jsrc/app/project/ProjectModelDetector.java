@@ -31,8 +31,16 @@ import org.xml.sax.helpers.DefaultHandler;
 public final class ProjectModelDetector {
 
     private static final Pattern QUOTED_VALUE = Pattern.compile("[\"']([^\"']+)[\"']");
+    /** The name of the call that starts a line, when it starts with include. */
+    private static final Pattern GRADLE_INCLUDE = Pattern.compile(
+            "\\s*(include\\p{javaJavaIdentifierPart}*)");
     private static final Pattern GRADLE_PROJECT = Pattern.compile(
             "project\\s*\\(\\s*[\"']:(.*?)[\"']\\s*\\)");
+    /** Gradle API calls whose names start with include and that do not add a project. */
+    private static final Set<String> GRADLE_NON_PROJECT_INCLUDES = Set.of(
+            "includeBuild", "includeFlat", "includeGroup", "includeGroupByRegex",
+            "includeGroupAndSubgroups", "includeModule", "includeModuleByRegex",
+            "includeVersion", "includeVersionByRegex");
     /**
      * A root-build block for one project, or a configure(...) call that may open one. Only
      * spaces and tabs may come before it on its line: a {@code \s*} after the line start would
@@ -627,10 +635,18 @@ public final class ProjectModelDetector {
         return dependencies;
     }
 
+    /**
+     * Reads the project paths of each line that starts with an {@code include} call, outside
+     * comments. A build's own helper named {@code include} and a capital letter, such as
+     * {@code includeProject 'a'}, counts as an include call. A Gradle call whose name only
+     * starts with {@code include}, such as {@code includeBuild} or {@code includeGroup}, adds
+     * no project.
+     */
     private static List<String> gradleModules(String settings) {
         Set<String> modules = new LinkedHashSet<>();
-        for (String line : settings.lines().toList()) {
-            if (!line.stripLeading().startsWith("include")) {
+        for (String line : withoutComments(settings).lines().toList()) {
+            Matcher include = GRADLE_INCLUDE.matcher(line);
+            if (!include.lookingAt() || !isInclude(include.group(1))) {
                 continue;
             }
             Matcher matcher = QUOTED_VALUE.matcher(line);
@@ -642,6 +658,16 @@ public final class ProjectModelDetector {
             }
         }
         return List.copyOf(modules);
+    }
+
+    /**
+     * Whether a call of this name is include or a helper that wraps it: include and a capital
+     * letter, such as includeProject, other than a Gradle call that adds no project.
+     */
+    private static boolean isInclude(String name) {
+        return name.equals("include")
+                || Character.isUpperCase(name.charAt("include".length()))
+                        && !GRADLE_NON_PROJECT_INCLUDES.contains(name);
     }
 
     private static Set<String> gradleDependencies(String buildFile) {

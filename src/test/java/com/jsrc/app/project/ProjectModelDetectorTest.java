@@ -725,6 +725,78 @@ class ProjectModelDetectorTest {
     }
 
     @Test
+    void ignoresCommentedOutGradleIncludes() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), """
+                include 'a'
+                /*
+                include 'legacy'
+                */
+                include 'b' // , 'old'
+                includeBuild 'tools'
+                /* moved out of tools: */ include 'c'
+                """);
+        // Old code kept beside the build, which a phantom module would index.
+        for (String directory : List.of("a", "legacy", "b", "old", "tools", "c")) {
+            Files.createDirectories(projectRoot.resolve(directory).resolve("src/main/java"));
+        }
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(List.of("a", "b", "c"),
+                model.modules().stream().map(ProjectModule::name).toList());
+    }
+
+    @Test
+    void ignoresGradleSettingsCallsThatOnlyStartWithInclude() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle.kts"), """
+                pluginManagement {
+                    includeBuild("build-logic")
+                }
+                dependencyResolutionManagement {
+                    repositories {
+                        maven {
+                            url = uri("https://repo.example.com/maven2")
+                            content {
+                                includeGroup("com.example")
+                                includeModule("org.example", "client")
+                            }
+                        }
+                    }
+                }
+                include(":app")
+                includeFlat("shared")
+                includeBuild("../platform")
+                """);
+        writeGradleModule("app", "");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(List.of("app"), model.modules().stream().map(ProjectModule::name).toList());
+        assertTrue(model.diagnostics().isEmpty());
+    }
+
+    @Test
+    void readsGradleIncludesThroughABuildsOwnHelper() throws Exception {
+        // JUnit 5 and AndroidX declare their projects through such a helper.
+        Files.writeString(projectRoot.resolve("settings.gradle"), """
+                def includeProject(String name) {
+                    include(name)
+                }
+                includeProject 'api'
+                includeProject(':core')
+                includeBuild 'build-logic'
+                includeFlat 'shared'
+                """);
+        writeGradleModule("api", "");
+        writeGradleModule("core", "");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(List.of("api", "core"),
+                model.modules().stream().map(ProjectModule::name).toList());
+    }
+
+    @Test
     void dynamicGradleReleaseDoesNotFallBackToStaticSource() throws Exception {
         Files.writeString(projectRoot.resolve("build.gradle.kts"), """
                 sourceCompatibility = JavaVersion.VERSION_17

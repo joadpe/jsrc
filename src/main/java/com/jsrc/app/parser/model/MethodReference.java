@@ -103,7 +103,12 @@ public record MethodReference(
 
     @Override
     public int hashCode() {
-        return Objects.hash(className, methodName, parameterTypes, parameterCount);
+        // Objects.hash(className, methodName, parameterTypes, parameterCount) without the
+        // varargs array and boxing: call graphs hash these references millions of times.
+        int hash = 31 + className.hashCode();
+        hash = 31 * hash + methodName.hashCode();
+        hash = 31 * hash + parameterTypes.hashCode();
+        return 31 * hash + parameterCount;
     }
 
     @Override

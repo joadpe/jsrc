@@ -51,6 +51,11 @@ public class CallGraphBuilder {
     private final Map<String, Set<MethodReference>> methodsByName = new HashMap<>();
     private final Map<String, Map<String, Set<MethodReference>>>
             methodsByNameAndClassSuffix = new HashMap<>();
+    private final Map<String, Set<String>> classSuffixCache = new HashMap<>();
+    // Registration lookups are pure until the next registerMethod, which clears them.
+    private final Map<MethodReference, MethodReference> registeredByReference = new HashMap<>();
+    private final Map<ArityLookup, MethodReference> registeredByArity = new HashMap<>();
+    private final Map<String, MethodNameClasses> classesByMethodName = new HashMap<>();
 
     public CallGraphBuilder() {
         var config = new com.github.javaparser.ParserConfiguration()
@@ -74,11 +79,7 @@ public class CallGraphBuilder {
             List<Path> javaFiles,
             Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels) {
         if (javaFiles.isEmpty()) {
-            callerIndex.clear();
-            calleeIndex.clear();
-            allMethods.clear();
-            methodsByName.clear();
-            methodsByNameAndClassSuffix.clear();
+            clear();
             return;
         }
 
@@ -108,16 +109,24 @@ public class CallGraphBuilder {
         return common == null ? Path.of("").toAbsolutePath().normalize() : common;
     }
 
-    /**
-     * Loads the call graph from pre-computed index entries.
-     * Much faster than {@link #build(List)} — no file I/O or parsing needed.
-     */
-    public void loadFromIndex(List<com.jsrc.app.index.IndexEntry> entries) {
+    private void clear() {
         callerIndex.clear();
         calleeIndex.clear();
         allMethods.clear();
         methodsByName.clear();
         methodsByNameAndClassSuffix.clear();
+        classSuffixCache.clear();
+        registeredByReference.clear();
+        registeredByArity.clear();
+        classesByMethodName.clear();
+    }
+
+    /**
+     * Loads the call graph from pre-computed index entries.
+     * Much faster than {@link #build(List)} — no file I/O or parsing needed.
+     */
+    public void loadFromIndex(List<com.jsrc.app.index.IndexEntry> entries) {
+        clear();
 
         // Register every method before resolving any persisted edge. Index entry order
         // must not affect whether a typed callee can be canonicalized.
@@ -169,8 +178,7 @@ public class CallGraphBuilder {
 
     private static boolean hasKnownParameterTypes(List<String> parameterTypes, int parameterCount) {
         return parameterTypes.size() == parameterCount
-                && parameterTypes.stream().noneMatch(
-                        com.jsrc.app.index.CallEdge.UNKNOWN_PARAMETER_TYPE::equals);
+                && !parameterTypes.contains(com.jsrc.app.index.CallEdge.UNKNOWN_PARAMETER_TYPE);
     }
 
     /**
@@ -263,16 +271,17 @@ public class CallGraphBuilder {
                                      Map<String, String> returnTypeMap) {
         for (int pass = 0; pass < 5; pass++) {
             boolean changed = false;
-            Map<MethodReference, Set<MethodCall>> newCalleeIndex = new HashMap<>();
 
             for (var callerEntry : calleeIndex.entrySet()) {
                 MethodReference caller = callerEntry.getKey();
                 Set<MethodCall> calls = callerEntry.getValue();
-                Set<MethodCall> updatedCalls = new HashSet<>();
+                if (!anyCalleeClass(calls, CallGraphBuilder::isMarker)) continue;
+                List<MethodCall> updatedCalls = new java.util.ArrayList<>(calls.size());
+                boolean callerChanged = false;
 
                 for (MethodCall call : calls) {
                     String calleeClass = call.callee().className();
-                    if (calleeClass.startsWith("?field:") || calleeClass.startsWith("?ret:")) {
+                    if (isMarker(calleeClass)) {
                         String resolved = com.jsrc.app.index.EdgeResolver.resolveMarker(
                                 calleeClass, fieldTypeMap, returnTypeMap);
                         if (resolved != null && !resolved.startsWith("?")) {
@@ -287,22 +296,47 @@ public class CallGraphBuilder {
                             allMethods.add(newCallee);
                             methodsByName.computeIfAbsent(newCallee.methodName(), k -> new HashSet<>()).add(newCallee);
                             changed = true;
+                            callerChanged = true;
                             continue;
                         }
                     }
                     updatedCalls.add(call);
                 }
-                newCalleeIndex.put(caller, updatedCalls);
+                if (callerChanged) {
+                    callerEntry.setValue(callSet(updatedCalls));
+                }
             }
 
             if (changed) {
-                calleeIndex.clear();
-                calleeIndex.putAll(newCalleeIndex);
                 callerIndex.entrySet().removeIf(e -> e.getValue().isEmpty());
             } else {
                 break;
             }
         }
+    }
+
+    private static boolean isMarker(String calleeClass) {
+        return calleeClass.startsWith("?field:") || calleeClass.startsWith("?ret:");
+    }
+
+    private static boolean anyCalleeClass(
+            Set<MethodCall> calls, java.util.function.Predicate<String> test) {
+        for (MethodCall call : calls) {
+            if (test.test(call.callee().className())) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Collects a caller's calls into a new set in the given order. Passes replace only the
+     * sets of callers whose calls changed; rebuilding the others would yield equal sets.
+     */
+    private static Set<MethodCall> callSet(List<MethodCall> calls) {
+        Set<MethodCall> set = new HashSet<>();
+        for (MethodCall call : calls) {
+            set.add(call);
+        }
+        return set;
     }
 
     /**
@@ -311,12 +345,12 @@ public class CallGraphBuilder {
      */
     private boolean resolvePass(Map<String, String> returnTypes,
                                 Map<String, Set<String>> qualifiedNames) {
-        Map<MethodReference, Set<MethodCall>> newCalleeIndex = new HashMap<>();
         boolean changed = false;
 
         for (var callerEntry : calleeIndex.entrySet()) {
             MethodReference caller = callerEntry.getKey();
             Set<MethodCall> calls = callerEntry.getValue();
+            if (!anyCalleeClass(calls, "?"::equals)) continue;
 
             // Collect all resolved calls on each line (for return type lookup)
             Map<Integer, List<MethodCall>> resolvedByLine = new HashMap<>();
@@ -326,7 +360,8 @@ public class CallGraphBuilder {
                 }
             }
 
-            Set<MethodCall> updatedCalls = new HashSet<>();
+            List<MethodCall> updatedCalls = new java.util.ArrayList<>(calls.size());
+            boolean callerChanged = false;
             for (MethodCall call : calls) {
                 if (!"?".equals(call.callee().className())) {
                     updatedCalls.add(call);
@@ -349,17 +384,18 @@ public class CallGraphBuilder {
                     allMethods.add(newCallee);
                     methodsByName.computeIfAbsent(newCallee.methodName(), k -> new HashSet<>()).add(newCallee);
                     changed = true;
+                    callerChanged = true;
                 } else {
                     updatedCalls.add(call);
                 }
             }
 
-            newCalleeIndex.put(caller, updatedCalls);
+            if (callerChanged) {
+                callerEntry.setValue(callSet(updatedCalls));
+            }
         }
 
         if (changed) {
-            calleeIndex.clear();
-            calleeIndex.putAll(newCalleeIndex);
             callerIndex.entrySet().removeIf(e -> e.getValue().isEmpty());
         }
         return changed;
@@ -385,11 +421,10 @@ public class CallGraphBuilder {
             if (rt != null) {
                 String simpleRt = rt.contains(".") ? rt.substring(rt.lastIndexOf('.') + 1) : rt;
 
-                // Verify the return type class has the target method
-                Set<MethodReference> candidates = methodsByName.getOrDefault(call.callee().methodName(), Set.of());
-                boolean hasMethod = candidates.stream()
-                        .anyMatch(m -> m.className().equals(simpleRt)
-                                || m.className().endsWith("." + simpleRt));
+                // Verify the return type class has the target method: a class name equal to
+                // simpleRt or ending with "." + simpleRt, i.e. whose last segment is simpleRt.
+                boolean hasMethod = methodNameClasses(call.callee().methodName())
+                        .lastSegments().contains(simpleRt);
                 if (!hasMethod) continue;
 
                 // If multiple classes share the simple name, use the qualified return type
@@ -414,18 +449,23 @@ public class CallGraphBuilder {
         }
 
         // Strategy 2: unique method name — only one class has this method
-        Set<MethodReference> candidates = methodsByName.get(call.callee().methodName());
-        if (candidates != null) {
-            Set<String> classes = new HashSet<>();
-            for (MethodReference c : candidates) {
-                if (!"?".equals(c.className())) classes.add(c.className());
-            }
-            if (classes.size() == 1) {
-                return classes.iterator().next();
-            }
-        }
+        return methodNameClasses(call.callee().methodName()).uniqueClass();
+    }
 
-        return null;
+    /**
+     * Summarizes the classes of the methods registered under a name. {@code methodsByName}
+     * sets only grow, so a summary stays valid while its set keeps the same size.
+     */
+    private MethodNameClasses methodNameClasses(String methodName) {
+        Set<MethodReference> methods = methodsByName.get(methodName);
+        if (methods == null) return MethodNameClasses.NONE;
+        MethodNameClasses summary = classesByMethodName.get(methodName);
+        if (summary == null || summary.methods() != methods
+                || summary.methodCount() != methods.size()) {
+            summary = MethodNameClasses.of(methods);
+            classesByMethodName.put(methodName, summary);
+        }
+        return summary;
     }
 
     /**
@@ -502,13 +542,15 @@ public class CallGraphBuilder {
             for (MethodCall call : calls) {
                 MethodReference caller = resolveRegistered(call.caller());
                 MethodReference callee = resolveRegistered(call.callee());
-                MethodCall canonicalCall = new MethodCall(
-                        caller,
-                        callee,
-                        call.line(),
-                        call.invocationKind(),
-                        call.resolutionLevel(),
-                        call.evidence());
+                MethodCall canonicalCall = caller == call.caller() && callee == call.callee()
+                        ? call
+                        : new MethodCall(
+                                caller,
+                                callee,
+                                call.line(),
+                                call.invocationKind(),
+                                call.resolutionLevel(),
+                                call.evidence());
                 canonicalCalleeIndex.computeIfAbsent(caller, ignored -> new HashSet<>())
                         .add(canonicalCall);
                 canonicalCallerIndex.computeIfAbsent(callee, ignored -> new HashSet<>())
@@ -981,6 +1023,8 @@ public class CallGraphBuilder {
      * Returns the first match, or a new MR with -1 if not found.
      */
     private void registerMethod(MethodReference reference) {
+        registeredByReference.clear();
+        registeredByArity.clear();
         allMethods.add(reference);
         methodsByName.computeIfAbsent(
                 reference.methodName(), ignored -> new HashSet<>()).add(reference);
@@ -1003,11 +1047,13 @@ public class CallGraphBuilder {
         return candidates;
     }
 
-    private static Set<String> classSuffixes(String className) {
-        Set<String> suffixes = new HashSet<>();
-        addClassSuffixes(suffixes, className);
-        addClassSuffixes(suffixes, className.replace('$', '.'));
-        return suffixes;
+    private Set<String> classSuffixes(String className) {
+        return classSuffixCache.computeIfAbsent(className, ignored -> {
+            Set<String> suffixes = new HashSet<>();
+            addClassSuffixes(suffixes, className);
+            addClassSuffixes(suffixes, className.replace('$', '.'));
+            return Collections.unmodifiableSet(suffixes);
+        });
     }
 
     private static void addClassSuffixes(Set<String> suffixes, String className) {
@@ -1025,6 +1071,15 @@ public class CallGraphBuilder {
     }
 
     private MethodReference resolveRegistered(MethodReference reference) {
+        MethodReference resolved = registeredByReference.get(reference);
+        if (resolved == null) {
+            resolved = lookupRegistered(reference);
+            registeredByReference.put(reference, resolved);
+        }
+        return resolved;
+    }
+
+    private MethodReference lookupRegistered(MethodReference reference) {
         if (reference.hasKnownParameterTypes()) {
             Set<MethodReference> byName = registeredCandidates(
                     reference.methodName(), reference.className());
@@ -1044,6 +1099,12 @@ public class CallGraphBuilder {
     }
 
     private MethodReference resolveRegistered(String className, String methodName, int parameterCount) {
+        return registeredByArity.computeIfAbsent(
+                new ArityLookup(className, methodName, parameterCount),
+                lookup -> lookupRegistered(className, methodName, parameterCount));
+    }
+
+    private MethodReference lookupRegistered(String className, String methodName, int parameterCount) {
         Set<MethodReference> byName = registeredCandidates(methodName, className);
         if (!byName.isEmpty()) {
             List<MethodReference> candidates = byName.stream()
@@ -1098,6 +1159,32 @@ public class CallGraphBuilder {
             Map<String, String> fieldTypes,
             Map<String, String> returnTypes,
             Map<String, Set<String>> qualifiedNames) {
+    }
+
+    private record ArityLookup(String className, String methodName, int parameterCount) {
+    }
+
+    /**
+     * Classes of the methods in one {@code methodsByName} set: each class name after its
+     * last '.', and the only class name other than "?" when there is exactly one.
+     */
+    private record MethodNameClasses(
+            Set<MethodReference> methods, int methodCount,
+            Set<String> lastSegments, String uniqueClass) {
+
+        static final MethodNameClasses NONE = new MethodNameClasses(null, 0, Set.of(), null);
+
+        static MethodNameClasses of(Set<MethodReference> methods) {
+            Set<String> lastSegments = new HashSet<>();
+            Set<String> classes = new HashSet<>();
+            for (MethodReference method : methods) {
+                String className = method.className();
+                lastSegments.add(className.substring(className.lastIndexOf('.') + 1));
+                if (!"?".equals(className)) classes.add(className);
+            }
+            return new MethodNameClasses(methods, methods.size(), lastSegments,
+                    classes.size() == 1 ? classes.iterator().next() : null);
+        }
     }
 
 }

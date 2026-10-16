@@ -97,6 +97,62 @@ class ReviewCommandTest {
     }
 
     @Test
+    void narrowingToPrivateIsHighOnlyWhenOtherClassesCallIt(@TempDir Path root) throws Exception {
+        Path api = root.resolve("src/main/java/demo/Api.java");
+        Path single = root.resolve("src/main/java/demo/Single.java");
+        Files.createDirectories(api.getParent());
+        Files.writeString(api, """
+                package demo;
+                class Api { void run() {} }
+                """);
+        Files.writeString(root.resolve("src/main/java/demo/Caller.java"), """
+                package demo;
+                class Caller { void go(Api api) { api.run(); new Api(); } }
+                """);
+        Files.writeString(single, """
+                package demo;
+                class Single { static Single create() { return new Single(); } }
+                """);
+        git(root, "init", "-q");
+        git(root, "config", "user.email", "test@example.com");
+        git(root, "config", "user.name", "Test");
+        git(root, "add", ".");
+        git(root, "commit", "-qm", "initial");
+        Files.writeString(api, """
+                package demo;
+                class Api { private Api() {} private void run() {} }
+                """);
+        Files.writeString(single, """
+                package demo;
+                class Single { private Single() {} static Single create() { return new Single(); } }
+                """);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream previous = System.out;
+        try {
+            System.setOut(new PrintStream(out, true, StandardCharsets.UTF_8));
+            assertEquals(0, JsrcCliFactory.create().execute("--dir", root.toString(), "--json", "review"));
+        } finally {
+            System.setOut(previous);
+        }
+        var data = (java.util.Map<?, ?>) com.jsrc.app.output.JsonReader.parse(
+                out.toString(StandardCharsets.UTF_8).trim());
+        var symbols = ((java.util.List<?>) data.get("symbols")).stream()
+                .map(symbol -> (java.util.Map<?, ?>) symbol)
+                .collect(java.util.stream.Collectors.toMap(symbol -> symbol.get("symbol"), symbol -> symbol));
+        // Caller.go() loses access to both the implicit Api() and run()
+        for (String narrowed : java.util.List.of("demo.Api.Api()", "demo.Api.run()")) {
+            var symbol = symbols.get(narrowed);
+            assertEquals("high", symbol.get("risk"), String.valueOf(symbol));
+            assertTrue(((java.util.List<?>) symbol.get("reasons"))
+                    .contains("narrowed to private; 1 caller(s) in other classes"), String.valueOf(symbol));
+        }
+        // Single() is private but called only from Single itself
+        assertEquals("medium", symbols.get("demo.Single.Single()").get("risk"),
+                String.valueOf(symbols.get("demo.Single.Single()")));
+    }
+
+    @Test
     void invalidRefIsAnErrorRatherThanAnEmptyReview(@TempDir Path root) throws Exception {
         Files.writeString(root.resolve("README.md"), "fixture");
         git(root, "init", "-q");

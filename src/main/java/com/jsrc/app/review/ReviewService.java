@@ -139,6 +139,7 @@ public final class ReviewService {
                 List<String> reasons = new ArrayList<>();
                 List<String> impacted = new ArrayList<>();
                 String confidence = "exact";
+                int lostAccess = 0;
                 if (duplicateType(type)) {
                     unresolved.add(symbol + ": duplicate qualified type across modules; call graph identity ambiguous");
                     confidence = "unknown";
@@ -159,6 +160,11 @@ public final class ReviewService {
                         tests.put(path, new TestCandidate(path, "calls " + symbol,
                                 impact.uncertain() ? "inferred" : "exact"));
                     }
+                    // Private access keeps only the callers inside the top-level class
+                    if (oldMethod != null && !oldMethod.modifiers().contains("private")
+                            && newMethod.modifiers().contains("private")) {
+                        lostAccess = impact.otherClassCallers();
+                    }
                 }
                 if (constructorUnresolved) {
                     unresolved.add(symbol + ": " + constructorsUnresolved);
@@ -166,11 +172,12 @@ public final class ReviewService {
                 }
                 if (!impacted.isEmpty()) reasons.add(impacted.size() + " caller(s) in call graph");
                 if (publicContract && !"unchanged".equals(contract)) reasons.add("public method contract " + contract);
+                if (lostAccess > 0) reasons.add("narrowed to private; " + lostAccess + " caller(s) in other classes");
                 if (constructorUnresolved) reasons.add("constructor contract unresolved");
                 if (wasImplicit) reasons.add("implicit constructor before the change");
                 if (isImplicit) reasons.add("implicit constructor after the change");
                 if (reasons.isEmpty()) reasons.add("method body changed; no resolved callers");
-                String risk = publicContract && !"unchanged".equals(contract) ? "high"
+                String risk = (publicContract && !"unchanged".equals(contract)) || lostAccess > 0 ? "high"
                         : confidence.equals("unknown") ? "unknown"
                         : impacted.size() > 5 ? "high" : impacted.isEmpty() ? "low" : "medium";
                 symbols.add(new SymbolReview(change.path(), type, symbol, status(oldMethod, newMethod),
@@ -272,7 +279,14 @@ public final class ReviewService {
         Set<MethodReference> roots = graph.findMethodsByName(method.name()).stream()
                 .filter(ref -> ref.className().equals(qualifiedType)
                         && ref.parameterTypes().equals(parameters)).collect(java.util.stream.Collectors.toSet());
-        if (roots.isEmpty()) return new Impact(List.of(), List.of(), false, true);
+        if (roots.isEmpty()) return new Impact(List.of(), List.of(), false, true, 0);
+        // Exact direct callers outside the top-level class, which private access would exclude
+        String outer = qualifiedType.split("\\$", 2)[0];
+        int otherClassCallers = (int) roots.stream().flatMap(root -> graph.getCallersOf(root).stream())
+                .filter(edge -> edge.resolutionLevel() == ResolutionLevel.EXACT)
+                .map(MethodCall::caller)
+                .filter(caller -> !outer.equals(caller.className().split("\\$", 2)[0]))
+                .distinct().count();
         Set<MethodReference> visited = new HashSet<>(roots);
         ArrayDeque<MethodReference> queue = new ArrayDeque<>(roots);
         Set<String> callers = new LinkedHashSet<>();
@@ -299,7 +313,7 @@ public final class ReviewService {
         }
         if (!queue.isEmpty()) uncertain = true;
         return new Impact(callers.stream().sorted().toList(), tests.stream().sorted().toList(),
-                uncertain, false);
+                uncertain, false, otherClassCallers);
     }
 
     private Path uniqueFileForType(String qualified) {
@@ -343,5 +357,5 @@ public final class ReviewService {
     }
 
     private record Impact(List<String> callers, List<String> testPaths,
-                          boolean uncertain, boolean missing) {}
+                          boolean uncertain, boolean missing, int otherClassCallers) {}
 }

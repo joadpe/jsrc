@@ -293,10 +293,11 @@ are not executed. Invalid refs fail with a nonzero exit code. The command does
 not infer runtime or binary compatibility; duplicate qualified types across
 modules are marked unresolved. A class or record without constructor
 declarations is compared through the constructor Java declares for it, so
-adding `private Api() {}` to a public class narrows a public constructor.
-Constructors declared in records are not modelled. They are marked unresolved
-when the record's declaration changes, or when no other symbol in its file
-changed.
+adding `private Api() {}` to a public class narrows a public constructor. A
+method or constructor made private is high risk when the call graph has exact
+callers in other classes. Constructors declared in records are not modelled.
+They are marked unresolved when the record's declaration changes, or when no
+other symbol in its file changed.
 
 ## Commands
 

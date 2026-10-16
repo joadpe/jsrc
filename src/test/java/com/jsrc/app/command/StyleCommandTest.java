@@ -69,6 +69,16 @@ class StyleCommandTest {
     }
 
     @Test
+    void ignoresCommasOutsideConstructorParameters() throws Exception {
+        var result = run("""
+                public class Cache {
+                    public <K, V> Cache(K key) throws java.io.IOException, InterruptedException {}
+                }
+                """);
+        assertEquals("none", result.get("injection"));
+    }
+
+    @Test
     void detectsJavaVersion() throws Exception {
         // Write .jsrc.yaml with javaVersion
         Files.writeString(tempDir.resolve(".jsrc.yaml"), "javaVersion: \"21\"");

@@ -16,9 +16,12 @@ import org.slf4j.LoggerFactory;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.comments.JavadocComment;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.MemberValuePair;
@@ -212,15 +215,7 @@ public class HybridJavaParser implements CodeParser {
                 .map(mod -> mod.getKeyword().asString()).toList();
         var methods = new java.util.ArrayList<MethodInfo>();
         ed.getMethods().stream().map(md -> toRichMethodInfo(md, null)).forEach(methods::add);
-        ed.getConstructors().forEach(cd -> {
-            int ctorStart = cd.getBegin().map(p -> p.line).orElse(0);
-            int ctorEnd = cd.getEnd().map(p -> p.line).orElse(0);
-            String ctorSig = cd.getDeclarationAsString(true, true, true);
-            List<MethodInfo.ParameterInfo> ctorParams = cd.getParameters().stream()
-                    .map(this::toParameterInfo).toList();
-            methods.add(new MethodInfo(ed.getNameAsString(), name, ctorStart, ctorEnd, "",
-                    List.of(), ctorParams, cd.toString(), List.of(), List.of(), List.of(), null));
-        });
+        ed.getConstructors().forEach(cd -> methods.add(toConstructorInfo(cd, ed)));
         List<AnnotationInfo> annotations = ed.getAnnotations().stream()
                 .map(this::toAnnotationInfo).toList();
         List<String> interfaces = ed.getImplementedTypes().stream()
@@ -250,12 +245,27 @@ public class HybridJavaParser implements CodeParser {
         CompilationUnit cu = parseWithJavaParserStrict(path);
         if (cu == null) return Collections.emptyList();
 
-        return cu.findAll(MethodDeclaration.class).stream()
+        var annotated = new java.util.ArrayList<MethodInfo>();
+        cu.findAll(MethodDeclaration.class).stream()
                 .filter(md -> md.getBegin().isPresent())
-                .filter(md -> md.getAnnotations().stream()
-                        .anyMatch(a -> a.getNameAsString().equals(annotationName)))
+                .filter(md -> hasAnnotation(md, annotationName))
                 .map(md -> toRichMethodInfo(md, null))
-                .toList();
+                .forEach(annotated::add);
+        // Constructors of classes and enums, the ones parseClasses reports as methods
+        cu.findAll(ConstructorDeclaration.class).stream()
+                .filter(cd -> cd.getBegin().isPresent())
+                .filter(cd -> hasAnnotation(cd, annotationName))
+                .forEach(cd -> cd.getParentNode()
+                        .filter(owner -> owner instanceof ClassOrInterfaceDeclaration
+                                || owner instanceof com.github.javaparser.ast.body.EnumDeclaration)
+                        .ifPresent(owner -> annotated.add(
+                                toConstructorInfo(cd, (TypeDeclaration<?>) owner))));
+        return annotated;
+    }
+
+    private static boolean hasAnnotation(CallableDeclaration<?> callable, String annotationName) {
+        return callable.getAnnotations().stream()
+                .anyMatch(a -> a.getNameAsString().equals(annotationName));
     }
 
     // ---- code smell detection ----
@@ -273,37 +283,47 @@ public class HybridJavaParser implements CodeParser {
     // ---- JavaParser model extraction ----
 
     private MethodInfo toRichMethodInfo(MethodDeclaration md, String fallbackContent) {
-        String name = md.getNameAsString();
-        int startLine = md.getBegin().map(p -> p.line).orElse(-1);
-        int endLine = md.getEnd().map(p -> p.line).orElse(-1);
+        String content = fallbackContent != null ? fallbackContent : md.toString();
+        return toMethodInfo(md, md.getNameAsString(), findEnclosingClassName(md),
+                md.getTypeAsString(), -1, content);
+    }
 
-        String className = findEnclosingClassName(md);
+    /**
+     * Constructors are reported as methods named after their class, without a return type,
+     * with the modifiers, type parameters, annotations, exceptions and javadoc they declare.
+     */
+    private MethodInfo toConstructorInfo(ConstructorDeclaration cd, TypeDeclaration<?> owner) {
+        return toMethodInfo(cd, owner.getNameAsString(), binaryTypeName(owner),
+                "", 0, cd.toString());
+    }
 
-        String returnType = md.getTypeAsString();
+    private MethodInfo toMethodInfo(CallableDeclaration<?> callable, String name,
+                                    String className, String returnType,
+                                    int unknownLine, String content) {
+        int startLine = callable.getBegin().map(p -> p.line).orElse(unknownLine);
+        int endLine = callable.getEnd().map(p -> p.line).orElse(unknownLine);
 
-        List<String> modifiers = md.getModifiers().stream()
+        List<String> modifiers = callable.getModifiers().stream()
                 .map(mod -> mod.getKeyword().asString())
                 .toList();
 
-        List<ParameterInfo> parameters = md.getParameters().stream()
+        List<ParameterInfo> parameters = callable.getParameters().stream()
                 .map(this::toParameterInfo)
                 .toList();
 
-        String content = fallbackContent != null ? fallbackContent : md.toString();
-
-        List<AnnotationInfo> annotations = md.getAnnotations().stream()
+        List<AnnotationInfo> annotations = callable.getAnnotations().stream()
                 .map(this::toAnnotationInfo)
                 .toList();
 
-        List<String> thrownExceptions = md.getThrownExceptions().stream()
+        List<String> thrownExceptions = callable.getThrownExceptions().stream()
                 .map(t -> t.asString())
                 .toList();
 
-        List<String> typeParameters = md.getTypeParameters().stream()
+        List<String> typeParameters = callable.getTypeParameters().stream()
                 .map(tp -> tp.asString())
                 .toList();
 
-        String javadoc = md.getJavadocComment()
+        String javadoc = callable.getJavadocComment()
                 .map(JavadocComment::getContent)
                 .map(String::trim)
                 .orElse(null);
@@ -327,16 +347,7 @@ public class HybridJavaParser implements CodeParser {
                 .map(md -> toRichMethodInfo(md, null))
                 .forEach(methods::add);
         // Include constructors as methods (for dependency analysis and call graph)
-        cid.getConstructors().forEach(cd -> {
-            int ctorStart = cd.getBegin().map(p -> p.line).orElse(0);
-            int ctorEnd = cd.getEnd().map(p -> p.line).orElse(0);
-            String ctorSig = cd.getDeclarationAsString(true, true, true);
-            List<MethodInfo.ParameterInfo> ctorParams = cd.getParameters().stream()
-                    .map(this::toParameterInfo).toList();
-            methods.add(new MethodInfo(cid.getNameAsString(), name,
-                    ctorStart, ctorEnd, "", List.of("public"), ctorParams,
-                    cd.toString(), List.of(), List.of(), List.of(), null));
-        });
+        cid.getConstructors().forEach(cd -> methods.add(toConstructorInfo(cd, cid)));
 
         String superClass = cid.getExtendedTypes().stream()
                 .findFirst()

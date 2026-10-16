@@ -2,6 +2,7 @@ package com.jsrc.app.review;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.jsrc.app.analysis.CallGraph;
@@ -247,7 +248,7 @@ class ReviewServiceTest {
     }
 
     @Test
-    void doesNotClaimConstructorVisibilityFromKnownParserLimitation(@TempDir Path root) throws Exception {
+    void reviewsConstructorsWithTheirDeclaredVisibility(@TempDir Path root) throws Exception {
         Path source = write(root, "src/main/java/demo/Api.java", """
                 package demo;
                 public class Api { public int run() { return 1; } }
@@ -257,17 +258,25 @@ class ReviewServiceTest {
                 package demo;
                 public class Api {
                     private Api() {}
+                    public Api(int seed) {}
                     public int run() { return 1; }
                 }
                 """);
 
         ReviewReport report = review(root, List.of(source));
-        var constructor = report.symbols().stream()
+        var hidden = report.symbols().stream()
                 .filter(symbol -> symbol.symbol().equals("demo.Api.Api()"))
                 .findFirst().orElseThrow();
-        assertEquals("unknown", constructor.contract());
-        assertEquals("unknown", constructor.risk());
-        assertTrue(report.unresolved().stream().anyMatch(issue -> issue.contains("constructor visibility")));
+        var exposed = report.symbols().stream()
+                .filter(symbol -> symbol.symbol().equals("demo.Api.Api(int)"))
+                .findFirst().orElseThrow();
+        assertEquals("added", hidden.contract());
+        assertNotEquals("high", hidden.risk());
+        assertTrue(hidden.reasons().stream().noneMatch(reason -> reason.contains("public")));
+        assertEquals("added", exposed.contract());
+        assertEquals("high", exposed.risk());
+        assertTrue(exposed.reasons().contains("public method contract added"));
+        assertTrue(report.unresolved().stream().noneMatch(issue -> issue.contains("constructor visibility")));
     }
 
     @Test

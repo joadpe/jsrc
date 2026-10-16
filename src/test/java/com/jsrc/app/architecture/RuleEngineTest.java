@@ -109,6 +109,26 @@ class RuleEngineTest {
     }
 
     @Test
+    @DisplayName("deny-annotation rule accepts annotated constructors (constructor injection)")
+    void denyAnnotationExemptsConstructors() throws Exception {
+        var layers = List.of(new LayerDef("service", "**/*Service", List.of()));
+        var rules = List.of(new RuleDef("no-autowired", "No field injection",
+                null, "service", null, null, "Autowired"));
+        var engine = new RuleEngine(new ArchitectureConfig(layers, rules, List.of(), List.of()));
+
+        var classes = parseClasses("OrderService.java", """
+                public class OrderService {
+                    private final OrderRepository repo;
+                    @Autowired
+                    public OrderService(OrderRepository repo) { this.repo = repo; }
+                }
+                """);
+
+        var violations = engine.evaluate(classes, List.of(tempDir.resolve("OrderService.java")));
+        assertTrue(violations.isEmpty(), "Constructor injection is allowed. Got: " + violations);
+    }
+
+    @Test
     @DisplayName("evaluateRule filters by rule ID")
     void evaluateSpecificRule() throws Exception {
         var layers = List.of(

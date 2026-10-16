@@ -54,7 +54,8 @@ public class PatternsCommand implements Command {
                 for (var ic : entry.classes()) {
                     boolean hasCtor = ic.methods().stream()
                             .anyMatch(m -> m.name().equals(ic.name()) && m.signature() != null
-                                    && m.signature().contains(","));
+                                    && com.jsrc.app.util.SignatureUtils
+                                            .extractParams(m.signature()).contains(","));
                     if (hasCtor) ctorInjection++;
                     if (ic.annotations().stream().anyMatch(a -> a.contains("Autowired") || a.contains("Inject")))
                         fieldInjection++;

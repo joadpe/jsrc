@@ -103,16 +103,10 @@ public final class ReviewService {
                 String contract = oldMethod == null ? "added" : newMethod == null ? "removed"
                         : Objects.equals(methodContract(oldMethod), methodContract(newMethod))
                         ? "unchanged" : "changed";
-                boolean constructor = method.name().equals(type.substring(type.lastIndexOf('.') + 1));
-                if (constructor) contract = "unknown";
-                boolean publicContract = !constructor && (isPublic(oldMethod) || isPublic(newMethod));
+                boolean publicContract = isPublic(oldMethod) || isPublic(newMethod);
                 List<String> reasons = new ArrayList<>();
                 List<String> impacted = new ArrayList<>();
                 String confidence = "exact";
-                if (constructor) {
-                    unresolved.add(symbol + ": constructor visibility is not reliable in parser");
-                    confidence = "unknown";
-                }
                 if (duplicateType(type)) {
                     unresolved.add(symbol + ": duplicate qualified type across modules; call graph identity ambiguous");
                     confidence = "unknown";
@@ -136,7 +130,6 @@ public final class ReviewService {
                 }
                 if (!impacted.isEmpty()) reasons.add(impacted.size() + " caller(s) in call graph");
                 if (publicContract && !"unchanged".equals(contract)) reasons.add("public method contract " + contract);
-                if (constructor) reasons.add("constructor visibility unresolved");
                 if (reasons.isEmpty()) reasons.add("method body changed; no resolved callers");
                 String risk = publicContract && !"unchanged".equals(contract) ? "high"
                         : confidence.equals("unknown") ? "unknown"

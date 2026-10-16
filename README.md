@@ -291,7 +291,7 @@ confidence. The `summary`, `unresolved` and `omitted` fields distinguish missing
 semantic evidence from low risk and show what a budget removed. Test suggestions
 are not executed. Invalid refs fail with a nonzero exit code. The command does
 not infer runtime or binary compatibility; duplicate qualified types across
-modules and constructor visibility are marked unresolved.
+modules are marked unresolved.
 
 ## Commands
 

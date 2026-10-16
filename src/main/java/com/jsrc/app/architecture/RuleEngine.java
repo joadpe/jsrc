@@ -154,8 +154,12 @@ public class RuleEngine {
         List<ClassInfo> targetClasses = layerResolver.filterByLayer(classes, layer);
 
         for (ClassInfo ci : targetClasses) {
-            // Check method-level annotations
+            // Check method-level annotations. Constructors are exempt: an annotated constructor
+            // (e.g. @Autowired) is the constructor injection such rules ask for.
+            String constructorName = com.jsrc.app.model.TypeId.from(
+                    ci.packageName(), ci.name()).simpleName();
             for (MethodInfo m : ci.methods()) {
+                if (m.name().equals(constructorName)) continue;
                 if (m.hasAnnotation(denyAnn)) {
                     violations.add(new Violation(
                             rule.id(), ci.qualifiedName(),

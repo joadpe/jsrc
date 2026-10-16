@@ -157,8 +157,11 @@ public class LintCommand implements Command {
 
         // Check for dead code (private-like methods with 0 callers)
         CallGraph graph = ctx.callGraph();
+        // Constructors are named after the innermost class: Entry for Registry$Entry
+        String constructorName = com.jsrc.app.model.TypeId.from(
+                target.packageName(), target.name()).simpleName();
         for (var m : target.methods()) {
-            if (m.name().equals(target.name())) continue; // skip constructors
+            if (m.name().equals(constructorName)) continue; // skip constructors
             if (m.name().equals("main") || m.name().equals("toString")
                     || m.name().equals("hashCode") || m.name().equals("equals")) continue;
 

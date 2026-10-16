@@ -243,6 +243,92 @@ class HybridJavaParserTest {
                 .anyMatch(a -> a.name().equals("SuppressWarnings")));
     }
 
+    // ---- constructors ----
+
+    @Test
+    @DisplayName("Should report constructors with their declared metadata")
+    void shouldReportConstructorsWithDeclaredMetadata() throws IOException {
+        Path file = writeFile("Box.java", """
+                package app;
+                import java.io.IOException;
+                public class Box {
+                    /** Wraps a value. */
+                    private Box(Object value) {}
+                    @Deprecated
+                    public <T> Box(T value, Class<T> type) throws IOException {}
+                    protected Box(String label, int size) {}
+                    Box() {}
+                    static class Inner { Inner(int x) {} }
+                }
+                """);
+
+        List<ClassInfo> classes = parser.parseClasses(file);
+        List<MethodInfo> constructors = classes.stream()
+                .filter(c -> c.name().equals("Box")).findFirst().orElseThrow()
+                .methods();
+
+        assertEquals(List.of(
+                        "private Box(Object value)",
+                        "public <T> Box(T value, Class<T> type) throws IOException",
+                        "protected Box(String label, int size)",
+                        "Box()"),
+                constructors.stream().map(MethodInfo::signature).toList());
+        MethodInfo wrapping = constructors.getFirst();
+        assertEquals(List.of("private"), wrapping.modifiers());
+        assertEquals("Wraps a value.", wrapping.javadoc());
+        assertEquals("", wrapping.returnType());
+        assertEquals("Box", wrapping.className());
+        MethodInfo generic = constructors.get(1);
+        assertEquals(List.of("T"), generic.typeParameters());
+        assertEquals(List.of("IOException"), generic.thrownExceptions());
+        assertTrue(generic.hasAnnotation("Deprecated"));
+        assertNull(generic.javadoc());
+
+        MethodInfo inner = classes.stream()
+                .filter(c -> c.name().equals("Box$Inner")).findFirst().orElseThrow()
+                .methods().getFirst();
+        assertEquals("Inner", inner.name());
+        assertEquals("Box$Inner", inner.className());
+        assertEquals("Inner(int x)", inner.signature());
+    }
+
+    @Test
+    @DisplayName("Should report enum constructors with their declared modifiers")
+    void shouldReportEnumConstructorsWithDeclaredModifiers() throws IOException {
+        Path file = writeFile("Color.java", """
+                public enum Color {
+                    RED(1), GREEN("green");
+                    private Color(int rgb) {}
+                    Color(String name) {}
+                }
+                """);
+
+        List<MethodInfo> constructors = parser.parseClasses(file).getFirst().methods();
+
+        assertEquals(List.of("private Color(int rgb)", "Color(String name)"),
+                constructors.stream().map(MethodInfo::signature).toList());
+    }
+
+    @Test
+    @DisplayName("Should find constructors of classes and enums by annotation")
+    void shouldFindConstructorsByAnnotation() throws IOException {
+        Path file = writeFile("Injected.java", """
+                public class Injected {
+                    @Deprecated
+                    Injected(String name) {}
+                    @Deprecated
+                    public void old() {}
+                    enum Mode { ON; @Deprecated Mode() {} }
+                }
+                """);
+
+        List<MethodInfo> deprecated = parser.findMethodsByAnnotation(file, "Deprecated");
+
+        assertEquals(List.of("Injected.old", "Injected.Injected", "Injected$Mode.Mode"),
+                deprecated.stream().map(m -> m.className() + "." + m.name()).toList());
+        assertEquals("Injected(String name)", deprecated.get(1).signature());
+    }
+
     // ---- findMethodsByAnnotation ----
 
     @Test

@@ -55,6 +55,21 @@ class LintCommandTest {
     }
 
     @Test
+    void nestedPrivateConstructor_notReportedAsDeadCode() throws Exception {
+        var diags = run("Registry$Entry", """
+                package app;
+                public class Registry {
+                    private final Entry first = new Entry("a");
+                    public static class Entry {
+                        private Entry(String key) {}
+                    }
+                }
+                """);
+        assertTrue(diags.stream().noneMatch(d -> d.get("message").toString().contains("Entry()")),
+                "Nested constructor should not be reported as dead code. Got: " + diags);
+    }
+
+    @Test
     void toStringEquals_skipped() throws Exception {
         var diags = run("Svc", """
                 public class Svc {

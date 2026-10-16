@@ -95,6 +95,22 @@ class PatternsCommandTest {
     }
 
     @Test
+    void constructorInjectionIgnoresCommasOutsideParameters() throws Exception {
+        var result = run("""
+                public class Svc {
+                    public Svc(Repo repo, Bus bus) {}
+                }
+                """, """
+                public class Cache {
+                    public <K, V> Cache(K key) throws java.io.IOException, InterruptedException {}
+                }
+                """);
+        @SuppressWarnings("unchecked")
+        var injection = (Map<String, Object>) result.get("injection");
+        assertEquals("50%", injection.get("constructor"), "Only Svc injects. Got: " + injection);
+    }
+
+    @Test
     void singleClass_noDivideByZero() throws Exception {
         var result = run("""
                 public class Only { public void run() {} }

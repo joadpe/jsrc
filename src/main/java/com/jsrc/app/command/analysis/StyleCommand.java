@@ -47,7 +47,8 @@ public class StyleCommand implements Command {
                     boolean hasCtorParams = ic.methods().stream()
                             .anyMatch(m -> m.name().equals(ic.name())
                                     && m.signature() != null
-                                    && m.signature().contains(","));
+                                    && com.jsrc.app.util.SignatureUtils
+                                            .extractParams(m.signature()).contains(","));
                     boolean hasAutowired = ic.annotations().contains("Autowired")
                             || ic.fields().stream().anyMatch(f ->
                                     ic.annotations().contains("Autowired"));

@@ -4,14 +4,19 @@ import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import com.jsrc.app.index.IndexedClass;
 import com.jsrc.app.parser.model.MethodReference;
 import com.jsrc.app.util.MethodResolver;
+import com.jsrc.app.util.MethodTargetResolver;
 import com.jsrc.app.util.SignatureUtils;
 
 /**
@@ -48,66 +53,51 @@ public class ValidateCommand implements Command {
         Set<MethodReference> byName = graph.findMethodsByName(methodName);
 
         // Also search index for richer info (signatures)
-        Map<String, String> signatures = new LinkedHashMap<>();
-        if (ctx.indexed() != null) {
-            for (var entry : ctx.indexed().getEntries()) {
-                for (var ic : entry.classes()) {
-                    for (var im : ic.methods()) {
-                        signatures.put(ic.name() + "." + im.name(), im.signature());
-                    }
-                }
-            }
-        }
+        Map<String, String> signatures = indexSignatures(ctx);
 
         // Filter by class if specified
         if (ref.hasClassName()) {
-            var classMatch = byName.stream()
-                    .filter(m -> m.className().equals(ref.className()))
-                    .collect(Collectors.toSet());
+            var classMatch = inClass(ctx, byName, ref.className());
 
             if (!classMatch.isEmpty()) {
                 // Filter by param count if specified
                 if (ref.hasParamTypes()) {
-                    var paramMatch = classMatch.stream()
-                            .filter(m -> m.parameterCount() < 0 || m.parameterCount() == ref.paramTypes().size())
-                            .collect(Collectors.toSet());
+                    var paramMatch = withArity(classMatch, ref.paramTypes().size());
                     if (!paramMatch.isEmpty()) {
-                        return reportValid(ctx, paramMatch.iterator().next(), signatures);
+                        return reportValidOrAmbiguous(ctx, ref, paramMatch, signatures);
                     }
                     // Call graph parameterCount may be wrong — fall back to index signatures
                     if (ctx.indexed() != null) {
                         var indexMatch = matchByIndexSignature(ctx, ref);
                         if (indexMatch != null) {
-                            return reportValid(ctx, classMatch.iterator().next(), signatures);
+                            return reportValidFromIndex(ctx, indexMatch);
                         }
                     }
                     // Wrong param count — suggest overloads
                     return reportInvalid(ctx, ref, "Parameter count mismatch",
-                            suggestOverloads(classMatch, signatures));
+                            displayNames(knownArity(classMatch)));
                 }
-                return reportValid(ctx, classMatch.iterator().next(), signatures);
+                return reportValidOrAmbiguous(ctx, ref, classMatch, signatures);
             }
 
             // Method not found in call graph for this class — try index
             if (ctx.indexed() != null) {
                 var indexMatch = matchByIndexSignature(ctx, ref);
                 if (indexMatch != null) {
-                    return reportValidFromIndex(ctx, ref.className(), ref.methodName(), indexMatch);
+                    return reportValidFromIndex(ctx, indexMatch);
                 }
             }
 
             // Method not in this class — fuzzy search
             return reportInvalid(ctx, ref, "Method not found in " + ref.className(),
-                    findClosest(ref, graph.getAllMethods(), signatures));
+                    findClosest(ref, graph.getAllMethods()));
         }
 
         // No class specified — also try index
         if (byName.isEmpty() && ctx.indexed() != null) {
             var indexMatch = matchByIndexSignature(ctx, ref);
             if (indexMatch != null) {
-                return reportValidFromIndex(ctx,
-                        ref.hasClassName() ? ref.className() : ref.methodName(),
-                        ref.methodName(), indexMatch);
+                return reportValidFromIndex(ctx, indexMatch);
             }
         }
         if (byName.size() == 1) {
@@ -115,12 +105,165 @@ public class ValidateCommand implements Command {
         }
         if (byName.size() > 1) {
             // Ambiguous
-            return reportAmbiguous(ctx, ref, byName, signatures);
+            return reportAmbiguous(ctx, ref, byName,
+                    "Method exists in multiple classes. Use Class.method to disambiguate.");
         }
 
         // Not found — fuzzy search across all methods
         return reportInvalid(ctx, ref, "Method not found",
-                findClosest(ref, graph.getAllMethods(), signatures));
+                findClosest(ref, graph.getAllMethods()));
+    }
+
+    /**
+     * True when the requested name designates {@code className} by its simple name, nested name
+     * (Outer.Inner or Outer$Inner) or qualified name. Only the request may be the shorter name,
+     * so a qualified request never matches a class of another package. Unresolved call-graph
+     * owners ("?", "?field:...") are not classes and never match.
+     */
+    private static boolean namesClass(String className, String requested) {
+        if (className.startsWith("?")) return false;
+        String known = sourceName(className);
+        String wanted = sourceName(requested);
+        return known.equals(wanted) || known.endsWith("." + wanted);
+    }
+
+    /** Class name with nested classes written like source code: app.Outer.Inner. */
+    private static String sourceName(String className) {
+        return className.replace('$', '.');
+    }
+
+    /** True for names that start with a package (lower-case first segment), unlike Repo or Outer.Inner. */
+    private static boolean startsWithPackage(String name) {
+        return name.indexOf('.') > 0 && Character.isLowerCase(name.charAt(0));
+    }
+
+    /**
+     * Owners the requested name designates. A request starting with a package that names an
+     * owner exactly means that owner alone, not longer names ending with it (api.User, not
+     * com.acme.api.User).
+     */
+    private static <T> List<T> designated(Collection<T> candidates, Function<T, String> owner,
+                                          String requested) {
+        List<T> matching = candidates.stream()
+                .filter(candidate -> namesClass(owner.apply(candidate), requested))
+                .toList();
+        String wanted = sourceName(requested);
+        if (startsWithPackage(wanted)) {
+            List<T> exact = matching.stream()
+                    .filter(candidate -> sourceName(owner.apply(candidate)).equals(wanted))
+                    .toList();
+            if (!exact.isEmpty()) return exact;
+        }
+        return matching;
+    }
+
+    /**
+     * Keeps the methods of every class the requested name designates. Names without a package,
+     * as recorded for call sites the graph could not resolve (Repo next to app.Repo), are dropped
+     * when a longer match ends with them, unless a default-package class has that name.
+     */
+    private static Set<MethodReference> inClass(CommandContext ctx, Set<MethodReference> methods,
+                                                String requested) {
+        Set<MethodReference> matching = new LinkedHashSet<>(
+                designated(methods, MethodReference::className, requested));
+        Set<String> owners = owners(matching);
+        Set<String> unresolved = owners.stream()
+                .filter(owner -> !startsWithPackage(owner)
+                        && owners.stream().anyMatch(other -> other.endsWith("." + owner))
+                        && !declaredWithoutPackage(ctx, owner))
+                .collect(Collectors.toSet());
+        matching.removeIf(m -> unresolved.contains(sourceName(m.className())));
+        return matching;
+    }
+
+    /** Looks for a default-package class in the files named after its outermost class. */
+    private static boolean declaredWithoutPackage(CommandContext ctx, String owner) {
+        String fileName = owner.split("\\.")[0] + ".java";
+        return ctx.javaFiles().stream()
+                .filter(file -> file.getFileName().toString().equals(fileName))
+                .flatMap(file -> ctx.parser().parseClasses(file).stream())
+                .anyMatch(declared -> sourceName(declared.qualifiedName()).equals(owner));
+    }
+
+    private static Set<String> owners(Set<MethodReference> methods) {
+        return methods.stream().map(m -> sourceName(m.className())).collect(Collectors.toSet());
+    }
+
+    /**
+     * Drops call sites of unknown arity (e.g. method references) of classes with known overloads,
+     * so they cannot stand in for a parameter count that no overload has.
+     */
+    private static Set<MethodReference> knownArity(Set<MethodReference> methods) {
+        Set<String> known = methods.stream()
+                .filter(m -> m.parameterCount() >= 0)
+                .map(m -> sourceName(m.className()))
+                .collect(Collectors.toSet());
+        return methods.stream()
+                .filter(m -> m.parameterCount() >= 0 || !known.contains(sourceName(m.className())))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static Set<MethodReference> withArity(Set<MethodReference> methods, int count) {
+        return knownArity(methods).stream()
+                .filter(m -> m.parameterCount() < 0 || m.parameterCount() == count)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /** A simple class name can designate several classes, e.g. one per package: list them, never pick one. */
+    private int reportValidOrAmbiguous(CommandContext ctx, MethodResolver.MethodRef ref,
+                                       Set<MethodReference> matches,
+                                       Map<String, String> signatures) {
+        if (owners(matches).size() > 1) {
+            return reportAmbiguous(ctx, ref, matches,
+                    "Class name matches several classes. Use the qualified class name to disambiguate.");
+        }
+        return reportValid(ctx, representative(matches, signatures), signatures);
+    }
+
+    /**
+     * The match to report: the first indexed declaration in source order when there is one, so
+     * the signature is its own and the choice among overloads is stable.
+     */
+    private static MethodReference representative(Set<MethodReference> matches,
+                                                  Map<String, String> signatures) {
+        Map<String, MethodReference> byKey = new LinkedHashMap<>();
+        for (MethodReference match : matches) {
+            byKey.putIfAbsent(signatureKey(match), match);
+        }
+        for (String key : signatures.keySet()) {
+            MethodReference declared = byKey.get(key);
+            if (declared != null) return declared;
+        }
+        return matches.iterator().next();
+    }
+
+    /** Index signatures keyed like call-graph references, plus one per parameter count. */
+    private static Map<String, String> indexSignatures(CommandContext ctx) {
+        Map<String, String> signatures = new LinkedHashMap<>();
+        if (ctx.indexed() == null) return signatures;
+        for (var entry : ctx.indexed().getEntries()) {
+            for (var ic : entry.classes()) {
+                for (var im : ic.methods()) {
+                    String key = ic.qualifiedName() + "." + im.name();
+                    List<String> types = SignatureUtils.extractParameterTypes(im.signature());
+                    signatures.put(key + types, im.signature());
+                    signatures.putIfAbsent(key + "/" + types.size(), im.signature());
+                }
+            }
+        }
+        return signatures;
+    }
+
+    private static String signatureKey(MethodReference method) {
+        return method.className() + "." + method.methodName() + method.parameterTypes();
+    }
+
+    /** Signature of the method, or of an overload with its parameter count; never another arity. */
+    private static String signatureOf(MethodReference method, Map<String, String> signatures) {
+        String exact = signatures.get(signatureKey(method));
+        if (exact != null || method.parameterCount() < 0) return exact;
+        return signatures.get(method.className() + "." + method.methodName()
+                + "/" + method.parameterCount());
     }
 
     private int reportValid(CommandContext ctx, MethodReference match,
@@ -129,7 +272,7 @@ public class ValidateCommand implements Command {
         result.put("valid", true);
         result.put("class", ctx.qualify(match.className()));
         result.put("method", match.methodName());
-        String sig = signatures.get(match.className() + "." + match.methodName());
+        String sig = signatureOf(match, signatures);
         if (sig != null) result.put("signature", sig);
         ctx.formatter().printResult(result);
         return 1;
@@ -150,43 +293,33 @@ public class ValidateCommand implements Command {
     }
 
     private int reportAmbiguous(CommandContext ctx, MethodResolver.MethodRef ref,
-                                 Set<MethodReference> matches,
-                                 Map<String, String> signatures) {
+                                 Set<MethodReference> matches, String message) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("valid", true);
         result.put("ambiguous", true);
         result.put("method", ref.methodName());
-        List<String> candidates = matches.stream()
-                .map(m -> {
-                    String sig = signatures.get(m.className() + "." + m.methodName());
-                    return sig != null ? m.className() + "." + sig : m.className() + "." + m.methodName() + "()";
-                })
-                .sorted().distinct().toList();
-        result.put("candidates", candidates);
-        result.put("message", "Method exists in multiple classes. Use Class.method to disambiguate.");
+        result.put("candidates", displayNames(matches));
+        result.put("message", message);
         ctx.formatter().printResult(result);
         return 1;
     }
 
-    private List<String> suggestOverloads(Set<MethodReference> classMatches,
-                                           Map<String, String> signatures) {
-        return classMatches.stream()
-                .map(m -> {
-                    String sig = signatures.get(m.className() + "." + m.methodName());
-                    return sig != null ? m.className() + "." + sig : m.className() + "." + m.methodName() + "()";
-                })
+    /** Sorted Class.method(Type, ...) displays of call-graph methods. */
+    private static List<String> displayNames(Set<MethodReference> methods) {
+        return methods.stream()
+                .map(m -> MethodTargetResolver.displayName(m, Map.of()))
                 .sorted().distinct().toList();
     }
 
     private List<String> findClosest(MethodResolver.MethodRef ref,
-                                      Set<MethodReference> allMethods,
-                                      Map<String, String> signatures) {
+                                      Set<MethodReference> allMethods) {
         String target = ref.methodName();
         String targetClass = ref.hasClassName() ? ref.className() : null;
         List<ScoredMatch> scored = new ArrayList<>();
 
         for (MethodReference m : allMethods) {
-            if (m.methodName().equals("<init>")) continue;
+            // Unresolved owners ("?", "?field:...") cannot be suggested as references
+            if (m.methodName().equals("<init>") || m.className().startsWith("?")) continue;
 
             int score = 0;
             String name = m.methodName();
@@ -210,9 +343,7 @@ public class ValidateCommand implements Command {
             }
 
             if (score > 0) {
-                String sig = signatures.get(m.className() + "." + m.methodName());
-                String display = sig != null ? m.className() + "." + sig : m.className() + "." + name + "()";
-                scored.add(new ScoredMatch(display, score));
+                scored.add(new ScoredMatch(MethodTargetResolver.displayName(m, Map.of()), score));
             }
         }
 
@@ -224,34 +355,39 @@ public class ValidateCommand implements Command {
                 .toList();
     }
 
+    /** An indexed declaration found by {@link #matchByIndexSignature}. */
+    private record IndexMatch(String className, String methodName, String signature) {}
+
     /**
      * Matches a method reference against index signatures (real parsed signatures).
-     * Returns the matching signature or null if not found.
+     * Returns the first matching declaration or null if not found.
      */
-    private String matchByIndexSignature(CommandContext ctx, MethodResolver.MethodRef ref) {
+    private IndexMatch matchByIndexSignature(CommandContext ctx, MethodResolver.MethodRef ref) {
         if (ctx.indexed() == null) return null;
-        var methods = ctx.indexed().findMethodsByName(ref.methodName());
-        for (var m : methods) {
-            if (ref.hasClassName() && !m.className().equals(ref.className())) continue;
-            if (ref.hasParamTypes() && m.signature() != null) {
-                int sigParams = countParamsInSignature(m.signature());
-                if (sigParams == ref.paramTypes().size()) {
-                    return m.signature();
+        List<IndexedClass> classes = ctx.indexed().getEntries().stream()
+                .flatMap(entry -> entry.classes().stream())
+                .toList();
+        if (ref.hasClassName()) {
+            classes = designated(classes, IndexedClass::qualifiedName, ref.className());
+        }
+        for (var ic : classes) {
+            for (var im : ic.methods()) {
+                if (!im.name().equals(ref.methodName()) || im.signature() == null) continue;
+                if (!ref.hasParamTypes()
+                        || countParamsInSignature(im.signature()) == ref.paramTypes().size()) {
+                    return new IndexMatch(ic.qualifiedName(), im.name(), im.signature());
                 }
-            } else if (!ref.hasParamTypes()) {
-                return m.signature();
             }
         }
         return null;
     }
 
-    private int reportValidFromIndex(CommandContext ctx, String className, String methodName,
-                                      String signature) {
+    private int reportValidFromIndex(CommandContext ctx, IndexMatch match) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("valid", true);
-        result.put("class", ctx.qualify(className));
-        result.put("method", methodName);
-        result.put("signature", signature);
+        result.put("class", match.className());
+        result.put("method", match.methodName());
+        result.put("signature", match.signature());
         ctx.formatter().printResult(result);
         return 1;
     }
@@ -299,16 +435,7 @@ public class ValidateCommand implements Command {
         int validCount = 0;
 
         var graph = ctx.callGraph();
-        Map<String, String> signatures = new LinkedHashMap<>();
-        if (ctx.indexed() != null) {
-            for (var entry : ctx.indexed().getEntries()) {
-                for (var ic : entry.classes()) {
-                    for (var im : ic.methods()) {
-                        signatures.put(ic.name() + "." + im.name(), im.signature());
-                    }
-                }
-            }
-        }
+        Map<String, String> signatures = indexSignatures(ctx);
 
         for (String rawRef : refs) {
             String trimmed = rawRef.trim();
@@ -320,28 +447,36 @@ public class ValidateCommand implements Command {
 
             Set<MethodReference> byName = graph.findMethodsByName(ref.methodName());
             if (ref.hasClassName()) {
-                byName = byName.stream()
-                        .filter(m -> m.className().equals(ref.className()))
-                        .collect(Collectors.toSet());
+                byName = inClass(ctx, byName, ref.className());
+                if (ref.hasParamTypes()) {
+                    byName = withArity(byName, ref.paramTypes().size());
+                }
             }
 
-            if (!byName.isEmpty()) {
-                var match = byName.iterator().next();
+            if (ref.hasClassName() && owners(byName).size() > 1) {
+                entry.put("valid", true);
+                entry.put("ambiguous", true);
+                entry.put("candidates", displayNames(byName));
+                validCount++;
+            } else if (!byName.isEmpty()) {
+                var match = representative(byName, signatures);
                 entry.put("valid", true);
                 entry.put("class", match.className());
                 entry.put("method", match.methodName());
-                String sig = signatures.get(match.className() + "." + match.methodName());
+                String sig = signatureOf(match, signatures);
                 if (sig != null) entry.put("signature", sig);
                 validCount++;
             } else {
-                String sigMatch = matchByIndexSignature(ctx, ref);
-                if (sigMatch != null) {
+                var indexMatch = matchByIndexSignature(ctx, ref);
+                if (indexMatch != null) {
                     entry.put("valid", true);
-                    entry.put("signature", sigMatch);
+                    entry.put("class", indexMatch.className());
+                    entry.put("method", indexMatch.methodName());
+                    entry.put("signature", indexMatch.signature());
                     validCount++;
                 } else {
                     entry.put("valid", false);
-                    var closest = findClosest(ref, graph.getAllMethods(), signatures);
+                    var closest = findClosest(ref, graph.getAllMethods());
                     if (!closest.isEmpty()) {
                         entry.put("suggestions", closest.subList(0, Math.min(3, closest.size())));
                     }

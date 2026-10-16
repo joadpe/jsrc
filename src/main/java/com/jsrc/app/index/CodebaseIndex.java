@@ -259,19 +259,36 @@ public class CodebaseIndex {
                     .toList();
         }
         int count = parsers.size();
-        return java.util.stream.IntStream.range(0, count).parallel()
+        // Worker threads have smaller stacks than the main thread of a native image, so a
+        // deeply nested source can overflow one; such files are parsed again on this thread.
+        List<PendingFile> overflowed = java.util.Collections.synchronizedList(new ArrayList<>());
+        List<ParsedFile> results = new ArrayList<>(java.util.stream.IntStream.range(0, count)
+                .parallel()
                 .mapToObj(worker -> {
                     var workerEdgeParsers = worker == 0 ? edgeParsers
                             : new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
                     List<ParsedFile> parsed = new ArrayList<>();
                     for (int index = worker; index < pending.size(); index += count) {
-                        parsed.add(parseOne(pending.get(index), parsers.get(worker),
-                                workerEdgeParsers, invokers));
+                        try {
+                            parsed.add(parseOne(pending.get(index), parsers.get(worker),
+                                    workerEdgeParsers, invokers));
+                        } catch (StackOverflowError deeplyNested) {
+                            overflowed.add(pending.get(index));
+                        }
                     }
                     return parsed;
                 })
                 .flatMap(List::stream)
-                .toList();
+                .toList());
+        if (!overflowed.isEmpty()) {
+            // Fresh parsers: the ones that overflowed may have been left mid-parse.
+            CodeParser retryParser = parser.copy().orElse(parser);
+            var retryEdgeParsers = new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
+            for (PendingFile file : overflowed) {
+                results.add(parseOne(file, retryParser, retryEdgeParsers, invokers));
+            }
+        }
+        return results;
     }
 
     private ParsedFile parseOne(

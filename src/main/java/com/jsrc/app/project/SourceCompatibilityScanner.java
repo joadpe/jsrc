@@ -49,9 +49,8 @@ public final class SourceCompatibilityScanner {
             batches.add(files.subList(start, Math.min(files.size(), start + BATCH_SIZE)));
         }
         // Batches parse concurrently; the ordered merge keeps results in input order.
-        List<Result> results = batches.parallelStream()
-                .map(batch -> scanBatch(batch, model, config, cached))
-                .toList();
+        List<Result> results = parallelRetryingOnCaller(
+                batches, batch -> scanBatch(batch, model, config, cached));
         List<Path> accepted = new ArrayList<>();
         Map<Path, String> acceptedHashes = new HashMap<>();
         List<SourceDiagnostic> diagnostics = new ArrayList<>();
@@ -63,6 +62,31 @@ public final class SourceCompatibilityScanner {
             parsedFiles += result.parsedFiles();
         }
         return new Result(accepted, diagnostics, parsedFiles, acceptedHashes);
+    }
+
+    /**
+     * Applies {@code task}, which must not return null, to the items in parallel and returns
+     * the results in input order. Worker threads have smaller stacks than the main thread of
+     * a native image, so an item whose task overflows a worker's stack (deeply nested
+     * sources) runs again on the calling thread instead of failing every item.
+     */
+    static <T, R> List<R> parallelRetryingOnCaller(
+            List<T> items, java.util.function.Function<T, R> task) {
+        List<Optional<R>> attempts = items.parallelStream()
+                .map(item -> {
+                    try {
+                        return Optional.of(task.apply(item));
+                    } catch (StackOverflowError deeplyNested) {
+                        return Optional.<R>empty();
+                    }
+                })
+                .toList();
+        List<R> results = new ArrayList<>(items.size());
+        for (int index = 0; index < items.size(); index++) {
+            Optional<R> attempt = attempts.get(index);
+            results.add(attempt.isPresent() ? attempt.get() : task.apply(items.get(index)));
+        }
+        return results;
     }
 
     /** Scans files sequentially with parsers owned by this batch; parsers are not thread-safe. */

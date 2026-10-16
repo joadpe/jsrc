@@ -761,6 +761,52 @@ class CodebaseIndexTest {
     }
 
     @Test
+    void fileThatOverflowsAWorkerStackIsParsedAgainOnTheCallingThread() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                Runtime.getRuntime().availableProcessors() > 1, "needs parallel workers");
+        List<Path> files = new java.util.ArrayList<>();
+        for (int index = 0; index < 80; index++) {
+            files.add(writeFile("D" + index + ".java", """
+                    package p;
+                    public class D%d { public int value() { return %d; } }
+                    """.formatted(index, index)));
+        }
+        files.sort(null);
+        var overflowed = new java.util.concurrent.atomic.AtomicBoolean();
+
+        var sequential = new CodebaseIndex();
+        sequential.build(new HybridJavaParser() {}, files, tempDir, List.of());
+        var parallel = new CodebaseIndex();
+        parallel.build(new OverflowingOnceParser(overflowed), files, tempDir, List.of());
+
+        assertTrue(overflowed.get(), "The parser should have overflowed once");
+        assertEquals(sequential.getEntries(), parallel.getEntries());
+    }
+
+    /** Overflows the stack the first time it parses D7.java, on whichever thread. */
+    private static final class OverflowingOnceParser extends HybridJavaParser {
+        private final java.util.concurrent.atomic.AtomicBoolean overflowed;
+
+        OverflowingOnceParser(java.util.concurrent.atomic.AtomicBoolean overflowed) {
+            this.overflowed = overflowed;
+        }
+
+        @Override
+        public java.util.Optional<com.jsrc.app.parser.CodeParser> copy() {
+            return java.util.Optional.of(new OverflowingOnceParser(overflowed));
+        }
+
+        @Override
+        public List<com.jsrc.app.parser.model.ClassInfo> parseClasses(Path path, String source) {
+            if (path.getFileName().toString().equals("D7.java")
+                    && overflowed.compareAndSet(false, true)) {
+                throw new StackOverflowError("simulated deeply nested source");
+            }
+            return super.parseClasses(path, source);
+        }
+    }
+
+    @Test
     void lambdaOwnersKeepClassTypeParametersAcrossJsonAndBinaryRoundtrip() throws Exception {
         Path javaFile = writeFile("Box.java", """
                 package app;

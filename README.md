@@ -494,10 +494,10 @@ If a command fails with exit code 2, verify you are using the subcommand syntax,
 
 Per-module source-level detection below requires 2.6.0 or later.
 
-Create `.jsrc.yaml` in your project root:
-
 Java sources are read as UTF-8; files that are not valid UTF-8 are read as
 Windows-1252, the usual encoding of legacy projects edited on Windows.
+
+Create `.jsrc.yaml` in your project root:
 
 When no source level can be verified from Maven/Gradle or this file, JSON v1
 reports `SOURCE_LEVEL_UNKNOWN` with partial confidence. Files with unsupported

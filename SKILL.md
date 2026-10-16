@@ -1,6 +1,6 @@
 # jsrc — Java Source Code Navigator for Agents
 
-This skill describes jsrc 2.6.1. Version 2.5.0 supports the core commands and
+This skill describes jsrc 2.6.2. Version 2.5.0 supports the core commands and
 budget profiles but not JSON protocol v1, `--source-set`, per-module Java
 source-level detection, atomic index generations, or `review`. Check your
 binary with `jsrc --version`, `jsrc describe --json`, and

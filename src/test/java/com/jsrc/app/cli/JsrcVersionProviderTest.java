@@ -9,7 +9,7 @@ class JsrcVersionProviderTest {
 
     @Test
     void readsFilteredMavenVersion() throws Exception {
-        assertArrayEquals(new String[] {"jsrc 2.6.1"}, new JsrcVersionProvider().getVersion());
+        assertArrayEquals(new String[] {"jsrc 2.6.2"}, new JsrcVersionProvider().getVersion());
     }
 
     @Test

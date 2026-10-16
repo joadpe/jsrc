@@ -4,7 +4,7 @@ A Java source code navigator built for AI agents. Uses [Tree-sitter](https://tre
 
 ## Documentation scope
 
-This README describes jsrc 2.6.1, a bug-fix release with the same commands and
+This README describes jsrc 2.6.2, a bug-fix release with the same commands and
 options as 2.6.0. The installation commands below download the latest published
 release. Check the reported version with `jsrc --version` and its command
 surface with `jsrc describe --json`. The version string alone does not identify
@@ -27,6 +27,69 @@ with the current [CLI options](src/main/java/com/jsrc/app/cli/GlobalOptions.java
 [index store](src/main/java/com/jsrc/app/index/IndexSnapshotStore.java).
 Both versions require Java 22 to build or run the JAR (see [pom.xml](pom.xml));
 native release executables do not require a JDK at runtime.
+
+### Upgrading from 2.6.1
+
+- **Full re-index once.** The index format changed. The first `jsrc index` (or
+  normal query) after upgrading rebuilds the whole index, and `--frozen-index`
+  rejects a 2.6.1 index until `jsrc index` runs. Do not share one `.jsrc`
+  directory between 2.6.1 and 2.6.2 processes.
+- **Modifiers come from the source.** Index-backed commands report class
+  modifiers, and constructors keep their declared modifiers, type parameters and
+  `throws`; 2.6.1 reported no class modifiers and every constructor as `public`.
+- **`excludes` match literally.** Apart from `*` and `**`, every character of an
+  exclude pattern is literal and `\` counts as `/`. 2.6.1 treated patterns as
+  regular expressions, so `.` matched any character: `**/*Test.java` also
+  excluded every file under directories such as `intTest/java/`, and now
+  excludes only files named `*Test.java`. Entries that used regular-expression
+  syntax such as `(a|b)`, `[...]`, `?` or `$` now match those characters
+  literally, so they usually exclude nothing; use one entry per directory. A
+  leading `./` keeps working: `./build/` excludes the same files as in 2.6.1.
+- **`.jsrc.yaml` in other encodings is read.** A config saved as Windows-1252
+  (ANSI) or as UTF-16 with a byte order mark applies; 2.6.1 logged an error and
+  ignored the whole file. Its `excludes`, `javaVersion` and `invokers` now take
+  effect, so the indexed files and call edges can change, and with
+  `javaVersion: "8"` files with newer syntax are reported as
+  `SOURCE_SYNTAX_UNSUPPORTED`. If that file is not valid YAML, commands now
+  stop with the parser's error, as they already did for UTF-8 files.
+- **Changing `invokers` refreshes call edges.** After `architecture.invokers`
+  changes, the next `jsrc index` or query extracts the call edges of every file
+  again; with an unchanged configuration, unchanged files keep theirs.
+- **Detected Java levels can change.** Gradle builds that declare
+  `sourceCompatibility = 1.8`, `.jsrc.yaml` files with `javaVersion: "1.8"`, and
+  Gradle or Maven build files saved as Windows-1252 now give their declared level.
+  2.6.1 read Java 1 or an unknown level for them. Gradle levels are also read only
+  from the scope that sets them: `project(...)` and `configure(...)` blocks apply
+  to their projects, and IDE settings, other compile tasks and test toolchains do
+  not count. Some builds that 2.6.1 read at a level are now unknown because the
+  level depends on something jsrc does not evaluate, such as a condition on the
+  task name, or `project(...)` blocks that set a different level from `subprojects`
+  or from the module's own build file;
+  set `javaVersion` or `moduleJavaVersions` for those. Files whose level changes
+  are parsed again at that level, and `--frozen-index` fails with
+  `INDEX_SOURCE_LEVEL_MISMATCH` until `jsrc index` runs.
+- **Detected Gradle modules can change.** `includeBuild`, `includeFlat` and
+  commented-out includes are no longer modules, and include lists that span lines
+  add all their modules.
+- **Build-model problems on stderr.** Commands that read sources print
+  `BUILD_MODEL_PARTIAL` diagnostics on stderr. Builds that only read
+  `sourceSets` no longer get one, so `overview --json` can list fewer
+  diagnostics. Exit codes do not change.
+- **Call-graph results come in a fixed order** in every run: calls to a method by
+  caller and then line, and the calls a method makes by line and then callee. 2.6.1
+  could change that order from one run to the next, so the first results under a
+  `--limit` could differ.
+- **`find` expands each word the same way in every run.** `handler` and `catch`
+  expand to the error terms (`error`, `exception`, `fault`, ...) and `listener`
+  to the message terms (`message`, `queue`, `kafka`, ...). 2.6.1 chose between
+  those and the generic handle terms (`handle`, `process`, `intercept`, ...) by
+  chance on each JVM start, or once per native build, so the same query could
+  return different matches from one run or install to another.
+- **`jsrc watch` reads the config once.** After editing `.jsrc.yaml`, restart
+  watch; a request that fails because of the change now says so.
+- **`review` compares implicit constructors.** A class without constructor
+  declarations is compared through the constructor Java declares for it, so
+  narrowing it is a contract change; 2.6.1 reported it as unknown.
 
 ### Upgrading from 2.6.0
 

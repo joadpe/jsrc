@@ -4,7 +4,7 @@
   <groupId>com.jsrc.app</groupId>
   <artifactId>jsrc</artifactId>
   <packaging>jar</packaging>
-  <version>2.6.1</version>
+  <version>2.6.2</version>
   <name>jsrc</name>
   <url>https://github.com/joadpe/jsrc</url>
 

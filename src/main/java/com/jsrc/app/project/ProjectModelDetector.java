@@ -140,8 +140,8 @@ public final class ProjectModelDetector {
         try {
             Path settings = gradleSettings(root);
             Path rootBuild = gradleBuild(root);
-            String settingsText = settings == null ? "" : SourceText.read(settings);
-            String buildText = rootBuild == null ? "" : SourceText.read(rootBuild);
+            String settingsText = settings == null ? "" : readGradleScript(settings);
+            String buildText = rootBuild == null ? "" : readGradleScript(rootBuild);
             List<String> modulePaths = gradleModules(settingsText);
             GradleScopes scopes = gradleScopes(buildText);
             String javaVersion = combineGradleLevels(
@@ -169,7 +169,7 @@ public final class ProjectModelDetector {
                 }
                 try {
                     Path buildFile = gradleBuild(path);
-                    String moduleBuild = buildFile == null ? "" : SourceText.read(buildFile);
+                    String moduleBuild = buildFile == null ? "" : readGradleScript(buildFile);
                     moduleData.add(new GradleModuleData(
                             gradleModuleName(modulePath), path, moduleBuild));
                 } catch (IOException exception) {
@@ -579,8 +579,7 @@ public final class ProjectModelDetector {
     }
 
     private static String gradleJavaVersion(String buildFile) {
-        String activeBuild = buildFile.replaceAll(
-                "(?s)/\\*.*?\\*/|(?m)//[^\\r\\n]*", " ");
+        String activeBuild = withoutComments(buildFile);
         Matcher release = GRADLE_RELEASE.matcher(activeBuild);
         if (activeBuild.contains("options.release")) {
             return release.find() ? release.group(1) : "unknown";
@@ -631,16 +630,14 @@ public final class ProjectModelDetector {
     }
 
     private static boolean hasGradleVersionDeclaration(String buildFile) {
-        String active = buildFile.replaceAll(
-                "(?s)/\\*.*?\\*/|(?m)//[^\\r\\n]*", " ");
+        String active = withoutComments(buildFile);
         return active.contains("options.release")
                 || active.contains("sourceCompatibility")
                 || active.contains("languageVersion");
     }
 
     private static GradleScopes gradleScopes(String buildFile) {
-        String active = buildFile.replaceAll(
-                "(?s)/\\*.*?\\*/|(?m)//[^\\r\\n]*", " ");
+        String active = withoutComments(buildFile);
         StringBuilder root = new StringBuilder();
         StringBuilder allProjects = new StringBuilder();
         StringBuilder subprojects = new StringBuilder();
@@ -667,6 +664,75 @@ public final class ProjectModelDetector {
         root.append(active.substring(cursor));
         return new GradleScopes(
                 root.toString(), allProjects.toString(), subprojects.toString());
+    }
+
+    /**
+     * Replaces each comment in a Groovy or Kotlin build script with a space. Strings are copied
+     * whole, so the comment markers in a glob such as {@code 'src/*.xml'} or a URL such as
+     * {@code 'https://repo.example.com'} stay in their string. A quote that opens no string, as
+     * in a Groovy slashy string, is code, and so is a {@code /*} that never closes.
+     */
+    private static String withoutComments(String script) {
+        StringBuilder code = new StringBuilder(script.length());
+        int lastCommentEnd = script.lastIndexOf("*/");
+        int start = 0;
+        while (start < script.length()) {
+            char character = script.charAt(start);
+            int end = start + 1;
+            if (script.startsWith("//", start)) {
+                while (end < script.length() && script.charAt(end) != '\n'
+                        && script.charAt(end) != '\r') {
+                    end++;
+                }
+                code.append(' ');
+            } else if (script.startsWith("/*", start) && start + 2 <= lastCommentEnd) {
+                end = script.indexOf("*/", start + 2) + 2;
+                code.append(' ');
+            } else {
+                if (character == '\'' || character == '"') {
+                    end = stringEnd(script, start);
+                }
+                code.append(script, start, end);
+            }
+            start = end;
+        }
+        return code.toString();
+    }
+
+    /**
+     * Where the string that opens at {@code start} ends, or {@code start + 1} when that quote
+     * opens no string. A single- or double-quoted string must close on its line, and a
+     * backslash in it escapes the next character, a line break too. A triple-quoted string,
+     * raw in Kotlin, ends with the next run of three or more quotes. A quote right after a
+     * backslash opens no string: only a slashy string or a misread template leaves one in
+     * code, and skipping those quotes keeps the scan linear.
+     */
+    private static int stringEnd(String script, int start) {
+        char quote = script.charAt(start);
+        if (start > 0 && script.charAt(start - 1) == '\\') {
+            return start + 1;
+        }
+        String triple = String.valueOf(quote).repeat(3);
+        if (script.startsWith(triple, start)) {
+            int end = script.indexOf(triple, start + 3);
+            if (end < 0) {
+                return start + 1;
+            }
+            end += 3;
+            while (end < script.length() && script.charAt(end) == quote) {
+                end++;
+            }
+            return end;
+        }
+        int end = start + 1;
+        while (end < script.length()
+                && script.charAt(end) != '\n' && script.charAt(end) != '\r') {
+            if (script.charAt(end) == quote) {
+                return end + 1;
+            }
+            end += script.charAt(end) != '\\' ? 1 : script.startsWith("\r\n", end + 1) ? 3 : 2;
+        }
+        return start + 1;
     }
 
     private static java.util.Optional<List<Path>> gradleSourceRoots(
@@ -769,6 +835,12 @@ public final class ProjectModelDetector {
 
     private static Path gradleBuild(Path root) {
         return firstRegularFile(root.resolve("build.gradle.kts"), root.resolve("build.gradle"));
+    }
+
+    /** Reads a Gradle script without the byte order mark that some Windows editors write. */
+    private static String readGradleScript(Path script) throws IOException {
+        String text = SourceText.read(script);
+        return text.startsWith("\uFEFF") ? text.substring(1) : text;
     }
 
     private static Path firstRegularFile(Path first, Path second) {

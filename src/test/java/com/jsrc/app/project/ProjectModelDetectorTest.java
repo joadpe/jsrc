@@ -151,6 +151,132 @@ class ProjectModelDetectorTest {
     }
 
     @Test
+    void readsGradleSourceCompatibilityBetweenGlobPatterns() throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                apply plugin: 'java'
+                processResources { include '**/*.xml' }
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                jar { exclude '**/*.properties' }
+                """);
+
+        assertEquals("8", new ProjectModelDetector().detect(projectRoot).javaVersion());
+
+        // With double quotes, and with a later test-only declaration that must not win.
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                apply plugin: 'java'
+                processResources { include "**/*.xml" }
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                processTestResources { exclude "**/*.properties" }
+                compileTestJava { sourceCompatibility = JavaVersion.VERSION_11 }
+                """);
+
+        assertEquals("8", new ProjectModelDetector().detect(projectRoot).javaVersion());
+    }
+
+    @Test
+    void readsGlobPatternsInEveryGradleStringForm() throws Exception {
+        for (String description : List.of(
+                "'Won\\'t copy **/*.bak files'",
+                "\"Won't copy **/*.bak files\"",
+                "'''Won't copy\n**/*.bak files'''",
+                "\"\"\"Won't copy\n**/*.bak files\"\"\"")) {
+            Files.writeString(projectRoot.resolve("build.gradle"),
+                    "description = " + description + "\n" + """
+                    sourceCompatibility = JavaVersion.VERSION_1_8
+                    jar { exclude '**/*.properties' }
+                    """);
+
+            assertEquals("8", new ProjectModelDetector().detect(projectRoot).javaVersion(),
+                    description);
+        }
+    }
+
+    @Test
+    void stripsGradleCommentsNextToRawContinuedAndUnpairedQuotes() throws Exception {
+        // Each build comments out Java 6 next to a string, or a quote that opens none.
+        List<List<String>> builds = List.of(
+                List.of("build.gradle.kts", "17", """
+                        val tools = \"\"\"C:\\tools\\\"\"\"
+                        // java.sourceCompatibility = JavaVersion.VERSION_1_6
+                        java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }
+                        """),
+                List.of("build.gradle.kts", "17", """
+                        val q = \"\"\"\"a\"\"\"\" // sourceCompatibility = JavaVersion.VERSION_1_6
+                        java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }
+                        """),
+                List.of("build.gradle", "8", """
+                        description = 'first part \\
+                        second part' /* note:
+                        sourceCompatibility = JavaVersion.VERSION_1_6 */
+                        sourceCompatibility = JavaVersion.VERSION_1_8
+                        """.replace("\n", "\r\n")),
+                List.of("build.gradle", "8", """
+                        def unquote = { it.replaceAll(/'/, '') } /* legacy:
+                        sourceCompatibility = JavaVersion.VERSION_1_6 */
+                        sourceCompatibility = JavaVersion.VERSION_1_8
+                        """));
+        for (int i = 0; i < builds.size(); i++) {
+            List<String> build = builds.get(i);
+            Path project = Files.createDirectories(projectRoot.resolve("build" + i));
+            Files.writeString(project.resolve(build.get(0)), build.get(2));
+
+            assertEquals(build.get(1), new ProjectModelDetector().detect(project).javaVersion(),
+                    build.get(2));
+        }
+    }
+
+    @Test
+    void repositoryUrlDoesNotHideTheEndOfAGradleSubprojectsBlock() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing'");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                subprojects {
+                    apply plugin: 'java'
+                    repositories { maven { url 'https://repo.example.com/maven2' } }
+                    sourceCompatibility = JavaVersion.VERSION_1_8
+                }
+                """);
+        Files.createDirectories(projectRoot.resolve("billing"));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("unknown", model.javaVersion());
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void readsGradleSubprojectsBlockAfterAByteOrderMark() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing'");
+        // Written as UTF-8, U+FEFF is the byte order mark EF BB BF.
+        Files.writeString(projectRoot.resolve("build.gradle"), "\uFEFF" + """
+                subprojects {
+                    sourceCompatibility = JavaVersion.VERSION_1_8
+                }
+                """);
+        Files.createDirectories(projectRoot.resolve("billing"));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("unknown", model.javaVersion());
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void readsGradleIncludeAfterAByteOrderMark() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"),
+                "\uFEFFinclude 'billing', 'reports'\n");
+        Files.writeString(projectRoot.resolve("build.gradle"),
+                "subprojects { sourceCompatibility = JavaVersion.VERSION_1_8 }");
+        Files.createDirectories(projectRoot.resolve("billing"));
+        Files.createDirectories(projectRoot.resolve("reports"));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(List.of("billing", "reports"),
+                model.modules().stream().map(ProjectModule::name).toList());
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+    }
+
+    @Test
     void dynamicGradleReleaseDoesNotFallBackToStaticSource() throws Exception {
         Files.writeString(projectRoot.resolve("build.gradle.kts"), """
                 sourceCompatibility = JavaVersion.VERSION_17

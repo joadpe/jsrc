@@ -2,6 +2,8 @@ package com.jsrc.app.index;
 
 import com.jsrc.app.analysis.CallGraphBuilder;
 import com.jsrc.app.parser.HybridJavaParser;
+import com.jsrc.app.parser.model.AnnotationInfo;
+import com.jsrc.app.parser.model.ClassInfo;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -32,7 +34,7 @@ class AutoRefreshTest {
             long lastModified = Files.getLastModifiedTime(file).toMillis();
             var classes = parser.parseClasses(file);
             var indexedClasses = classes.stream()
-                    .map(IndexedCodebase::classInfoToIndexed).toList();
+                    .map(AutoRefreshTest::toIndexedClass).toList();
             var edges = edgeResolver.extractCallEdges(file, javaParser);
             var smells = parser.detectSmells(file).stream()
                     .map(s -> new CachedSmell(s.ruleId(), s.severity().name(),
@@ -47,6 +49,27 @@ class AutoRefreshTest {
         builder.loadFromIndex(entries);
         codebaseIndex.saveWithGraph(tempDir, builder.toCallGraph());
         return IndexedCodebase.tryLoad(tempDir, files);
+    }
+
+    /** Converts like {@code jsrc index}, keeping type parameters and fields. */
+    private static IndexedClass toIndexedClass(ClassInfo ci) {
+        List<IndexedMethod> methods = ci.methods().stream()
+                .map(m -> new IndexedMethod(
+                        m.name(), m.signature(), m.startLine(), m.endLine(),
+                        m.returnType(),
+                        m.annotations().stream().map(AnnotationInfo::name).toList(),
+                        m.typeParameters()))
+                .toList();
+        List<IndexedField> fields = ci.fields().stream()
+                .map(f -> new IndexedField(f.name(), f.type(), f.modifiers()))
+                .toList();
+        return new IndexedClass(
+                ci.name(), ci.packageName(), ci.startLine(), ci.endLine(),
+                ci.isInterface(), ci.isAbstract(),
+                ci.superClass().isEmpty() ? List.of() : List.of(ci.superClass()),
+                ci.interfaces(), ci.typeParameters(), methods,
+                ci.annotations().stream().map(AnnotationInfo::name).toList(),
+                List.of(), fields);
     }
 
     @Test

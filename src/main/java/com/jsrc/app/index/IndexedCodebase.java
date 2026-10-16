@@ -769,7 +769,8 @@ public class IndexedCodebase {
         return new ClassInfo(
                 ic.name(), ic.packageName(), ic.startLine(), ic.endLine(),
                 List.of(), methods, superClass,
-                ic.interfaces(), annotations, ic.isInterface(), fields);
+                ic.interfaces(), annotations, ic.isInterface(),
+                ic.typeParameters(), fields);
     }
 
     private static MethodInfo toMethodInfo(IndexedMethod im, String className) {
@@ -785,7 +786,7 @@ public class IndexedCodebase {
                 im.name(), className, im.startLine(), im.endLine(),
                 im.returnType(), modifiers, params,
                 "", // no content from index
-                annotations, thrownExceptions, List.of(), null);
+                annotations, thrownExceptions, im.typeParameters(), null);
     }
 
     /**
@@ -847,24 +848,6 @@ public class IndexedCodebase {
                     param.substring(0, lastSpace).trim(),
                     param.substring(lastSpace + 1).trim()));
         }
-    }
-
-    static IndexedClass classInfoToIndexed(ClassInfo ci) {
-        List<IndexedMethod> methods = ci.methods().stream()
-                .map(m -> new IndexedMethod(
-                        m.name(), m.signature(), m.startLine(), m.endLine(),
-                        m.returnType(),
-                        m.annotations().stream().map(a -> a.name()).toList()))
-                .toList();
-
-        List<String> annotations = ci.annotations().stream()
-                .map(a -> a.name()).toList();
-
-        return new IndexedClass(
-                ci.name(), ci.packageName(), ci.startLine(), ci.endLine(),
-                ci.isInterface(), ci.isAbstract(),
-                ci.superClass().isEmpty() ? List.of() : List.of(ci.superClass()),
-                ci.interfaces(), methods, annotations, List.of());
     }
 
 }

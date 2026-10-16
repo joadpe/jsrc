@@ -52,4 +52,12 @@ class BudgetPrecedenceTest {
         assertEquals(BudgetProfile.TINY, BudgetProfile.fromString(" tiny "));
         assertEquals(BudgetProfile.SMALL, BudgetProfile.fromString(" small "));
     }
+
+    @Test
+    @DisplayName("Should not load the project config when the CLI flag sets the budget")
+    void shouldNotLoadProjectConfigForCliFlag() {
+        assertEquals(BudgetProfile.SMALL, OutputModeResolver.resolveBudgetProfile("small", () -> {
+            throw new AssertionError("the project config must be loaded lazily");
+        }));
+    }
 }

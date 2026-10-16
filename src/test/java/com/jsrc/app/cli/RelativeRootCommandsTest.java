@@ -218,6 +218,17 @@ class RelativeRootCommandsTest {
     }
 
     @Test
+    void parseErrorHonoursExplicitBudgetWhenProjectConfigIsBroken() throws Exception {
+        budgetProject("[tiny");
+
+        String output = run(tempDir, "--json", "--protocol", "1", "--budget", "small",
+                "--limit", "x", "--dir", "project", "overview");
+
+        assertTrue(output.contains("\"code\":\"INVALID_ARGUMENT\""), output);
+        assertTrue(output.contains("\"budget\":{\"profile\":\"small\""), output);
+    }
+
+    @Test
     void workingDirectoryConfigSetsBudgetOnlyThroughConfigOption() throws Exception {
         budgetProject("tiny");
         Path other = Files.createDirectory(tempDir.resolve("other"));

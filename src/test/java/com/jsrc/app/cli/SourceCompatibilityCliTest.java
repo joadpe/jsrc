@@ -59,6 +59,20 @@ class SourceCompatibilityCliTest {
                 "SOURCE_LEVEL_UNSUPPORTED".equals(diagnostic.code())));
     }
 
+    @Test
+    void rejectsLegacySpellingOfSourceLevelBelowSupportedGrammar() throws Exception {
+        Path source = projectRoot.resolve("Feature.java");
+        Files.writeString(source, "class Feature {}");
+        var config = new com.jsrc.app.config.ProjectConfig(
+                List.of(), List.of(), "1.7",
+                com.jsrc.app.config.ArchitectureConfig.empty());
+        var result = new com.jsrc.app.project.SourceCompatibilityScanner()
+                .scan(List.of(source), null, config);
+        assertTrue(result.files().isEmpty());
+        assertEquals(List.of("SOURCE_LEVEL_UNSUPPORTED"), result.diagnostics().stream()
+                .map(com.jsrc.app.project.SourceDiagnostic::code).toList());
+    }
+
     private void assertSourceTransition(
             int rejectedVersion, int acceptedVersion, String fileName, String code)
             throws Exception {
@@ -198,6 +212,36 @@ class SourceCompatibilityCliTest {
                 JsonReader.parse(captured.toString().trim()));
         assertEquals("ok", envelope.get("status"));
         assertEquals(1L, ((Map<?, ?>) envelope.get("data")).get("total"));
+    }
+
+    @Test
+    void indexesGradleProjectWithLegacySpellingOfJavaVersion() throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                plugins { id 'java' }
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                """);
+        Path sourceRoot = Files.createDirectories(projectRoot.resolve("src/main/java"));
+        // A class named var is valid Java 8 but not valid at the provisional Java 21.
+        Files.writeString(sourceRoot.resolve("Use.java"), """
+                class var {}
+                class Use { void run() { var value = new var(); } }
+                """);
+        for (String javaVersion : List.of("\"1.8\"", "1.8")) {
+            Files.writeString(projectRoot.resolve(".jsrc.yaml"), "javaVersion: " + javaVersion);
+            PrintStream originalErr = System.err;
+            ByteArrayOutputStream captured = new ByteArrayOutputStream();
+            int exitCode;
+            try {
+                System.setErr(new PrintStream(captured));
+                exitCode = JsrcCliFactory.create().execute(
+                        "--dir", projectRoot.toString(), "index");
+            } finally {
+                System.setErr(originalErr);
+            }
+            assertEquals(0, exitCode, javaVersion + ": " + captured);
+            assertFalse(captured.toString().contains("SOURCE_LEVEL_UNKNOWN"),
+                    javaVersion + ": " + captured);
+        }
     }
 
     @Test

@@ -520,7 +520,7 @@ sourceRoots:
 excludes:
   - "**/test/**"
   - "**/generated/**"
-javaVersion: "21"  # Optional source-language override (8–22), not jsrc's runtime JDK
+javaVersion: "21"  # Optional source-language override (8–22; 1.8 reads as 8), not jsrc's runtime JDK
 moduleJavaVersions:  # Optional overrides for modules with dynamic/undeclared build settings
   legacy: "8"       # Key is the module path relative to the project root
 budget: small  # Optional: tiny|small|standard (default: standard)

@@ -12,7 +12,14 @@ import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
+import org.yaml.snakeyaml.nodes.NodeId;
+import org.yaml.snakeyaml.nodes.Tag;
+import org.yaml.snakeyaml.representer.Representer;
+import org.yaml.snakeyaml.resolver.Resolver;
 
 /**
  * Project configuration loaded from {@code .jsrc.yaml}.
@@ -148,10 +155,12 @@ public record ProjectConfig(
         Yaml yaml = new Yaml();
         Map<String, Object> root = yaml.load(yamlContent);
         if (root == null) root = Map.of();
+        Map<String, Object> written = writtenNumbersYaml().load(yamlContent);
+        if (written == null) written = Map.of();
 
         List<String> sourceRoots = getStringList(root, "sourceRoots");
         List<String> excludes = getStringList(root, "excludes");
-        String javaVersion = getString(root, "javaVersion", "");
+        String javaVersion = getString(written, "javaVersion", "");
         String budget = getString(root, "budget", null);
         ArchitectureConfig arch = parseArchitecture((Map<String, Object>) root.get("architecture"));
 
@@ -162,13 +171,36 @@ public record ProjectConfig(
         DebtConfig debt = parseDebt((Map<String, Object>) root.get("debt"));
         ProjectInfo proj = parseProject((Map<String, Object>) root.get("project"));
         Map<String, String> moduleJavaVersions = new java.util.LinkedHashMap<>();
-        if (root.get("moduleJavaVersions") instanceof Map<?, ?> versions) {
-            versions.forEach((path, version) ->
-                    moduleJavaVersions.put(path.toString(), version.toString()));
+        if (written.get("moduleJavaVersions") instanceof Map<?, ?> versions) {
+            versions.forEach((path, version) -> {
+                // A module listed without a level has no override.
+                if (path != null && version != null) {
+                    moduleJavaVersions.put(path.toString(), version.toString());
+                }
+            });
         }
 
         return new ProjectConfig(sourceRoots, excludes, javaVersion, budget, arch,
                 perf, sec, mig, debt, proj, moduleJavaVersions);
+    }
+
+    /**
+     * Loads plain numbers as the text written, for source levels: as a YAML float an
+     * unquoted 1.10 would load as 1.1, and as an integer 017 as the octal 15.
+     */
+    private static Yaml writtenNumbersYaml() {
+        DumperOptions dumperOptions = new DumperOptions();
+        return new Yaml(new SafeConstructor(new LoaderOptions()),
+                new Representer(dumperOptions), dumperOptions, new WrittenNumberResolver());
+    }
+
+    /** Resolves plain integers and floats as strings. */
+    private static final class WrittenNumberResolver extends Resolver {
+        @Override
+        public Tag resolve(NodeId kind, String value, boolean implicit) {
+            Tag tag = super.resolve(kind, value, implicit);
+            return Tag.INT.equals(tag) || Tag.FLOAT.equals(tag) ? Tag.STR : tag;
+        }
     }
 
     @SuppressWarnings("unchecked")

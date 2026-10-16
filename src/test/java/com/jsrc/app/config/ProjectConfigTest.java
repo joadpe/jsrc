@@ -118,4 +118,37 @@ class ProjectConfigTest {
         assertTrue(config.isPresent());
         assertEquals("lib/src", config.get().sourceRoots().get(0));
     }
+
+    @Test
+    @DisplayName("Should keep source levels as written")
+    void shouldKeepSourceLevelsAsWritten() throws IOException {
+        // Loaded as YAML numbers, 1.10 would become 1.1 and 017 the octal 15.
+        Files.writeString(tempDir.resolve(".jsrc.yaml"), """
+                javaVersion: 1.10
+                moduleJavaVersions:
+                  legacy: 1.8
+                  quoted: "1.8"
+                  octal: 017
+                """);
+
+        var config = ProjectConfig.load(tempDir).orElseThrow();
+        assertEquals("1.10", config.javaVersion());
+        assertEquals("1.8", config.moduleJavaVersions().get("legacy"));
+        assertEquals("1.8", config.moduleJavaVersions().get("quoted"));
+        assertEquals("017", config.moduleJavaVersions().get("octal"));
+    }
+
+    @Test
+    @DisplayName("Should skip module entries without a source level")
+    void shouldSkipModuleEntriesWithoutSourceLevel() throws IOException {
+        Files.writeString(tempDir.resolve(".jsrc.yaml"), """
+                moduleJavaVersions:
+                  legacy: "8"
+                  pending:
+                """);
+
+        var config = ProjectConfig.load(tempDir).orElseThrow();
+        assertEquals("8", config.moduleJavaVersions().get("legacy"));
+        assertFalse(config.moduleJavaVersions().containsKey("pending"));
+    }
 }

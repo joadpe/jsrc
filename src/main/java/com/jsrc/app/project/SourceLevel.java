@@ -3,9 +3,14 @@ package com.jsrc.app.project;
 import com.jsrc.app.config.ProjectConfig;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Effective Java source language level for one file, not the jsrc runtime JDK. */
 public record SourceLevel(int version, String provenance) {
+
+    /** The legacy spelling 1.N of Java N, which Maven and Gradle detection also read. */
+    private static final Pattern LEGACY_SPELLING = Pattern.compile("1\\.(\\d+)");
 
     public static Optional<SourceLevel> resolve(
             Path file, ProjectModel model, ProjectConfig config) {
@@ -48,8 +53,10 @@ public record SourceLevel(int version, String provenance) {
         if (value == null || value.isBlank() || "unknown".equals(value)) {
             return Optional.empty();
         }
+        Matcher legacy = LEGACY_SPELLING.matcher(value);
         try {
-            return Optional.of(new SourceLevel(Integer.parseInt(value), provenance));
+            return Optional.of(new SourceLevel(
+                    Integer.parseInt(legacy.matches() ? legacy.group(1) : value), provenance));
         } catch (NumberFormatException exception) {
             return Optional.empty();
         }

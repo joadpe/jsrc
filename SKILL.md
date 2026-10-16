@@ -1,13 +1,13 @@
 # jsrc — Java Source Code Navigator for Agents
 
-This skill describes the current `master` checkout. The published v2.5.0 native
-release supports the core commands and budget profiles but not JSON protocol v1,
-`--source-set`, per-module Java source-level detection, or atomic index
-generations. Check your binary with `jsrc --version`, `jsrc describe --json`,
-and `jsrc help <command>`; the version string alone cannot distinguish a
-tagged release from a later build of `master`. See the
-[release/master capability matrix](README.md#documentation-scope) before using
-a `master`-only feature.
+This skill describes jsrc 2.6.0. Version 2.5.0 supports the core commands and
+budget profiles but not JSON protocol v1, `--source-set`, per-module Java
+source-level detection, atomic index generations, or `review`. Check your
+binary with `jsrc --version`, `jsrc describe --json`, and
+`jsrc help <command>`; the version string alone cannot distinguish a tagged
+release from a later build of `master`. See the
+[version capability matrix](README.md#documentation-scope) before relying on a
+2.6.0 feature.
 
 ## What is jsrc?
 
@@ -152,12 +152,12 @@ ranked symbols, contract deltas, impact evidence, test candidates, and explicit
 
 ## Global flags
 
-These flags describe `master`. Verify options on an installed release with
-`jsrc help <command>`; `--protocol` and `--source-set` are absent in v2.5.0.
+Verify options on an installed release with `jsrc help <command>`;
+`--protocol` and `--source-set` require 2.6.0 or later.
 
 - `--json` — machine-readable JSON output (always use this)
-- `--protocol legacy|1|latest` — select JSON protocol (default: legacy; `master` only)
-- `--source-set main,test,...` — include selected project source sets (`master` only)
+- `--protocol legacy|1|latest` — select JSON protocol (default: legacy; 2.6.0+)
+- `--source-set main,test,...` — include selected project source sets (2.6.0+)
 - `--metrics` — append execution metrics to stderr
 - `--signature-only` — compact method output (1 line per method)
 - `--fields name,packageName` — limit JSON to specific fields (saves tokens)
@@ -166,7 +166,7 @@ These flags describe `master`. Verify options on an installed release with
 - `--limit N` — maximum items in output lists
 - `--no-budget-meta` — omit _budget metadata from JSON output
 
-## Versioned JSON protocol (`master` only)
+## Versioned JSON protocol (2.6.0+)
 
 Use `--json --protocol 1` for a stable agent-facing envelope. Every response contains
 `schema`, `protocolVersion`, `command`, `status`, `data`, `diagnostics`, and `meta`.
@@ -234,7 +234,7 @@ jsrc read ClassName.methodName --json  # whole-class reads denied under tiny
 ## Output format (JSON)
 
 JSON output is compact. The examples below are illustrative legacy shapes,
-not measured corpus results. On `master`, use `--protocol 1` for the versioned envelope.
+not measured corpus results. Since 2.6.0, use `--protocol 1` for the versioned envelope.
 
 ### overview
 ```json
@@ -356,7 +356,7 @@ jsrc type-check Class.method --json
 ## Configuration (.jsrc.yaml)
 
 The `javaVersion` override sets the analyzed project's source language level,
-not the Java version required to run jsrc. On `master`, per-module detection
+not the Java version required to run jsrc. Since 2.6.0, per-module detection
 and `moduleJavaVersions` add finer control. Optional; place in the project root:
 
 ```yaml

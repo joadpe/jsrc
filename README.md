@@ -4,22 +4,21 @@ A Java source code navigator built for AI agents. Uses [Tree-sitter](https://tre
 
 ## Documentation scope
 
-This README describes the current `master` checkout. The installation commands below
-download the latest published release; at this revision, the latest tag is
-[`v2.5.0`](https://github.com/joadpe/jsrc/releases/tag/v2.5.0). Check the
-reported version with `jsrc --version` and its command surface with
-`jsrc describe --json`. The version string alone does not identify whether a
-binary was built from the tag or from later `master` commits; inspect its options
-with `jsrc help <command>`. The generated [command catalog](#commands) reflects
-`master`, not a promise that every option exists in the release.
+This README describes jsrc 2.6.0. The installation commands below download the
+latest published release. Check the reported version with `jsrc --version` and
+its command surface with `jsrc describe --json`. The version string alone does
+not identify whether a binary was built from the tag or from later `master`
+commits; inspect its options with `jsrc help <command>`. The generated
+[command catalog](#commands) reflects this revision.
 
-| Capability | Published v2.5.0 | Current `master` |
+| Capability | v2.5.0 | v2.6.0 |
 |---|---|---|
 | Core navigation, indexing and budget profiles | Yes | Yes |
 | JSON protocol v1 (`--protocol 1`) | No | Yes |
 | Offline Maven/Gradle module and source-set discovery (`--source-set`) | No | Yes |
 | Per-module Java source-level detection and overrides | No | Yes |
 | Atomic index generations under `.jsrc/generations/` | No; uses `.jsrc/index.bin` | Yes |
+| Offline change review (`review`, experimental) | No | Yes |
 
 The matrix compares the [v2.5.0 tag](https://github.com/joadpe/jsrc/tree/v2.5.0)
 with the current [CLI options](src/main/java/com/jsrc/app/cli/GlobalOptions.java),
@@ -27,6 +26,26 @@ with the current [CLI options](src/main/java/com/jsrc/app/cli/GlobalOptions.java
 [index store](src/main/java/com/jsrc/app/index/IndexSnapshotStore.java).
 Both versions require Java 22 to build or run the JAR (see [pom.xml](pom.xml));
 native release executables do not require a JDK at runtime.
+
+### Upgrading from 2.5.0
+
+- **Full re-index once.** The index format changed. The first `jsrc index` (or
+  normal query) after upgrading rebuilds the whole index, and `--frozen-index`
+  rejects a 2.5.0 index until `jsrc index` runs. Do not share one `.jsrc`
+  directory between 2.5.0 and 2.6.0 processes.
+- **Source discovery follows the build.** When a `pom.xml` or Gradle build is
+  detected, only its source roots are indexed; 2.5.0 walked every `.java` file
+  under the project root. Compare `jsrc overview --json` `totalFiles` with the
+  previous count and add missing directories under `sourceRoots` in
+  [`.jsrc.yaml`](#configuration).
+- **`--frozen-index` checks the Git tree.** A frozen query rejects a snapshot
+  recorded for a different committed tree; run `jsrc index` after switching
+  branches.
+- **Ambiguous simple class names.** `read Name` returns `ambiguous` with
+  candidates when several packages declare `Name`; use the qualified name.
+- **Call graph counts may change.** `callers`, `impact` and `flow` resolve calls
+  by type and signature, so overloads and same-name methods no longer match by
+  name alone.
 
 ## Why jsrc?
 
@@ -240,7 +259,7 @@ navigating results: restart it to include file changes.
 Unsaved editor buffers and platform-specific plugin integration are outside
 this prototype.
 
-## Offline change review (current source builds)
+## Offline change review (experimental)
 
 ```bash
 jsrc review --json                 # HEAD vs staged, unstaged and untracked files
@@ -338,15 +357,15 @@ modules and constructor visibility are marked unresolved.
 
 ## Global Flags
 
-This table documents `master`; `--protocol` and `--source-set` are not available
-in v2.5.0. Flags work before or after the subcommand:
+`--protocol` and `--source-set` require 2.6.0 or later. Flags work before or
+after the subcommand:
 `jsrc --json overview` = `jsrc overview --json`.
 
 | Flag | Description |
 |------|-------------|
 | `--json` | Machine-readable JSON (always use for agents) |
-| `--protocol legacy\|1\|latest` | JSON protocol version (default: legacy; `master` only) |
-| `--source-set main,test,...` | Include selected project source sets (`master` only) |
+| `--protocol legacy\|1\|latest` | JSON protocol version (default: legacy; 2.6.0+) |
+| `--source-set main,test,...` | Include selected project source sets (2.6.0+) |
 | `--md` | Markdown output (for context command) |
 | `--metrics` | Append execution metrics to stderr |
 | `--full` | Verbose output (full signatures, all details) |
@@ -358,7 +377,7 @@ in v2.5.0. Flags work before or after the subcommand:
 | `--max-bytes N` | Maximum output size in bytes |
 | `--no-budget-meta` | Omit _budget metadata from JSON output |
 
-## Versioned JSON protocol (`master` only)
+## Versioned JSON protocol (2.6.0+)
 
 The existing JSON shapes remain the default under `--protocol legacy`. Agents that need a
 stable envelope can opt into protocol v1:
@@ -455,7 +474,7 @@ If a command fails with exit code 2, verify you are using the subcommand syntax,
 
 ## Configuration
 
-The per-module source-level behavior below describes `master`, not v2.5.0.
+Per-module source-level detection below requires 2.6.0 or later.
 
 Create `.jsrc.yaml` in your project root:
 
@@ -500,8 +519,8 @@ architecture:
 
 ## Persistent Index
 
-The v2.5.0 release stores its persistent index at `.jsrc/index.bin`.
-On `master`, the index publishes immutable binary generations under `.jsrc/generations/`.
+Version 2.5.0 stored its persistent index at `.jsrc/index.bin`.
+Since 2.6.0, the index publishes immutable binary generations under `.jsrc/generations/`.
 The small `.jsrc/current` manifest selects the complete generation used by readers;
 writers serialize publication with `.jsrc/index.lock` and replace the manifest
 atomically. The previous generation is retained for recovery while older ones

@@ -31,7 +31,7 @@ class PicocliIntegrationTest {
         cmd.setOut(new java.io.PrintWriter(out, true));
         int exitCode = cmd.execute("--version");
         assertEquals(0, exitCode);
-        assertEquals("jsrc 2.5.0" + System.lineSeparator(), out.toString());
+        assertEquals("jsrc 2.6.0" + System.lineSeparator(), out.toString());
     }
 
     @Test

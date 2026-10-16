@@ -4,16 +4,16 @@ import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.jsrc.app.index.IndexedClass;
+import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodReference;
 import com.jsrc.app.util.MethodResolver;
 import com.jsrc.app.util.MethodTargetResolver;
@@ -57,7 +57,7 @@ public class ValidateCommand implements Command {
 
         // Filter by class if specified
         if (ref.hasClassName()) {
-            var classMatch = inClass(ctx, byName, ref.className());
+            var classMatch = inClass(new DeclaredClasses(ctx), byName, ref.className());
 
             if (!classMatch.isEmpty()) {
                 // Filter by param count if specified
@@ -115,16 +115,17 @@ public class ValidateCommand implements Command {
     }
 
     /**
-     * True when the requested name designates {@code className} by its simple name, nested name
-     * (Outer.Inner or Outer$Inner) or qualified name. Only the request may be the shorter name,
-     * so a qualified request never matches a class of another package. Unresolved call-graph
-     * owners ("?", "?field:...") are not classes and never match.
+     * True when the requested name designates {@code className}. A request that starts with a
+     * package is fully qualified and names that class alone (api.User, not com.acme.api.User);
+     * any other request is a simple or nested name (Repo, Outer.Inner or Outer$Inner) of a class
+     * in any package. Unresolved call-graph owners ("?", "?field:...") are not classes and never
+     * match.
      */
     private static boolean namesClass(String className, String requested) {
         if (className.startsWith("?")) return false;
         String known = sourceName(className);
         String wanted = sourceName(requested);
-        return known.equals(wanted) || known.endsWith("." + wanted);
+        return known.equals(wanted) || (!startsWithPackage(wanted) && known.endsWith("." + wanted));
     }
 
     /** Class name with nested classes written like source code: app.Outer.Inner. */
@@ -138,51 +139,53 @@ public class ValidateCommand implements Command {
     }
 
     /**
-     * Owners the requested name designates. A request starting with a package that names an
-     * owner exactly means that owner alone, not longer names ending with it (api.User, not
-     * com.acme.api.User).
-     */
-    private static <T> List<T> designated(Collection<T> candidates, Function<T, String> owner,
-                                          String requested) {
-        List<T> matching = candidates.stream()
-                .filter(candidate -> namesClass(owner.apply(candidate), requested))
-                .toList();
-        String wanted = sourceName(requested);
-        if (startsWithPackage(wanted)) {
-            List<T> exact = matching.stream()
-                    .filter(candidate -> sourceName(owner.apply(candidate)).equals(wanted))
-                    .toList();
-            if (!exact.isEmpty()) return exact;
-        }
-        return matching;
-    }
-
-    /**
      * Keeps the methods of every class the requested name designates. Names without a package,
      * as recorded for call sites the graph could not resolve (Repo next to app.Repo), are dropped
-     * when a longer match ends with them, unless a default-package class has that name.
+     * when a longer match ends with them, unless a class without a package is declared with that
+     * name.
      */
-    private static Set<MethodReference> inClass(CommandContext ctx, Set<MethodReference> methods,
-                                                String requested) {
-        Set<MethodReference> matching = new LinkedHashSet<>(
-                designated(methods, MethodReference::className, requested));
+    private static Set<MethodReference> inClass(DeclaredClasses declared,
+                                                Set<MethodReference> methods, String requested) {
+        Set<MethodReference> matching = methods.stream()
+                .filter(m -> namesClass(m.className(), requested))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
         Set<String> owners = owners(matching);
         Set<String> unresolved = owners.stream()
                 .filter(owner -> !startsWithPackage(owner)
                         && owners.stream().anyMatch(other -> other.endsWith("." + owner))
-                        && !declaredWithoutPackage(ctx, owner))
+                        && !declared.contains(owner))
                 .collect(Collectors.toSet());
         matching.removeIf(m -> unresolved.contains(sourceName(m.className())));
         return matching;
     }
 
-    /** Looks for a default-package class in the files named after its outermost class. */
-    private static boolean declaredWithoutPackage(CommandContext ctx, String owner) {
-        String fileName = owner.split("\\.")[0] + ".java";
-        return ctx.javaFiles().stream()
-                .filter(file -> file.getFileName().toString().equals(fileName))
-                .flatMap(file -> ctx.parser().parseClasses(file).stream())
-                .anyMatch(declared -> sourceName(declared.qualifiedName()).equals(owner));
+    /**
+     * Source names of the declared classes, read from the index or parsed from the files on first
+     * use, so both modes give the same answer. A class without a package may be declared in a file
+     * named after another class.
+     */
+    private static final class DeclaredClasses {
+        private final CommandContext ctx;
+        private Set<String> names;
+
+        DeclaredClasses(CommandContext ctx) {
+            this.ctx = ctx;
+        }
+
+        boolean contains(String sourceName) {
+            if (names == null) {
+                Stream<String> qualifiedNames = ctx.indexed() != null
+                        ? ctx.indexed().getEntries().stream()
+                                .flatMap(entry -> entry.classes().stream())
+                                .map(IndexedClass::qualifiedName)
+                        : ctx.javaFiles().stream()
+                                .flatMap(file -> ctx.parser().parseClasses(file).stream())
+                                .map(ClassInfo::qualifiedName);
+                names = qualifiedNames.map(ValidateCommand::sourceName)
+                        .collect(Collectors.toSet());
+            }
+            return names.contains(sourceName);
+        }
     }
 
     private static Set<String> owners(Set<MethodReference> methods) {
@@ -366,10 +369,8 @@ public class ValidateCommand implements Command {
         if (ctx.indexed() == null) return null;
         List<IndexedClass> classes = ctx.indexed().getEntries().stream()
                 .flatMap(entry -> entry.classes().stream())
+                .filter(ic -> !ref.hasClassName() || namesClass(ic.qualifiedName(), ref.className()))
                 .toList();
-        if (ref.hasClassName()) {
-            classes = designated(classes, IndexedClass::qualifiedName, ref.className());
-        }
         for (var ic : classes) {
             for (var im : ic.methods()) {
                 if (!im.name().equals(ref.methodName()) || im.signature() == null) continue;
@@ -436,6 +437,7 @@ public class ValidateCommand implements Command {
 
         var graph = ctx.callGraph();
         Map<String, String> signatures = indexSignatures(ctx);
+        var declared = new DeclaredClasses(ctx);
 
         for (String rawRef : refs) {
             String trimmed = rawRef.trim();
@@ -447,7 +449,7 @@ public class ValidateCommand implements Command {
 
             Set<MethodReference> byName = graph.findMethodsByName(ref.methodName());
             if (ref.hasClassName()) {
-                byName = inClass(ctx, byName, ref.className());
+                byName = inClass(declared, byName, ref.className());
                 if (ref.hasParamTypes()) {
                     byName = withArity(byName, ref.paramTypes().size());
                 }

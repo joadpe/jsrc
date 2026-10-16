@@ -309,6 +309,9 @@ class ValidateCommandTest {
             for (String ref : List.of("Repo.save()", "Repo.save(int,int,int)")) {
                 var result = validate(ref, files, withIndex);
                 assertEquals(false, result.get("valid"), ref + " -> " + result);
+                // The method reference is not a declared overload to suggest
+                assertEquals(List.of("app.Repo.save(List<String>)", "app.Repo.save(String, int)"),
+                        result.get("closest"), ref + " -> " + result);
             }
             var existing = validate("Repo.save(String,int)", files, withIndex);
             assertEquals(true, existing.get("valid"), "Got: " + existing);
@@ -360,7 +363,183 @@ class ValidateCommandTest {
         }
     }
 
+    @Test
+    void validate_unknownClassOrMethod_reportsInvalidWithAndWithoutIndex() throws Exception {
+        List<Path> files = List.of(write("app/Repo.java", """
+                package app;
+                public class Repo { public String name() { return ""; } }
+                """));
+
+        for (boolean withIndex : List.of(false, true)) {
+            for (String ref : List.of("wrong.Repo.name", "Nope.name", "Repo.nope")) {
+                var result = validate(ref, files, withIndex);
+                assertEquals(false, result.get("valid"),
+                        ref + " index=" + withIndex + " -> " + result);
+            }
+        }
+    }
+
+    @Test
+    void validate_simpleName_doesNotMatchLongerSimpleName() throws Exception {
+        List<Path> files = List.of(write("app/MyRepo.java", """
+                package app;
+                public class MyRepo { public String name() { return ""; } }
+                """));
+
+        for (boolean withIndex : List.of(false, true)) {
+            var result = validate("Repo.name", files, withIndex);
+            assertEquals(false, result.get("valid"), "index=" + withIndex + " -> " + result);
+        }
+    }
+
+    @Test
+    void validate_simpleNameOfSeveralPackagesWithParameterTypes_isAmbiguous() throws Exception {
+        List<Path> files = writeDuplicateRepos();
+
+        for (boolean withIndex : List.of(false, true)) {
+            for (String ref : List.of("Repo.name()", "Repo.name")) {
+                var result = validate(ref, files, withIndex);
+                assertEquals(true, result.get("ambiguous"),
+                        ref + " index=" + withIndex + " -> " + result);
+                assertEquals(List.of("app.Repo.name()", "other.Repo.name()"),
+                        result.get("candidates"));
+            }
+            var qualified = validate("other.Repo.name()", files, withIndex);
+            assertNull(qualified.get("ambiguous"), "Got: " + qualified);
+            assertEquals("other.Repo", qualified.get("class"));
+        }
+    }
+
+    @Test
+    void validate_methodWithoutClassInSeveralClasses_listsSortedCandidates() throws Exception {
+        List<Path> files = List.of(
+                write("app/Repo.java", """
+                        package app;
+                        public class Repo { public String name() { return ""; } }
+                        """),
+                write("other/Repo.java", """
+                        package other;
+                        public class Repo { public String name(int x) { return ""; } }
+                        """));
+
+        for (boolean withIndex : List.of(false, true)) {
+            var result = validate("name", files, withIndex);
+            assertEquals(true, result.get("ambiguous"), "index=" + withIndex + " -> " + result);
+            assertEquals(List.of("app.Repo.name()", "other.Repo.name(int)"),
+                    result.get("candidates"));
+        }
+    }
+
+    @Test
+    void validate_withIndex_reportsFirstDeclaredOfManyOverloads() throws Exception {
+        // Enough overloads for hash order to differ from source order
+        var source = new StringBuilder("package app;\npublic class Calc {\n");
+        for (int arity = 0; arity < 12; arity++) {
+            var parameters = new java.util.StringJoiner(", ");
+            for (int p = 1; p <= arity; p++) parameters.add("int a" + p);
+            source.append("    public int add(").append(parameters).append(") { return 0; }\n");
+        }
+        source.append("}\n");
+        List<Path> files = List.of(write("app/Calc.java", source.toString()));
+
+        var result = validate("Calc.add", files, true);
+
+        assertEquals("public int add()", result.get("signature"), "Got: " + result);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void validate_qualifiedClassLackingTheMethod_isInvalidEvenIfLongerNameHasIt() throws Exception {
+        List<Path> files = List.of(
+                write("api/User.java", """
+                        package api;
+                        public class User { public User find(int id) { return this; } }
+                        """),
+                write("com/acme/api/User.java", """
+                        package com.acme.api;
+                        public class User { public String email() { return ""; } }
+                        """));
+
+        for (boolean withIndex : List.of(false, true)) {
+            var qualified = validate("api.User.email", files, withIndex);
+            var partial = validate("acme.api.User.email", files, withIndex);
+            var simple = validate("User.email", files, withIndex);
+            var batch = (List<Map<String, Object>>) validate(
+                    "api.User.email;com.acme.api.User.email", files, withIndex).get("results");
+
+            assertEquals(false, qualified.get("valid"), "index=" + withIndex + " -> " + qualified);
+            assertEquals("Method not found in api.User", qualified.get("reason"));
+            assertEquals(List.of("com.acme.api.User.email()"), qualified.get("closest"));
+            // A name that starts with a package is complete, as in 2.6.1
+            assertEquals(false, partial.get("valid"), "index=" + withIndex + " -> " + partial);
+            assertEquals("com.acme.api.User", simple.get("class"), "Got: " + simple);
+            assertEquals(false, batch.get(0).get("valid"), "Got: " + batch);
+            assertEquals("com.acme.api.User", batch.get(1).get("class"), "Got: " + batch);
+        }
+    }
+
+    @Test
+    void validate_classWithoutPackageInAnotherFile_isFoundWithAndWithoutIndex() throws Exception {
+        List<Path> files = writeRepoWithoutPackageInHelpers();
+
+        for (boolean withIndex : List.of(false, true)) {
+            var withParams = validate("Repo.name(int)", files, withIndex);
+            var simple = validate("Repo.name", files, withIndex);
+
+            assertEquals(true, withParams.get("valid"), "index=" + withIndex + " -> " + withParams);
+            assertEquals("Repo", withParams.get("class"), "index=" + withIndex + " -> " + withParams);
+            assertEquals(List.of("Repo.name(int)", "app.Repo.name()"), simple.get("candidates"),
+                    "index=" + withIndex + " -> " + simple);
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void validateBatch_classWithoutPackageInAnotherFile_reportsClassAndMethod() throws Exception {
+        List<Path> files = writeRepoWithoutPackageInHelpers();
+
+        for (boolean withIndex : List.of(false, true)) {
+            var result = validate("Repo.name(int);app.Repo.name()", files, withIndex);
+            var entry = ((List<Map<String, Object>>) result.get("results")).get(0);
+
+            assertEquals(true, entry.get("valid"), "index=" + withIndex + " -> " + result);
+            assertEquals("Repo", entry.get("class"), "Got: " + result);
+            assertEquals("name", entry.get("method"), "Got: " + result);
+        }
+    }
+
+    @Test
+    void validate_resultIsPositiveOnlyForExistingReferences() throws Exception {
+        List<Path> files = new java.util.ArrayList<>(writeDuplicateRepos());
+        files.add(write("app/Service.java", """
+                package app;
+                public class Service { public void handle() {} }
+                """));
+
+        // The CLI exits 0 for a positive result and 1 for zero
+        for (boolean withIndex : List.of(false, true)) {
+            assertEquals(1, commandResult("app.Service.handle", files, withIndex), "valid");
+            assertEquals(1, commandResult("Repo.name", files, withIndex), "ambiguous");
+            assertEquals(0, commandResult("Service.nope", files, withIndex), "invalid");
+            assertEquals(2, commandResult("app.Service.handle;Repo.name;Service.nope",
+                    files, withIndex), "batch counts the valid references");
+        }
+    }
+
     // --- helper ---
+
+    /** A class without a package declared in Helpers.java, next to a packaged namesake. */
+    private List<Path> writeRepoWithoutPackageInHelpers() throws Exception {
+        return List.of(
+                write("Helpers.java", """
+                        class Repo { public String name(int x) { return ""; } }
+                        public class Helpers { public void help() {} }
+                        """),
+                write("app/Repo.java", """
+                        package app;
+                        public class Repo { public String name() { return ""; } }
+                        """));
+    }
 
     /** Two classes named Repo, plus a caller whose calls stay unresolved in the call graph. */
     private List<Path> writeDuplicateRepos() throws Exception {
@@ -397,6 +576,19 @@ class ValidateCommandTest {
     @SuppressWarnings("unchecked")
     private Map<String, Object> validate(String methodRef, List<Path> files, boolean withIndex)
             throws Exception {
+        var baos = new ByteArrayOutputStream();
+        new ValidateCommand(methodRef).execute(context(files, withIndex, baos));
+        return (Map<String, Object>) JsonReader.parse(baos.toString().trim());
+    }
+
+    private int commandResult(String methodRef, List<Path> files, boolean withIndex)
+            throws Exception {
+        return new ValidateCommand(methodRef).execute(
+                context(files, withIndex, new ByteArrayOutputStream()));
+    }
+
+    private CommandContext context(List<Path> files, boolean withIndex, ByteArrayOutputStream out)
+            throws Exception {
         var parser = new HybridJavaParser();
         IndexedCodebase indexed = null;
         if (withIndex) {
@@ -406,12 +598,8 @@ class ValidateCommandTest {
             indexed = IndexedCodebase.tryLoad(tempDir, files);
             assertNotNull(indexed);
         }
-        var baos = new ByteArrayOutputStream();
-        var ctx = new CommandContext(files, tempDir.toString(), null,
-                new JsonFormatter(false, null, new PrintStream(baos)), indexed, parser);
-
-        new ValidateCommand(methodRef).execute(ctx);
-        return (Map<String, Object>) JsonReader.parse(baos.toString().trim());
+        return new CommandContext(files, tempDir.toString(), null,
+                new JsonFormatter(false, null, new PrintStream(out)), indexed, parser);
     }
 
     @SuppressWarnings("unchecked")

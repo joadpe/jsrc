@@ -121,7 +121,8 @@ smoke_extract="$work_dir/extracted"
 smoke_home="$work_dir/home"
 smoke_project="$work_dir/project"
 malformed_project="$work_dir/malformed-project"
-mkdir -p "$smoke_extract" "$smoke_home" "$smoke_project/src/main/java/example" "$malformed_project/src/main/java/example"
+windows1252_project="$work_dir/windows-1252-project"
+mkdir -p "$smoke_extract" "$smoke_home" "$smoke_project/src/main/java/example" "$malformed_project/src/main/java/example" "$windows1252_project/src/main/java/example"
 tar -xzf "$archive_path" -C "$smoke_extract"
 
 cat > "$smoke_project/src/main/java/example/Hello.java" <<'JAVA'
@@ -135,6 +136,9 @@ public final class Hello {
 JAVA
 cp "$smoke_project/src/main/java/example/Hello.java" "$malformed_project/src/main/java/example/"
 printf '<project>' > "$malformed_project/pom.xml"
+cp "$smoke_project/src/main/java/example/Hello.java" "$windows1252_project/src/main/java/example/"
+# \xf3 is "o" with an acute accent in Windows-1252; the JDK charset for it is not in the image.
+printf '<?xml version="1.0" encoding="windows-1252"?>\n<project><modelVersion>4.0.0</modelVersion><groupId>example</groupId><artifactId>hello</artifactId><version>1</version><!-- configuraci\xf3n --><properties><maven.compiler.source>1.8</maven.compiler.source></properties></project>\n' > "$windows1252_project/pom.xml"
 
 mv "$native_lib_dir" "$work_dir/build-libs"
 library_moved=true
@@ -147,6 +151,12 @@ read_output="$(HOME="$smoke_home" "$smoke_binary" -d "$smoke_project" read Hello
 grep -Fq 'Hello' <<<"$read_output"
 malformed_output="$(HOME="$smoke_home" "$smoke_binary" -d "$malformed_project" overview --json)"
 grep -Fq '"BUILD_MODEL_PARTIAL"' <<<"$malformed_output"
+windows1252_output="$(HOME="$smoke_home" "$smoke_binary" -d "$windows1252_project" overview --json)"
+if ! grep -Fq '"javaVersion":"8"' <<<"$windows1252_output" \
+    || grep -Fq 'BUILD_MODEL_PARTIAL' <<<"$windows1252_output"; then
+  echo "Error: pom.xml that declares windows-1252 was not read." >&2
+  exit 1
+fi
 
 if HOME="$smoke_home" "$smoke_binary" definitely-not-a-command >/dev/null 2>&1; then
   echo "Error: invalid command unexpectedly succeeded." >&2

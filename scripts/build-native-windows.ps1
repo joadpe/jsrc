@@ -82,6 +82,7 @@ $workPath = Join-Path ([System.IO.Path]::GetTempPath()) "jsrc-native-$([Guid]::N
 $smokeHome = Join-Path $workPath "home"
 $smokeProject = Join-Path $workPath "project"
 $malformedProject = Join-Path $workPath "malformed-project"
+$windows1252Project = Join-Path $workPath "windows-1252-project"
 $smokeExtract = Join-Path $workPath "extracted"
 $savedLibraryPath = Join-Path $workPath "build-libs"
 $libraryMoved = $false
@@ -195,6 +196,16 @@ public final class Hello {
     Copy-Item (Join-Path $javaSourceDirectory "Hello.java") $malformedSourceDirectory
     Set-Content -Path (Join-Path $malformedProject "pom.xml") -Value "<project>" -Encoding ASCII
 
+    $windows1252SourceDirectory = Join-Path $windows1252Project "src\main\java\example"
+    New-Item -ItemType Directory -Force -Path $windows1252SourceDirectory | Out-Null
+    Copy-Item (Join-Path $javaSourceDirectory "Hello.java") $windows1252SourceDirectory
+    # The ~ becomes 0xF3, "o" with an acute accent in Windows-1252, written as a raw byte.
+    $windows1252Pom = '<?xml version="1.0" encoding="windows-1252"?>' + "`n" +
+        '<project><modelVersion>4.0.0</modelVersion><groupId>example</groupId><artifactId>hello</artifactId><version>1</version><!-- configuraci~n --><properties><maven.compiler.source>1.8</maven.compiler.source></properties></project>' + "`n"
+    $windows1252Bytes = [System.Text.Encoding]::ASCII.GetBytes($windows1252Pom)
+    $windows1252Bytes[$windows1252Pom.IndexOf('~')] = 0xF3
+    [System.IO.File]::WriteAllBytes((Join-Path $windows1252Project "pom.xml"), $windows1252Bytes)
+
     Move-Item $libraryPath $savedLibraryPath
     $libraryMoved = $true
 
@@ -221,6 +232,12 @@ public final class Hello {
         $malformedOutput = (& $smokeBinary -d $malformedProject overview --json | Out-String)
         if ($LASTEXITCODE -ne 0 -or $malformedOutput -notmatch '"BUILD_MODEL_PARTIAL"') {
             throw "Functional smoke malformed pom.xml failed."
+        }
+
+        $windows1252Output = (& $smokeBinary -d $windows1252Project overview --json | Out-String)
+        if ($LASTEXITCODE -ne 0 -or $windows1252Output -notmatch '"javaVersion":"8"' -or
+                $windows1252Output -match 'BUILD_MODEL_PARTIAL') {
+            throw "Functional smoke windows-1252 pom.xml failed."
         }
 
         & $smokeBinary definitely-not-a-command *> $null

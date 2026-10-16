@@ -4,11 +4,12 @@ A Java source code navigator built for AI agents. Uses [Tree-sitter](https://tre
 
 ## Documentation scope
 
-This README describes jsrc 2.6.0. The installation commands below download the
-latest published release. Check the reported version with `jsrc --version` and
-its command surface with `jsrc describe --json`. The version string alone does
-not identify whether a binary was built from the tag or from later `master`
-commits; inspect its options with `jsrc help <command>`. The generated
+This README describes jsrc 2.6.1, a bug-fix release with the same commands and
+options as 2.6.0. The installation commands below download the latest published
+release. Check the reported version with `jsrc --version` and its command
+surface with `jsrc describe --json`. The version string alone does not identify
+whether a binary was built from the tag or from later `master` commits; inspect
+its options with `jsrc help <command>`. The generated
 [command catalog](#commands) reflects this revision.
 
 | Capability | v2.5.0 | v2.6.0 |
@@ -26,6 +27,18 @@ with the current [CLI options](src/main/java/com/jsrc/app/cli/GlobalOptions.java
 [index store](src/main/java/com/jsrc/app/index/IndexSnapshotStore.java).
 Both versions require Java 22 to build or run the JAR (see [pom.xml](pom.xml));
 native release executables do not require a JDK at runtime.
+
+### Upgrading from 2.6.0
+
+- **Full re-index once.** The index format changed. The first `jsrc index` (or
+  normal query) after upgrading rebuilds the whole index, and `--frozen-index`
+  rejects a 2.6.0 index until `jsrc index` runs. Do not share one `.jsrc`
+  directory between 2.6.0 and 2.6.1 processes.
+- **Non-UTF-8 sources are indexed.** Files that are not valid UTF-8 are read as
+  Windows-1252 instead of being skipped, so such projects may report more files.
+- **Ambiguous chained calls stay unresolved.** When two calls on one line could
+  each be the receiver of a chained call, the call graph leaves it unresolved
+  instead of picking one.
 
 ### Upgrading from 2.5.0
 

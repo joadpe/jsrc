@@ -538,6 +538,12 @@ architecture:
       require: constructor-injection
 ```
 
+Each `excludes` entry matches anywhere in a file's absolute path, with `/` (or
+`\`) between directories on every platform: `**` spans directories, `*` stays
+within one file or directory name, and every other character is literal, so
+`**/test/**` and `/test/` exclude the same files. A leading `./` or `../` matches
+like `/`, so `./build/` excludes the same files as `/build/`.
+
 ## Persistent Index
 
 Version 2.5.0 stored its persistent index at `.jsrc/index.bin`.

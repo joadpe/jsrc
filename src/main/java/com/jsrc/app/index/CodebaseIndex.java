@@ -293,6 +293,7 @@ public class CodebaseIndex {
                 .map(indexedClass -> withSyntheticMethods(
                         indexedClass, extraction.syntheticMethods()))
                 .toList());
+        // Owners without a parsed declaration (anonymous classes) follow in source order.
         extraction.syntheticMethods().forEach((owner, methods) -> {
             boolean ownerIndexed = indexed.stream()
                     .anyMatch(indexedClass -> indexedClass.qualifiedName().equals(owner));

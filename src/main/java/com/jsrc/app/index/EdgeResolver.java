@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -42,6 +43,11 @@ public class EdgeResolver {
 
     private static final Logger logger = LoggerFactory.getLogger(EdgeResolver.class);
 
+    /**
+     * Edges and synthetic methods extracted from one source file. {@code syntheticMethods}
+     * iterates owners in the order supplied, which {@code extract} makes source order so
+     * repeated builds append anonymous classes identically.
+     */
     public record Extraction(
             List<CallEdge> edges,
             Map<String, List<IndexedMethod>> syntheticMethods,
@@ -49,10 +55,10 @@ public class EdgeResolver {
             boolean parsedCleanly) {
         public Extraction {
             edges = List.copyOf(edges);
-            syntheticMethods = syntheticMethods.entrySet().stream()
-                    .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                            Map.Entry::getKey,
-                            entry -> List.copyOf(entry.getValue())));
+            // Map.of/copyOf/toUnmodifiableMap iterate in a per-JVM salted order; keep the given one.
+            Map<String, List<IndexedMethod>> ordered = new LinkedHashMap<>();
+            syntheticMethods.forEach((owner, methods) -> ordered.put(owner, List.copyOf(methods)));
+            syntheticMethods = java.util.Collections.unmodifiableMap(ordered);
         }
     }
 
@@ -86,7 +92,9 @@ public class EdgeResolver {
     /** Extracts from an existing parse so callers can share one JavaParser pass. */
     public Extraction extract(Path file, ParseResult<CompilationUnit> result) {
         List<CallEdge> edges = new ArrayList<>();
-        Map<String, List<IndexedMethod>> syntheticMethods = new HashMap<>();
+        // Insertion order: declared types, then anonymous classes in the AST pre-order
+        // that also numbers them.
+        Map<String, List<IndexedMethod>> syntheticMethods = new LinkedHashMap<>();
         String declarationFingerprint = "";
         boolean parsedCleanly = false;
         if (!result.getResult().isPresent()) {

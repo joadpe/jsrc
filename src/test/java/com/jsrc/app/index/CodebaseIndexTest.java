@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -624,6 +625,77 @@ class CodebaseIndexTest {
     }
 
     @Test
+    void anonymousOwnersKeepSourceOrderAcrossRepeatedBuildsAndJvms() throws Exception {
+        Path javaFile = writeFile("AnonymousOrder.java", """
+                package app;
+                interface Task { void run(); }
+                class AnonymousOrder {
+                    private final Task field = new Task() {
+                        public void run() { helper(); }
+                    };
+                    void first() {
+                        Task a = new Task() {
+                            public void run() { helper(); }
+                        };
+                        Task b = new Task() {
+                            public void run() { Runnable later = () -> helper(); }
+                        };
+                    }
+                    void second() {
+                        Task outer = new Task() {
+                            public void run() {
+                                Task inner = new Task() {
+                                    public void run() { helper(); }
+                                };
+                            }
+                        };
+                        Runnable lambda = () -> new Task() {
+                            public void run() { helper(); }
+                        }.run();
+                    }
+                    void third() {
+                        Task[] pair = {
+                            new Task() { public void run() {} }, new Task() { public void run() {} }
+                        };
+                    }
+                    void helper() {}
+                }
+                """);
+
+        IndexEntry entry = indexSingleFile(tempDir, javaFile);
+
+        assertEquals(List.of(
+                        "app.Task",
+                        "app.AnonymousOrder",
+                        "app.AnonymousOrder$initializer$anonymous$1",
+                        "app.AnonymousOrder$first$1$anonymous$1",
+                        "app.AnonymousOrder$first$1$anonymous$2",
+                        "app.AnonymousOrder$second$1$anonymous$1",
+                        "app.AnonymousOrder$second$1$anonymous$1$run$1$anonymous$1",
+                        "app.AnonymousOrder$second$1$anonymous$2",
+                        "app.AnonymousOrder$third$1$anonymous$1",
+                        "app.AnonymousOrder$third$1$anonymous$2"),
+                entry.classes().stream().map(IndexedClass::qualifiedName).toList());
+        for (int run = 0; run < 3; run++) {
+            assertEquals(entry, indexSingleFile(tempDir, javaFile));
+        }
+        // Salted hash iteration orders are fixed for a JVM's lifetime; compare fresh JVMs too.
+        for (int run = 0; run < 3; run++) {
+            assertEquals(entry.toString(), indexInChildJvm(javaFile, run));
+        }
+    }
+
+    public static final class SingleFileIndexer {
+        private SingleFileIndexer() {
+        }
+
+        public static void main(String[] args) {
+            Path root = Path.of(args[0]);
+            System.out.print(indexSingleFile(root, root.resolve(args[1])));
+        }
+    }
+
+    @Test
     void genericTypeParametersSurviveJsonAndBinaryRoundtrip() throws Exception {
         Path javaFile = writeFile("GenericOwner.java", """
                 package app;
@@ -739,6 +811,33 @@ class CodebaseIndexTest {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);
         return file;
+    }
+
+    private static IndexEntry indexSingleFile(Path root, Path file) {
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), List.of(file), root, List.of());
+        return index.getEntries().getFirst();
+    }
+
+    private String indexInChildJvm(Path file, int run) throws Exception {
+        Path output = tempDir.resolve("indexer-" + run + ".out");
+        Path errors = tempDir.resolve("indexer-" + run + ".err");
+        String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        String classpath = System.getProperty("surefire.test.class.path",
+                System.getProperty("java.class.path"));
+        Process process = new ProcessBuilder(java, "--enable-native-access=ALL-UNNAMED",
+                "-cp", classpath, SingleFileIndexer.class.getName(),
+                tempDir.toString(), tempDir.relativize(file).toString())
+                .redirectOutput(output.toFile())
+                .redirectError(errors.toFile())
+                .start();
+        try {
+            assertTrue(process.waitFor(60, TimeUnit.SECONDS), "Indexer subprocess timed out");
+        } finally {
+            process.destroyForcibly();
+        }
+        assertEquals(0, process.exitValue(), Files.readString(errors));
+        return Files.readString(output);
     }
 
     private static java.util.Set<String> dispatchTargets(

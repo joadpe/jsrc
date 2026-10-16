@@ -30,6 +30,7 @@ import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.ThisExpr;
 import com.jsrc.app.parser.model.MethodCall;
 import com.jsrc.app.parser.model.MethodReference;
+import com.jsrc.app.util.SourceText;
 
 /**
  * Builds a directed call graph across all Java files in a codebase.
@@ -956,7 +957,7 @@ public class CallGraphBuilder {
 
     private CompilationUnit parseFile(Path path) {
         try {
-            String source = Files.readString(path);
+            String source = SourceText.read(path);
             var result = javaParser.parse(source);
             if (result.getResult().isPresent()) {
                 if (!result.isSuccessful()) {

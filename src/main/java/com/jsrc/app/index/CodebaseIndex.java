@@ -2,7 +2,6 @@ package com.jsrc.app.index;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -117,11 +116,11 @@ public class CodebaseIndex {
         boolean changedFilesParsedCleanly = true;
 
         entries.clear();
-        int reindexed = 0;
         var edgeParsers = new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
+        // Changed files keep their slot in entries and are parsed after this pass.
+        List<PendingFile> pending = new ArrayList<>();
 
         for (Path file : files) {
-            JavaParser edgeParser = edgeParsers.forFile(file);
             String relativePath = sourceRoot.relativize(file).toString();
             var sourceSet = sourceSets.getOrDefault(
                     file, com.jsrc.app.project.SourceSet.UNKNOWN);
@@ -143,48 +142,25 @@ public class CodebaseIndex {
                     unchangedFiles.put(relativePath, file);
                     continue;
                 }
-
-                // Need to re-index
-                long parseStarted = System.nanoTime();
-                String source = decodeSource(content);
-                List<ClassInfo> classes = parser.parseClasses(file, source);
-
-                // Extract imports from the same source used for the content hash.
-                List<String> fileImports = extractImports(source, edgeParser);
-
-                EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser, source);
-                changedFilesParsedCleanly &= extraction.parsedCleanly();
-                String declarationFingerprint = extraction.declarationFingerprint();
-
-                List<IndexedClass> indexed = new ArrayList<>(classes.stream()
-                        .map(ci -> toIndexedClass(ci, file, parser, fileImports))
-                        .map(indexedClass -> withSyntheticMethods(
-                                indexedClass, extraction.syntheticMethods()))
-                        .toList());
-                extraction.syntheticMethods().forEach((owner, methods) -> {
-                    boolean ownerIndexed = indexed.stream()
-                            .anyMatch(indexedClass -> indexedClass.qualifiedName().equals(owner));
-                    if (!ownerIndexed) {
-                        indexed.add(syntheticIndexedClass(owner, methods, fileImports));
-                    }
-                });
-
-                // Extract call edges (direct + reflective) via EdgeResolver
-                List<CallEdge> edges = new ArrayList<>(extraction.edges());
-                if (!invokers.isEmpty()) {
-                    edges.addAll(edgeResolver.extractReflectiveEdges(
-                            file, edgeParser, invokers, source));
-                }
-
-                entries.add(new IndexEntry(
-                        relativePath, hash, lastModified, sourceSet,
-                        indexed, edges, List.of(), sourceVersion, declarationFingerprint));
-                reindexed++;
-                changedPaths.add(relativePath);
-                IndexPhaseMetrics.recordPhase("build.parse_extract", parseStarted);
+                pending.add(new PendingFile(entries.size(), file, relativePath, sourceSet,
+                        sourceVersion, hash, lastModified, content));
+                entries.add(null);
             } catch (IOException ex) {
                 logger.error("Error indexing {}: {}", file, ex.getMessage());
             }
+        }
+
+        long parseStarted = System.nanoTime();
+        List<ParsedFile> parsedFiles = parseChanged(
+                parser, pending, edgeParsers, sourceLevels, invokers);
+        for (ParsedFile parsedFile : parsedFiles) {
+            entries.set(parsedFile.slot(), parsedFile.entry());
+            changedFilesParsedCleanly &= parsedFile.parsedCleanly();
+            changedPaths.add(parsedFile.entry().path());
+        }
+        int reindexed = parsedFiles.size();
+        if (reindexed > 0) {
+            IndexPhaseMetrics.recordPhase("build.parse_extract", parseStarted);
         }
 
         boolean semanticRefreshRequired = fileSetChanged
@@ -246,6 +222,96 @@ public class CodebaseIndex {
         IndexPhaseMetrics.countPhase("build.reindexed", reindexed);
         IndexPhaseMetrics.recordPhase("build.total", buildStarted);
         return reindexed;
+    }
+
+    /** A changed file, with the bytes that were hashed, waiting to be parsed. */
+    private record PendingFile(int slot, Path file, String relativePath,
+                               com.jsrc.app.project.SourceSet sourceSet, int sourceVersion,
+                               String hash, long lastModified, byte[] content) {}
+
+    private record ParsedFile(int slot, IndexEntry entry, boolean parsedCleanly) {}
+
+    /** Smallest share of changed files worth handing to an extra worker thread. */
+    private static final int MIN_FILES_PER_WORKER = 16;
+
+    /**
+     * Parses changed files, in parallel when the parser can be copied. Parsers are not
+     * thread-safe, so each worker owns a parser copy and interleaves over the files.
+     */
+    private List<ParsedFile> parseChanged(
+            CodeParser parser, List<PendingFile> pending,
+            com.jsrc.app.parser.SourceParserFactory edgeParsers,
+            Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels,
+            List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {
+        int workers = Math.min(Runtime.getRuntime().availableProcessors(),
+                pending.size() / MIN_FILES_PER_WORKER);
+        List<CodeParser> parsers = new ArrayList<>(List.of(parser));
+        while (parsers.size() < workers) {
+            var copy = parser.copy();
+            if (copy.isEmpty()) {
+                break;
+            }
+            parsers.add(copy.get());
+        }
+        if (parsers.size() == 1) {
+            return pending.stream()
+                    .map(file -> parseOne(file, parser, edgeParsers, invokers))
+                    .toList();
+        }
+        int count = parsers.size();
+        return java.util.stream.IntStream.range(0, count).parallel()
+                .mapToObj(worker -> {
+                    var workerEdgeParsers = worker == 0 ? edgeParsers
+                            : new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
+                    List<ParsedFile> parsed = new ArrayList<>();
+                    for (int index = worker; index < pending.size(); index += count) {
+                        parsed.add(parseOne(pending.get(index), parsers.get(worker),
+                                workerEdgeParsers, invokers));
+                    }
+                    return parsed;
+                })
+                .flatMap(List::stream)
+                .toList();
+    }
+
+    private ParsedFile parseOne(
+            PendingFile pendingFile, CodeParser parser,
+            com.jsrc.app.parser.SourceParserFactory edgeParsers,
+            List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {
+        Path file = pendingFile.file();
+        String source = decodeSource(pendingFile.content());
+        List<ClassInfo> classes = parser.parseClasses(file, source);
+
+        // One parse of the hashed source serves both imports and call edges.
+        var parsed = edgeParsers.forFile(file).parse(source);
+        List<String> fileImports = extractImports(parsed);
+
+        EdgeResolver.Extraction extraction = edgeResolver.extract(file, parsed);
+
+        List<IndexedClass> indexed = new ArrayList<>(classes.stream()
+                .map(ci -> toIndexedClass(ci, file, parser, fileImports))
+                .map(indexedClass -> withSyntheticMethods(
+                        indexedClass, extraction.syntheticMethods()))
+                .toList());
+        extraction.syntheticMethods().forEach((owner, methods) -> {
+            boolean ownerIndexed = indexed.stream()
+                    .anyMatch(indexedClass -> indexedClass.qualifiedName().equals(owner));
+            if (!ownerIndexed) {
+                indexed.add(syntheticIndexedClass(owner, methods, fileImports));
+            }
+        });
+
+        // Extract call edges (direct + reflective) via EdgeResolver
+        List<CallEdge> edges = new ArrayList<>(extraction.edges());
+        if (!invokers.isEmpty()) {
+            edges.addAll(edgeResolver.extractReflectiveEdges(file, parsed, invokers));
+        }
+
+        return new ParsedFile(pendingFile.slot(), new IndexEntry(
+                pendingFile.relativePath(), pendingFile.hash(), pendingFile.lastModified(),
+                pendingFile.sourceSet(), indexed, edges, List.of(),
+                pendingFile.sourceVersion(), extraction.declarationFingerprint()),
+                extraction.parsedCleanly());
     }
 
     private static String scopedResolutionFallback(
@@ -864,17 +930,16 @@ public class CodebaseIndex {
     /**
      * Extracts import statements from a Java file.
      */
-    private static List<String> extractImports(String source, JavaParser jp) {
-        var result = jp.parse(source);
+    private static List<String> extractImports(
+            com.github.javaparser.ParseResult<com.github.javaparser.ast.CompilationUnit> result) {
         if (result.getResult().isEmpty()) return List.of();
         return result.getResult().orElseThrow().getImports().stream()
                 .map(imp -> imp.getNameAsString() + (imp.isAsterisk() ? ".*" : ""))
                 .toList();
     }
 
-    private static String decodeSource(byte[] content) throws IOException {
-        return StandardCharsets.UTF_8.newDecoder()
-                .decode(ByteBuffer.wrap(content)).toString();
+    private static String decodeSource(byte[] content) {
+        return com.jsrc.app.util.SourceText.decode(content);
     }
 
     // ---- serialization ----

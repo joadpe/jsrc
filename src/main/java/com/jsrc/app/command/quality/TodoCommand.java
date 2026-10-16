@@ -4,7 +4,6 @@ import com.jsrc.app.command.Command;
 import com.jsrc.app.command.CommandContext;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
@@ -12,6 +11,7 @@ import com.jsrc.app.analysis.SourceResolver;
 import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.util.GitHelper;
 import com.jsrc.app.parser.model.ClassInfo;
+import com.jsrc.app.util.SourceText;
 
 /**
  * Extracts TODO/FIXME/HACK/XXX comments with context.
@@ -30,7 +30,7 @@ public class TodoCommand implements Command {
         for (Path file : ctx.javaFiles()) {
             String source;
             try {
-                source = Files.readString(file);
+                source = SourceText.read(file);
             } catch (IOException ex) {
                 continue; // skip unreadable files
             }

@@ -30,6 +30,7 @@ import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.CodeSmell;
 import com.jsrc.app.parser.model.MethodInfo;
 import com.jsrc.app.parser.model.MethodInfo.ParameterInfo;
+import com.jsrc.app.util.SourceText;
 
 /**
  * Hybrid parser combining Tree-sitter's speed with JavaParser's semantic depth.
@@ -48,6 +49,7 @@ public class HybridJavaParser implements CodeParser {
 
     private static final Logger logger = LoggerFactory.getLogger(HybridJavaParser.class);
 
+    private final java.util.Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels;
     private final TreeSitterParser treeSitter;
     private final SourceParserFactory javaParsers;
     private final CodeSmellDetector smellDetector;
@@ -58,9 +60,18 @@ public class HybridJavaParser implements CodeParser {
     }
 
     public HybridJavaParser(java.util.Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels) {
+        this.sourceLevels = sourceLevels;
         this.treeSitter = new TreeSitterParser("java");
         this.javaParsers = new SourceParserFactory(sourceLevels);
         this.smellDetector = new CodeSmellDetector();
+    }
+
+    @Override
+    public java.util.Optional<CodeParser> copy() {
+        // A copy would drop a subclass's overrides; subclasses opt in by overriding copy().
+        return getClass() == HybridJavaParser.class
+                ? java.util.Optional.of(new HybridJavaParser(sourceLevels))
+                : java.util.Optional.empty();
     }
 
     @Override
@@ -130,7 +141,7 @@ public class HybridJavaParser implements CodeParser {
     public List<ClassInfo> parseClasses(Path path) {
         if (!isValidPath(path)) return Collections.emptyList();
         try {
-            return parseClasses(path, Files.readString(path));
+            return parseClasses(path, SourceText.read(path));
         } catch (IOException exception) {
             logger.debug("Error reading file {}: {}", path, exception.getMessage());
             skippedFiles.add(path.toString());
@@ -392,7 +403,7 @@ public class HybridJavaParser implements CodeParser {
      */
     private CompilationUnit parseWithJavaParserStrict(Path path) {
         try {
-            String source = Files.readString(path);
+            String source = SourceText.read(path);
             var result = javaParsers.forFile(path).parse(source);
             if (result.isSuccessful() && result.getResult().isPresent()) {
                 return result.getResult().get();
@@ -411,7 +422,7 @@ public class HybridJavaParser implements CodeParser {
      */
     private CompilationUnit parseWithJavaParser(Path path) {
         try {
-            return parseWithJavaParser(path, Files.readString(path));
+            return parseWithJavaParser(path, SourceText.read(path));
         } catch (IOException ex) {
             logger.debug("Error reading file {}: {}", path, ex.getMessage());
             skippedFiles.add(path.toString());

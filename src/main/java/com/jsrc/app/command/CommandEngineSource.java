@@ -8,8 +8,8 @@ import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.project.ProjectModel;
 import com.jsrc.app.project.SourceSet;
 import com.jsrc.app.util.MethodTargetResolver;
+import com.jsrc.app.util.SourceText;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -125,7 +125,7 @@ public final class CommandEngineSource implements JsrcEngine.OverviewSource,
     public Optional<JsrcEngine.SearchDocument> document(String path) {
         Path file = Path.of(path);
         try {
-            List<String> lines = Files.readAllLines(file);
+            List<String> lines = SourceText.readLines(file);
             var parsedClasses = context.indexed() != null
                     ? context.indexed().findClassesInFile(path)
                     : context.parser().parseClasses(file);
@@ -140,7 +140,7 @@ public final class CommandEngineSource implements JsrcEngine.OverviewSource,
         long count = 0;
         for (Path file : context.javaFiles()) {
             try {
-                for (String line : Files.readAllLines(file)) {
+                for (String line : SourceText.readLines(file)) {
                     if (line.contains(methodName)) count++;
                 }
             } catch (Exception e) {

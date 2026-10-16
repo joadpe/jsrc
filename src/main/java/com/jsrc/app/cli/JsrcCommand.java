@@ -137,9 +137,7 @@ public class JsrcCommand implements Runnable {
         var diagnostics = compatibility.diagnostics().stream()
                 .filter(diagnostic -> indexCommand || selectedPaths.contains(diagnostic.file()))
                 .toList();
-        diagnostics.forEach(diagnostic -> System.err.printf(
-                "%s: %s: %s%n",
-                diagnostic.code(), diagnostic.file(), diagnostic.message()));
+        printDiagnostics(diagnostics);
 
         var sourceLevels = com.jsrc.app.project.SourceLevel.resolveFiles(
                 projectSources.allFiles(), projectModel, config);
@@ -196,5 +194,25 @@ public class JsrcCommand implements Runnable {
                 sourceSets,
                 diagnostics,
                 sourceSnapshot);
+    }
+
+    /**
+     * Prints source diagnostics to stderr. An undeclared source level usually applies to
+     * the whole project, so it is reported once with a count instead of once per file.
+     */
+    static void printDiagnostics(List<com.jsrc.app.project.SourceDiagnostic> diagnostics) {
+        var unknownLevels = diagnostics.stream()
+                .filter(diagnostic -> "SOURCE_LEVEL_UNKNOWN".equals(diagnostic.code()))
+                .toList();
+        if (!unknownLevels.isEmpty()) {
+            System.err.printf("SOURCE_LEVEL_UNKNOWN: %d file(s): %s"
+                            + " (set javaVersion in .jsrc.yaml: 8..22, \"8\" for older sources)%n",
+                    unknownLevels.size(), unknownLevels.getFirst().message());
+        }
+        diagnostics.stream()
+                .filter(diagnostic -> !"SOURCE_LEVEL_UNKNOWN".equals(diagnostic.code()))
+                .forEach(diagnostic -> System.err.printf(
+                        "%s: %s: %s%n",
+                        diagnostic.code(), diagnostic.file(), diagnostic.message()));
     }
 }

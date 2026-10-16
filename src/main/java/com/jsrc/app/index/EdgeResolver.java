@@ -1,7 +1,6 @@
 package com.jsrc.app.index;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -12,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
@@ -25,6 +25,7 @@ import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.ThisExpr;
+import com.jsrc.app.util.SourceText;
 
 /**
  * Extracts and resolves call edges from Java source files.
@@ -71,7 +72,7 @@ public class EdgeResolver {
 
     public Extraction extract(Path file, JavaParser jp) {
         try {
-            return extract(file, jp, Files.readString(file));
+            return extract(file, jp, SourceText.read(file));
         } catch (IOException ex) {
             logger.debug("Error extracting call edges from {}: {}", file, ex.getMessage());
             return new Extraction(List.of(), Map.of(), "", false);
@@ -79,11 +80,15 @@ public class EdgeResolver {
     }
 
     public Extraction extract(Path file, JavaParser jp, String source) {
+        return extract(file, jp.parse(source));
+    }
+
+    /** Extracts from an existing parse so callers can share one JavaParser pass. */
+    public Extraction extract(Path file, ParseResult<CompilationUnit> result) {
         List<CallEdge> edges = new ArrayList<>();
         Map<String, List<IndexedMethod>> syntheticMethods = new HashMap<>();
         String declarationFingerprint = "";
         boolean parsedCleanly = false;
-        var result = jp.parse(source);
         if (!result.getResult().isPresent()) {
             return new Extraction(edges, syntheticMethods, "", false);
         }
@@ -178,7 +183,7 @@ public class EdgeResolver {
     public List<CallEdge> extractReflectiveEdges(Path file, JavaParser jp,
                                                   List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {
         try {
-            return extractReflectiveEdges(file, jp, invokers, Files.readString(file));
+            return extractReflectiveEdges(file, jp, invokers, SourceText.read(file));
         } catch (IOException ex) {
             logger.debug("Error extracting reflective edges from {}: {}", file, ex.getMessage());
             return List.of();
@@ -188,8 +193,13 @@ public class EdgeResolver {
     public List<CallEdge> extractReflectiveEdges(Path file, JavaParser jp,
                                                   List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers,
                                                   String source) {
+        return extractReflectiveEdges(file, jp.parse(source), invokers);
+    }
+
+    /** Extracts reflective edges from an existing parse so callers can share one JavaParser pass. */
+    public List<CallEdge> extractReflectiveEdges(Path file, ParseResult<CompilationUnit> result,
+                                                  List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {
         List<CallEdge> edges = new ArrayList<>();
-        var result = jp.parse(source);
         if (!result.getResult().isPresent()) return edges;
 
         CompilationUnit cu = result.getResult().get();

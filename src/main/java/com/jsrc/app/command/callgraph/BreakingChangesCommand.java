@@ -36,7 +36,7 @@ public class BreakingChangesCommand implements Command {
             long usageCount = 0;
             for (var file : ctx.javaFiles()) {
                 try {
-                    for (String line : java.nio.file.Files.readAllLines(file)) {
+                    for (String line : com.jsrc.app.util.SourceText.readLines(file)) {
                         if (line.contains(className)) usageCount++;
                     }
                 } catch (Exception e) { /* skip */ }

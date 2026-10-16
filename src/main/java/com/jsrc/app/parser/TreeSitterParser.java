@@ -15,6 +15,7 @@ import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.CodeSmell;
 import com.jsrc.app.parser.model.MethodInfo;
 import com.jsrc.app.parser.model.MethodInfo.ParameterInfo;
+import com.jsrc.app.util.SourceText;
 
 import io.github.treesitter.jtreesitter.InputEncoding;
 import io.github.treesitter.jtreesitter.Language;
@@ -342,11 +343,11 @@ public class TreeSitterParser implements CodeParser {
     }
 
     private ParsedFile readAndParse(Path path) throws IOException {
-        byte[] fileBytes = Files.readAllBytes(path);
-        String content = new String(fileBytes, StandardCharsets.UTF_8);
-        List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+        String content = SourceText.read(path);
+        // Node offsets index the UTF-8 text Tree-sitter parsed, not the file's own encoding.
+        byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
         Tree tree = parser.parse(content, InputEncoding.UTF_8).orElseThrow();
-        return new ParsedFile(fileBytes, lines, tree);
+        return new ParsedFile(contentBytes, content.lines().toList(), tree);
     }
 
     private boolean parameterTypesMatch(List<ParameterInfo> actual, List<String> expected) {

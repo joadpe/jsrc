@@ -1,10 +1,10 @@
 package com.jsrc.app.analysis;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
 import com.jsrc.app.parser.model.ClassInfo;
+import com.jsrc.app.util.SourceText;
 
 /**
  * Resolves and loads source code for classes and methods.
@@ -20,7 +20,7 @@ public class SourceResolver {
         var indexedFile = source.indexedFileForClass(className);
         if (indexedFile.isPresent()) {
             try {
-                return Files.readString(Path.of(source.rootPath()).resolve(indexedFile.get()));
+                return SourceText.read(Path.of(source.rootPath()).resolve(indexedFile.get()));
             } catch (Exception e) { /* fallback */ }
         }
         // Strategy 2: file scan
@@ -30,7 +30,7 @@ public class SourceResolver {
         for (Path file : source.javaFiles()) {
             if (file.getFileName().toString().equals(simpleClassName + ".java")) {
                 try {
-                    return Files.readString(file);
+                    return SourceText.read(file);
                 } catch (Exception e) { /* ignore */ }
             }
         }

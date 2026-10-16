@@ -152,6 +152,24 @@ class TreeSitterParserTest {
         assertTrue(parser.parseClasses(file).isEmpty());
     }
 
+    @Test
+    @DisplayName("Should read Windows-1252 sources with offsets into the parsed text")
+    void shouldReadWindows1252Source() throws IOException {
+        Path file = tempDir.resolve("Facturacion.java");
+        Files.write(file, """
+                // Facturación, señal, acción, año
+                public class Facturacion {
+                    public static String estado() { return "señal"; }
+                }
+                """.getBytes(java.nio.charset.Charset.forName("windows-1252")));
+
+        List<MethodInfo> methods = parser.findMethods(file, "estado");
+
+        assertEquals(1, methods.size());
+        assertEquals(List.of("public", "static"), methods.getFirst().modifiers());
+        assertTrue(methods.getFirst().content().contains("return \"señal\";"));
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);

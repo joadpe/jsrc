@@ -609,6 +609,33 @@ class CodebaseIndexTest {
                 binaryClass.methods().getFirst().typeParameters());
     }
 
+    @Test
+    void parallelBuildMatchesSequentialBuild() throws Exception {
+        List<Path> files = new java.util.ArrayList<>();
+        for (int index = 0; index < 80; index++) {
+            files.add(writeFile("C" + index + ".java", """
+                    package p;
+                    import java.util.List;
+                    public class C%d {
+                        private C%d next;
+                        public String run(List<String> values) {
+                            return values.isEmpty() ? "" : next.run(values.subList(1, values.size()));
+                        }
+                    }
+                    """.formatted(index, (index + 1) % 80)));
+        }
+        files.sort(null);
+
+        // Subclasses cannot be copied, so this parser builds on a single thread.
+        var sequential = new CodebaseIndex();
+        sequential.build(new HybridJavaParser() {}, files, tempDir, List.of());
+        var parallel = new CodebaseIndex();
+        parallel.build(new HybridJavaParser(), files, tempDir, List.of());
+
+        assertEquals(80, parallel.getEntries().size());
+        assertEquals(sequential.getEntries(), parallel.getEntries());
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);

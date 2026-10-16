@@ -243,7 +243,7 @@ public class MigrateCommand implements Command {
                 reusedPaths++;
                 continue;
             }
-            String source = java.nio.file.Files.readString(root.resolve(entry.path()));
+            String source = com.jsrc.app.util.SourceText.read(root.resolve(entry.path()));
             var suggestions = scanSource(source, null).stream()
                     .map(s -> new com.jsrc.app.index.CachedMigration(
                             patternIndex(s.get("id").toString()), (int) s.get("line")))

@@ -50,9 +50,14 @@ public final class ProjectSourceDiscovery {
                     (path, current) -> current == null || current == SourceSet.UNKNOWN
                             ? SourceSet.MAIN
                             : current));
-            files = filterExcludes(files, config.excludes());
+            // Excludes must see "./module/src" files by the path they are indexed under.
+            files = filterExcludes(
+                    files.stream().map(Path::normalize).toList(), config.excludes());
         }
+        // Configured roots such as "./module/src" reach modeled files through
+        // non-normalized paths; normalize before deduplicating.
         List<DiscoveredSource> allSources = files.stream()
+                .map(Path::normalize)
                 .distinct()
                 .sorted()
                 .map(file -> new DiscoveredSource(
@@ -83,14 +88,19 @@ public final class ProjectSourceDiscovery {
         return configuredFiles;
     }
 
-    private static List<Path> filterExcludes(List<Path> files, List<String> excludes) {
+    static List<Path> filterExcludes(List<Path> files, List<String> excludes) {
         if (excludes.isEmpty()) {
             return files;
         }
         return files.stream()
                 .filter(file -> excludes.stream().noneMatch(exclude -> {
-                    String pattern = exclude.replace("**", ".*").replace("*", "[^/]*");
-                    return file.toString().matches(".*" + pattern + ".*");
+                    // Translate "**" through a placeholder so the single-"*" rule does not
+                    // rewrite the ".*" it produces.
+                    String pattern = exclude.replace("**", "\0")
+                            .replace("*", "[^/]*")
+                            .replace("\0", ".*");
+                    // Patterns use '/', so match Windows paths with the same separator.
+                    return file.toString().replace('\\', '/').matches(".*" + pattern + ".*");
                 }))
                 .toList();
     }

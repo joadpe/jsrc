@@ -10,6 +10,7 @@ import com.jsrc.app.project.ProjectFileDiscovery;
 import com.jsrc.app.project.ProjectModelDetector;
 import com.jsrc.app.project.SourceLevel;
 import com.jsrc.app.util.SignatureUtils;
+import com.jsrc.app.util.SourceText;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -68,7 +69,7 @@ public final class IdeProject implements JsrcEngine.SearchSource,
         var classPackages = new LinkedHashMap<String, String>();
         for (Path file : files) {
             try {
-                String sourceText = Files.readString(file);
+                String sourceText = SourceText.read(file);
                 List<String> lines = sourceText.lines().toList();
                 List<ClassInfo> types = parser.parseClasses(file);
                 documents.put(file.toString(),

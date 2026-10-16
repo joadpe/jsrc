@@ -62,4 +62,12 @@ public interface CodeParser {
     default java.util.Set<String> getSkippedFiles() {
         return java.util.Set.of();
     }
+
+    /**
+     * Returns an independent parser with the same configuration, so another thread can
+     * parse while this one is in use, or empty when this parser cannot be copied.
+     */
+    default java.util.Optional<CodeParser> copy() {
+        return java.util.Optional.empty();
+    }
 }

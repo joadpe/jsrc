@@ -1,7 +1,6 @@
 package com.jsrc.app.parser;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -11,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import com.jsrc.app.parser.model.ClassInfo;
 import com.jsrc.app.parser.model.MethodInfo;
+import com.jsrc.app.util.SourceText;
 
 /**
  * Reads source code for specific classes or methods.
@@ -96,7 +96,7 @@ public class SourceReader {
 
     private String extractLines(Path file, int startLine, int endLine) {
         try {
-            List<String> lines = Files.readAllLines(file);
+            List<String> lines = SourceText.readLines(file);
             int start = Math.max(0, startLine - 1);
             int end = Math.min(lines.size(), endLine);
             StringBuilder sb = new StringBuilder();

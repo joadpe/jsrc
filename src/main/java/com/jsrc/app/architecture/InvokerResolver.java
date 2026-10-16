@@ -1,7 +1,6 @@
 package com.jsrc.app.architecture;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -21,6 +20,7 @@ import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.jsrc.app.config.ArchitectureConfig.InvokerDef;
 import com.jsrc.app.parser.model.MethodCall;
 import com.jsrc.app.parser.model.MethodReference;
+import com.jsrc.app.util.SourceText;
 
 /**
  * Resolves reflective method invocations where the target method name
@@ -66,7 +66,7 @@ public class InvokerResolver {
         var jpConfig = new com.github.javaparser.ParserConfiguration().setLanguageLevel(com.github.javaparser.ParserConfiguration.LanguageLevel.JAVA_21); var javaParser = new JavaParser(jpConfig);
         for (Path file : files) {
             try {
-                String source = Files.readString(file);
+                String source = SourceText.read(file);
                 var parseResult = javaParser.parse(source);
                 if (!parseResult.isSuccessful() || parseResult.getResult().isEmpty()) continue;
                 CompilationUnit cu = parseResult.getResult().get();

@@ -1,7 +1,6 @@
 package com.jsrc.app.analysis;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -14,6 +13,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.jsrc.app.model.DependencyResult;
 import com.jsrc.app.model.DependencyResult.FieldDep;
+import com.jsrc.app.util.SourceText;
 
 /**
  * Analyzes class dependencies using JavaParser.
@@ -48,7 +48,7 @@ public class DependencyAnalyzer {
 
     private DependencyResult analyzeFile(Path file, String className) {
         try {
-            String source = Files.readString(file);
+            String source = SourceText.read(file);
             var parseResult = javaParser.parse(source);
             if (!parseResult.isSuccessful() || parseResult.getResult().isEmpty()) return null;
             CompilationUnit cu = parseResult.getResult().get();

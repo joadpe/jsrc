@@ -2,6 +2,7 @@ package com.jsrc.app.review;
 
 import com.jsrc.app.ExitCode;
 import com.jsrc.app.exception.JsrcException;
+import com.jsrc.app.util.SourceText;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -82,12 +83,12 @@ public final class GitChangeReader {
     }
 
     private String blob(String oid, String path) {
-        return new String(run("show", oid + ":" + path), StandardCharsets.UTF_8);
+        return SourceText.decode(run("show", oid + ":" + path));
     }
 
     private String readWorktree(String path) {
         try {
-            return java.nio.file.Files.readString(root.resolve(path), StandardCharsets.UTF_8);
+            return SourceText.read(root.resolve(path));
         } catch (IOException ex) {
             throw new JsrcException(ExitCode.IO_ERROR, "Cannot read changed file: " + path, ex);
         }

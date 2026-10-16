@@ -302,19 +302,26 @@ public final class SemanticCallResolver {
         for (int index = 0; index < arguments.size(); index++) {
             inherited.put(parent.typeParameters().get(index), arguments.get(index));
         }
-        return Map.copyOf(inherited);
+        // Declaration order; Map.copyOf would iterate in an order salted per JVM.
+        return java.util.Collections.unmodifiableMap(inherited);
     }
 
-    private static String substituteTypeParameters(
+    /**
+     * Replaces all type parameters in one pass, so an inserted argument is never
+     * substituted again: {@code Function<K,V>} with {K=V, V=String} is
+     * {@code Function<V,String>} whatever the map's iteration order.
+     */
+    static String substituteTypeParameters(
             String type,
             Map<String, String> substitutions) {
-        String resolved = type;
-        for (var entry : substitutions.entrySet()) {
-            resolved = resolved.replaceAll(
-                    "\\b" + java.util.regex.Pattern.quote(entry.getKey()) + "\\b",
-                    java.util.regex.Matcher.quoteReplacement(entry.getValue()));
-        }
-        return resolved;
+        if (substitutions.isEmpty()) return type;
+        String parameters = substitutions.keySet().stream()
+                .map(java.util.regex.Pattern::quote)
+                .collect(java.util.stream.Collectors.joining("|"));
+        return java.util.regex.Pattern.compile("\\b(?:" + parameters + ")\\b")
+                .matcher(type)
+                .replaceAll(match -> java.util.regex.Matcher.quoteReplacement(
+                        substitutions.get(match.group())));
     }
 
     private static boolean containsTypeParameter(

@@ -3,7 +3,9 @@ package com.jsrc.app.index;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class SemanticCallResolverTest {
@@ -69,6 +71,27 @@ class SemanticCallResolverTest {
 
         assertEquals(List.of("example.Impl", "lib.example.LibImpl", "DefaultImpl"),
                 resolved.stream().map(CallEdge::calleeClass).toList());
+    }
+
+    @Test
+    void typeParameterSubstitutionDoesNotDependOnMapOrder() {
+        // {K=V, V=String}: substituting K first would let the inserted V be replaced again.
+        Map<String, String> keyFirst = new LinkedHashMap<>();
+        keyFirst.put("K", "V");
+        keyFirst.put("V", "String");
+        Map<String, String> valueFirst = new LinkedHashMap<>();
+        valueFirst.put("V", "String");
+        valueFirst.put("K", "V");
+
+        assertEquals("Function<V,String>",
+                SemanticCallResolver.substituteTypeParameters("Function<K,V>", keyFirst));
+        assertEquals("Function<V,String>",
+                SemanticCallResolver.substituteTypeParameters("Function<K,V>", valueFirst));
+        assertEquals("BiFunction<V,K,Map<V,K>>",
+                SemanticCallResolver.substituteTypeParameters(
+                        "BiFunction<K,V,Map<K,V>>", Map.of("K", "V", "V", "K")));
+        assertEquals("Map<Key,V>",
+                SemanticCallResolver.substituteTypeParameters("Map<Key,K>", Map.of("K", "V")));
     }
 
     @Test

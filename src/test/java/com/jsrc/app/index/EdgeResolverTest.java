@@ -1346,6 +1346,44 @@ class EdgeResolverTest {
     }
 
     @Test
+    void inheritedTypeArgumentsAreSubstitutedSimultaneously() throws IOException {
+        Path file = writeFile("SimultaneousSubstitution.java", """
+                package app;
+                import java.util.function.Function;
+                class Cache<K, V> {
+                    void apply(Function<K, V> function) {}
+                    void swap(Function<V, K> function) {}
+                }
+                class Keys<V> extends Cache<V, String> {}
+                class Values<K> extends Cache<String, K> {}
+                class Client {
+                    String handle(Object value) { return ""; }
+                    String handle(String value) { return value; }
+                    <V> void keys(Keys<V> api) { Runnable task = () -> api.apply(this::handle); }
+                    <K> void values(Values<K> api) { Runnable task = () -> api.swap(this::handle); }
+                }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new com.jsrc.app.parser.HybridJavaParser(),
+                List.of(file), tempDir, List.of());
+
+        // Cache sees {K=V, V=String} from Keys<V> and {K=String, V=K} from Values<K>.
+        // Replacing one parameter at a time rewrites an inserted V or K again, so the map
+        // order of the JVM picked which caller inferred String for the caller's type variable.
+        List<CallEdge> handleEdges = index.getEntries().stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .filter(edge -> edge.calleeMethod().equals("handle"))
+                .toList();
+        assertEquals(List.of("keys$lambda$1", "values$lambda$1"),
+                handleEdges.stream().map(CallEdge::callerMethod).sorted().toList());
+        assertTrue(handleEdges.stream().noneMatch(edge ->
+                        edge.calleeParameterTypes().equals(List.of("String"))),
+                () -> "Free caller type variable must not select handle(String): "
+                        + handleEdges);
+    }
+
+    @Test
     void multiLevelGenericContextUsesReceiverArgumentsAndRejectsRawRelations()
             throws IOException {
         Path file = writeFile("MultiLevelGenericReference.java", """

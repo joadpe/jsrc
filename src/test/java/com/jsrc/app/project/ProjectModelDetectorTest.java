@@ -3,10 +3,12 @@ package com.jsrc.app.project;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import static java.nio.charset.StandardCharsets.ISO_8859_1;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -460,6 +462,107 @@ class ProjectModelDetectorTest {
         assertEquals(2, model.modules().size());
         assertTrue(model.module(projectRoot.getFileName().toString()).isPresent());
         assertTrue(model.module("child").isPresent());
+    }
+
+    @Test
+    void readsPomThatDeclaresWindows1252WithoutTheJdkCharset() throws Exception {
+        // Native images lack the windows-1252 charset, so jsrc decodes such a pom itself. The
+        // byte 0x81, which windows-1252 leaves undefined, shows which decoder ran: the JDK
+        // charset reads U+FFFD, SourceText U+0081. ISO-8859-1 writes 0x81 and every other
+        // character here as windows-1252 does; "ï»¿" is written as EF BB BF, a UTF-8 byte
+        // order mark.
+        List<String> prologs = new ArrayList<>(List.of(
+                "<?xml version=\"1.0\" encoding=\"windows-1252\"?>\n",
+                "<?xml version='1.0' encoding='WINDOWS-1252' standalone='no'?>\n",
+                "<?xml version=\"1.0\" encoding = \"Cp1252\" ?>\n",
+                "ï»¿<?xml version=\"1.0\" encoding=\"windows-1252\"?>\n"));
+        for (String alias : WINDOWS_1252.aliases()) {
+            prologs.add("<?xml version=\"1.0\" encoding=\"" + alias + "\"?>\n");
+        }
+        for (String prolog : prologs) {
+            Files.write(projectRoot.resolve("pom.xml"), (prolog + """
+                    <project xmlns="http://maven.apache.org/POM/4.0.0">
+                      <!-- configuración -->
+                      <modelVersion>4.0.0</modelVersion>
+                      <groupId>com.example</groupId><artifactId>catálogo\u0081</artifactId>
+                      <version>1</version>
+                      <properties><maven.compiler.source>1.8</maven.compiler.source></properties>
+                    </project>
+                    """).getBytes(ISO_8859_1));
+
+            ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+            assertEquals("8", model.javaVersion(), prolog);
+            assertEquals("catálogo\u0081", model.modules().getFirst().name(), prolog);
+            assertEquals(List.of(), model.diagnostics(), prolog);
+        }
+    }
+
+    @Test
+    void keepsMavenModuleWhosePomDeclaresWindows1252() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version>
+                  <modules><module>billing</module></modules>
+                </project>
+                """);
+        Path billing = Files.createDirectories(projectRoot.resolve("billing"));
+        Files.write(billing.resolve("pom.xml"), """
+                <?xml version="1.0" encoding="windows-1252"?>
+                <project>
+                  <!-- módulo de catálogo -->
+                  <modelVersion>4.0.0</modelVersion>
+                  <parent>
+                    <groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version>
+                  </parent>
+                  <artifactId>billing</artifactId>
+                  <properties><maven.compiler.source>1.8</maven.compiler.source></properties>
+                </project>
+                """.getBytes(WINDOWS_1252));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+        assertEquals(List.of(), model.diagnostics());
+    }
+
+    @Test
+    void rejectsDoctypeInPomThatDeclaresWindows1252() throws Exception {
+        Path level = Files.writeString(projectRoot.resolve("level.txt"), "1.8");
+        Files.write(projectRoot.resolve("pom.xml"), """
+                <?xml version="1.0" encoding="windows-1252"?>
+                <!-- configuración -->
+                <!DOCTYPE project [<!ENTITY level SYSTEM "%s">]>
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <properties><maven.compiler.source>&level;</maven.compiler.source></properties>
+                </project>
+                """.formatted(level.toUri()).getBytes(WINDOWS_1252));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("unknown", model.javaVersion());
+        assertTrue(model.diagnostics().getFirst().message().contains("DOCTYPE"),
+                model.diagnostics().toString());
+    }
+
+    @Test
+    void leavesOtherDeclaredEncodingsToTheParser() throws Exception {
+        // windows-1250 writes "č" as E8, which windows-1252 reads as "è".
+        Files.write(projectRoot.resolve("pom.xml"), """
+                <?xml version="1.0" encoding="windows-1250"?>
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId><artifactId>účetnictví</artifactId><version>1</version>
+                  <properties><maven.compiler.source>1.8</maven.compiler.source></properties>
+                </project>
+                """.getBytes(Charset.forName("windows-1250")));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("účetnictví", model.modules().getFirst().name());
+        assertEquals("8", model.javaVersion());
+        assertEquals(List.of(), model.diagnostics());
     }
 
     @Test

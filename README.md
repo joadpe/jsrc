@@ -502,6 +502,10 @@ read as Windows-1252, the usual encoding of legacy projects edited on Windows. A
 A `pom.xml` that is not valid UTF-8 is read as Windows-1252 too, unless its XML
 declaration or byte order mark names an encoding other than UTF-8.
 
+Native executables read a `pom.xml` only in UTF-8, UTF-16, US-ASCII, ISO-8859-1
+or windows-1252. They report one whose XML declaration names another encoding,
+such as ISO-8859-15, as `BUILD_MODEL_PARTIAL`; the JAR reads it.
+
 Create `.jsrc.yaml` in your project root:
 
 When no source level can be verified from Maven/Gradle or this file, JSON v1

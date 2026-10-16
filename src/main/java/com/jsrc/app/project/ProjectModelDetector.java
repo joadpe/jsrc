@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -378,17 +379,25 @@ public final class ProjectModelDetector {
     }
 
     /**
-     * Legacy Windows projects may save a pom.xml as Windows-1252 while its XML declaration names
-     * UTF-8 or no encoding, which means UTF-8. Maven reads such a file, but the XML parser rejects
-     * its bytes, so it is decoded like Java sources instead. Valid UTF-8 and every other declared
-     * or signaled encoding are left to the parser.
+     * Legacy Windows projects save pom.xml files that the XML parser cannot read as written.
+     * Some declare windows-1252, a charset that native images leave out. Others are saved as
+     * Windows-1252 while their XML declaration names UTF-8 or no encoding, which means UTF-8;
+     * Maven reads them, but the parser rejects their bytes. Both are decoded with SourceText
+     * instead, on the JVM too so that both read them alike, and parsed as text; a UTF-8 byte
+     * order mark before the declaration is dropped, as the parser does. Valid UTF-8 and every
+     * other declared or signaled encoding are left to the parser.
      */
     private static InputSource xmlSource(byte[] content) {
+        boolean utf8Bom = content.length >= 3 && content[0] == (byte) 0xEF
+                && content[1] == (byte) 0xBB && content[2] == (byte) 0xBF;
+        byte[] body = utf8Bom ? Arrays.copyOfRange(content, 3, content.length) : content;
+        String windows1252 = SourceText.decodeWindows1252(body);
+        Matcher encoding = XML_DECLARED_ENCODING.matcher(windows1252);
+        if (encoding.lookingAt() && isWindows1252(encoding.group(1))) {
+            return new InputSource(new StringReader(windows1252));
+        }
         if (!SourceText.isUtf8(content)) {
-            boolean utf8Bom = content.length >= 3 && content[0] == (byte) 0xEF
-                    && content[1] == (byte) 0xBB && content[2] == (byte) 0xBF;
-            String text = SourceText.decode(
-                    utf8Bom ? Arrays.copyOfRange(content, 3, content.length) : content);
+            String text = SourceText.decode(body);
             if (declaresUtf8(text)) {
                 return new InputSource(new StringReader(text));
             }
@@ -407,6 +416,14 @@ public final class ProjectModelDetector {
         }
         Matcher encoding = XML_DECLARED_ENCODING.matcher(text);
         return !encoding.lookingAt() || encoding.group(1).equalsIgnoreCase("UTF-8");
+    }
+
+    /** Whether the JDK resolves an encoding name to windows-1252. */
+    private static boolean isWindows1252(String encoding) {
+        return switch (encoding.toLowerCase(Locale.ROOT)) {
+            case "windows-1252", "cp1252", "cp5348", "ibm-1252", "ibm1252" -> true;
+            default -> false;
+        };
     }
 
     private static String mavenJavaVersion(Element project) {

@@ -57,7 +57,8 @@ public final class SourceText {
         }
     }
 
-    private static String decodeWindows1252(byte[] content) {
+    /** Decodes bytes as Windows-1252, even when they are valid UTF-8. */
+    public static String decodeWindows1252(byte[] content) {
         char[] chars = new char[content.length];
         for (int i = 0; i < content.length; i++) {
             int value = content[i] & 0xFF;

@@ -57,6 +57,13 @@ class SourceTextTest {
     }
 
     @Test
+    void decodesWindows1252EvenWhenBytesAreValidUtf8() {
+        byte[] utf8 = "configuración".getBytes(StandardCharsets.UTF_8);
+
+        assertEquals("configuraciÃ³n", SourceText.decodeWindows1252(utf8));
+    }
+
+    @Test
     void readLinesSplitsLikeFilesReadAllLines() throws Exception {
         Path file = tempDir.resolve("Lines.java");
         Files.writeString(file, "a\r\nb\rc\n\nd\n");

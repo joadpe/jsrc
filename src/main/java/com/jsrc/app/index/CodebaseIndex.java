@@ -265,15 +265,20 @@ public class CodebaseIndex {
         List<ParsedFile> results = new ArrayList<>(java.util.stream.IntStream.range(0, count)
                 .parallel()
                 .mapToObj(worker -> {
+                    CodeParser workerParser = parsers.get(worker);
                     var workerEdgeParsers = worker == 0 ? edgeParsers
                             : new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
                     List<ParsedFile> parsed = new ArrayList<>();
                     for (int index = worker; index < pending.size(); index += count) {
                         try {
-                            parsed.add(parseOne(pending.get(index), parsers.get(worker),
+                            parsed.add(parseOne(pending.get(index), workerParser,
                                     workerEdgeParsers, invokers));
                         } catch (StackOverflowError deeplyNested) {
                             overflowed.add(pending.get(index));
+                            // The overflow may have left these parsers mid-parse.
+                            workerParser = parser.copy().orElse(workerParser);
+                            workerEdgeParsers =
+                                    new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
                         }
                     }
                     return parsed;
@@ -281,7 +286,6 @@ public class CodebaseIndex {
                 .flatMap(List::stream)
                 .toList());
         if (!overflowed.isEmpty()) {
-            // Fresh parsers: the ones that overflowed may have been left mid-parse.
             CodeParser retryParser = parser.copy().orElse(parser);
             var retryEdgeParsers = new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
             for (PendingFile file : overflowed) {

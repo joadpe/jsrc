@@ -37,8 +37,7 @@ class AutoRefreshTest {
                     .map(AutoRefreshTest::toIndexedClass).toList();
             var edges = edgeResolver.extractCallEdges(file, javaParser);
             var smells = parser.detectSmells(file).stream()
-                    .map(s -> new CachedSmell(s.ruleId(), s.severity().name(),
-                            s.line(), s.methodName(), s.className(), s.message()))
+                    .map(CachedSmell::from)
                     .toList();
             entries.add(new IndexEntry(tempDir.relativize(file).toString(),
                     hash, lastModified, indexedClasses, edges, smells));
@@ -137,6 +136,31 @@ class AutoRefreshTest {
         assertNotNull(entry);
         assertFalse(entry.smells().isEmpty(),
                 "Smells should be re-computed for modified file with new empty catch");
+    }
+
+    @Test
+    void refreshCachesSmellsWithOneLetterSeverityCodes() throws Exception {
+        Path file = tempDir.resolve("Clean.java");
+        Files.writeString(file,
+                "package test;\npublic class Clean {\n" +
+                "  public void ok() { return; }\n}");
+        buildIndex(List.of(file));
+
+        Files.writeString(file,
+                "package test;\npublic class Clean {\n" +
+                "  public void ok() {\n" +
+                "    try { Integer.parseInt(\"x\"); } catch (NumberFormatException e) { }\n" +
+                "  }\n}");
+        var refreshed = IndexedCodebase.tryLoad(tempDir, List.of(file));
+
+        var expected = new HybridJavaParser().detectSmells(file).stream()
+                .map(CachedSmell::from)
+                .toList();
+        var cached = refreshed.getCachedSmells("Clean.java");
+        assertEquals(expected, cached);
+        assertEquals(expected, CodebaseIndex.loadPublished(tempDir).getFirst().smells());
+        assertTrue(cached.stream().anyMatch(smell ->
+                smell.ruleId().equals("EMPTY_CATCH_BLOCK") && smell.severity().equals("W")));
     }
 
     @Test

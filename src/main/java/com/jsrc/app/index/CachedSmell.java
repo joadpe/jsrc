@@ -1,5 +1,7 @@
 package com.jsrc.app.index;
 
+import com.jsrc.app.parser.model.CodeSmell;
+
 /**
  * Compact code smell stored in the index.
  * Lightweight version of {@link com.jsrc.app.parser.model.CodeSmell}.
@@ -18,4 +20,32 @@ public record CachedSmell(
         String method,
         String className,
         String message
-) {}
+) {
+
+    /** Converts a detected smell to its cached form with a one-letter severity code. */
+    public static CachedSmell from(CodeSmell smell) {
+        return new CachedSmell(
+                smell.ruleId(), severityCode(smell.severity()), smell.line(),
+                smell.methodName(), smell.className(), smell.message());
+    }
+
+    /**
+     * Decodes the stored severity. Older indexes also contain full enum names
+     * ("WARNING") written by index auto-refresh, so both forms are accepted.
+     */
+    public CodeSmell.Severity severityLevel() {
+        return switch (severity) {
+            case "E", "ERROR" -> CodeSmell.Severity.ERROR;
+            case "W", "WARNING" -> CodeSmell.Severity.WARNING;
+            default -> CodeSmell.Severity.INFO;
+        };
+    }
+
+    private static String severityCode(CodeSmell.Severity severity) {
+        return switch (severity) {
+            case INFO -> "I";
+            case WARNING -> "W";
+            case ERROR -> "E";
+        };
+    }
+}

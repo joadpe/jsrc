@@ -127,9 +127,7 @@ public class SmellsCommand implements Command {
             // Cache for next time
             if (shouldPersist) {
                 var cached = smells.stream()
-                        .map(smell -> new com.jsrc.app.index.CachedSmell(
-                                smell.ruleId(), smell.severity().name().substring(0, 1),
-                                smell.line(), smell.methodName(), smell.className(), smell.message()))
+                        .map(com.jsrc.app.index.CachedSmell::from)
                         .toList();
                 ctx.indexed().setCachedSmells(relativePath, cached);
             }
@@ -180,11 +178,7 @@ public class SmellsCommand implements Command {
             if (cachedSmells.isEmpty()) continue;
             filesWithSmells++;
             for (var cs : cachedSmells) {
-                String severity = switch (cs.severity()) {
-                    case "W" -> "WARNING";
-                    case "E" -> "ERROR";
-                    default -> "INFO";
-                };
+                String severity = cs.severityLevel().name();
                 bySeverity.merge(severity, 1, Integer::sum);
                 byRule.merge(cs.ruleId(), 1, Integer::sum);
                 allFindings.add(Map.of(

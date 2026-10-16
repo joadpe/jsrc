@@ -301,9 +301,7 @@ public class IndexedCodebase {
                 }
                 Path file = sourceRoot.resolve(entry.path());
                 var smells = parser.detectSmells(file).stream()
-                        .map(smell -> new CachedSmell(
-                                smell.ruleId(), smell.severity().name(), smell.line(),
-                                smell.methodName(), smell.className(), smell.message()))
+                        .map(CachedSmell::from)
                         .toList();
                 refreshed.set(index, entry.withSmells(smells));
             }

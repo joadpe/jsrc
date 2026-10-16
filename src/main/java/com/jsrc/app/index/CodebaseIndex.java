@@ -786,7 +786,7 @@ public class CodebaseIndex {
     private static IndexedClass mapToIndexedClass(Map<String, Object> map) {
         String name = str(map, "name");
         String pkg = str(map, "packageName");
-        int startLine = intVal(map, "startLine");
+        int startLine = startLine(map);
         int endLine = intVal(map, "endLine");
         boolean isInterface = bool(map, "isInterface");
         boolean isAbstract = bool(map, "isAbstract");
@@ -828,7 +828,7 @@ public class CodebaseIndex {
     private static IndexedMethod mapToIndexedMethod(Map<String, Object> map) {
         return new IndexedMethod(
                 str(map, "name"), str(map, "signature"),
-                intVal(map, "startLine"), intVal(map, "endLine"),
+                startLine(map), intVal(map, "endLine"),
                 str(map, "returnType"), strList(map.get("annotations")),
                 strList(map.get("typeParameters")),
                 intVal(map, "complexity"), intVal(map, "paramCount"));
@@ -842,6 +842,11 @@ public class CodebaseIndex {
     private static int intVal(Map<?, ?> map, String key) {
         Object v = map.get(key);
         return v instanceof Number n ? n.intValue() : 0;
+    }
+
+    /** Writers emit "line" since v2.1.0; indexes written by v2.0.0 use "startLine". */
+    private static int startLine(Map<String, Object> map) {
+        return intVal(map, map.containsKey("line") ? "line" : "startLine");
     }
 
     private static boolean bool(Map<String, Object> map, String key) {

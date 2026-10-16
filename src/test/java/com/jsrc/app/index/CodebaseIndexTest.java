@@ -177,6 +177,58 @@ class CodebaseIndexTest {
     }
 
     @Test
+    void classAndMethodStartLinesSurviveJsonRoundtrip() throws IOException {
+        Path javaFile = writeFile("Lines.java", """
+                package app;
+
+                class Lines {
+
+                    void first() {}
+
+                    void second(String value) {
+                    }
+                }
+                """);
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), List.of(javaFile), tempDir, List.of());
+        index.save(tempDir);
+
+        List<IndexedClass> built = index.getEntries().getFirst().classes();
+        assertEquals(3, built.getFirst().startLine());
+        assertEquals(List.of(5, 7), built.getFirst().methods().stream()
+                .map(IndexedMethod::startLine)
+                .toList());
+        assertEquals(built, CodebaseIndex.load(tempDir).getFirst().classes());
+        assertEquals(built, CodebaseIndex.loadClassesOnly(tempDir).getFirst().classes());
+    }
+
+    @Test
+    void jsonLoadAcceptsLegacyStartLineKeys() throws IOException {
+        Files.createDirectories(tempDir.resolve(".jsrc"));
+        Files.writeString(tempDir.resolve(".jsrc/index.json"), """
+                [{
+                  "path": "Legacy.java",
+                  "classes": [{
+                    "name": "Legacy",
+                    "startLine": 2,
+                    "endLine": 4,
+                    "methods": [{
+                      "name": "call",
+                      "signature": "void call()",
+                      "startLine": 3,
+                      "endLine": 3
+                    }]
+                  }]
+                }]
+                """);
+
+        IndexedClass legacy = CodebaseIndex.load(tempDir).getFirst().classes().getFirst();
+
+        assertEquals(2, legacy.startLine());
+        assertEquals(3, legacy.methods().getFirst().startLine());
+    }
+
+    @Test
     @DisplayName("Incremental: should skip unchanged files")
     void shouldSkipUnchanged() throws IOException {
         Path javaFile = writeFile("Stable.java", """

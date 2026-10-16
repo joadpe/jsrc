@@ -164,7 +164,7 @@ cd jsrc
 mvn -B -DskipTests package
 ```
 
-The build scripts compile Tree-sitter from pinned immutable commits, build the native image, run functional index, overview, and read smoke tests, verify that an invalid command fails, and create the distribution archive.
+The build scripts compile Tree-sitter from pinned immutable commits, build the native image, run functional index, overview, and read smoke tests, check that a malformed `pom.xml` is reported as a `BUILD_MODEL_PARTIAL` diagnostic, verify that an invalid command fails, and create the distribution archive.
 
 ### Linux
 

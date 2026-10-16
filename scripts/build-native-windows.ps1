@@ -81,6 +81,7 @@ $archivePath = Join-Path $distPath "$bundleName.zip"
 $workPath = Join-Path ([System.IO.Path]::GetTempPath()) "jsrc-native-$([Guid]::NewGuid())"
 $smokeHome = Join-Path $workPath "home"
 $smokeProject = Join-Path $workPath "project"
+$malformedProject = Join-Path $workPath "malformed-project"
 $smokeExtract = Join-Path $workPath "extracted"
 $savedLibraryPath = Join-Path $workPath "build-libs"
 $libraryMoved = $false
@@ -189,6 +190,11 @@ public final class Hello {
 }
 '@ | Set-Content -Path (Join-Path $javaSourceDirectory "Hello.java") -Encoding ASCII
 
+    $malformedSourceDirectory = Join-Path $malformedProject "src\main\java\example"
+    New-Item -ItemType Directory -Force -Path $malformedSourceDirectory | Out-Null
+    Copy-Item (Join-Path $javaSourceDirectory "Hello.java") $malformedSourceDirectory
+    Set-Content -Path (Join-Path $malformedProject "pom.xml") -Value "<project>" -Encoding ASCII
+
     Move-Item $libraryPath $savedLibraryPath
     $libraryMoved = $true
 
@@ -210,6 +216,11 @@ public final class Hello {
         $readOutput = (& $smokeBinary -d $smokeProject read Hello --json | Out-String)
         if ($LASTEXITCODE -ne 0 -or $readOutput -notmatch "Hello") {
             throw "Functional smoke read failed."
+        }
+
+        $malformedOutput = (& $smokeBinary -d $malformedProject overview --json | Out-String)
+        if ($LASTEXITCODE -ne 0 -or $malformedOutput -notmatch '"BUILD_MODEL_PARTIAL"') {
+            throw "Functional smoke malformed pom.xml failed."
         }
 
         & $smokeBinary definitely-not-a-command *> $null

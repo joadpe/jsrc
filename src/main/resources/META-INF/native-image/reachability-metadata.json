@@ -78,6 +78,9 @@
     },
     {
       "glob": "simplelogger.properties"
+    },
+    {
+      "bundle": "com.sun.org.apache.xerces.internal.impl.msg.XMLMessages"
     }
   ],
   "foreign": {

@@ -120,7 +120,8 @@ tar -C "$dist_dir" -czf "$archive_path" "$bundle_name"
 smoke_extract="$work_dir/extracted"
 smoke_home="$work_dir/home"
 smoke_project="$work_dir/project"
-mkdir -p "$smoke_extract" "$smoke_home" "$smoke_project/src/main/java/example"
+malformed_project="$work_dir/malformed-project"
+mkdir -p "$smoke_extract" "$smoke_home" "$smoke_project/src/main/java/example" "$malformed_project/src/main/java/example"
 tar -xzf "$archive_path" -C "$smoke_extract"
 
 cat > "$smoke_project/src/main/java/example/Hello.java" <<'JAVA'
@@ -132,6 +133,8 @@ public final class Hello {
     }
 }
 JAVA
+cp "$smoke_project/src/main/java/example/Hello.java" "$malformed_project/src/main/java/example/"
+printf '<project>' > "$malformed_project/pom.xml"
 
 mv "$native_lib_dir" "$work_dir/build-libs"
 library_moved=true
@@ -142,6 +145,8 @@ overview_output="$(HOME="$smoke_home" "$smoke_binary" -d "$smoke_project" overvi
 grep -Fq '"totalFiles"' <<<"$overview_output"
 read_output="$(HOME="$smoke_home" "$smoke_binary" -d "$smoke_project" read Hello --json)"
 grep -Fq 'Hello' <<<"$read_output"
+malformed_output="$(HOME="$smoke_home" "$smoke_binary" -d "$malformed_project" overview --json)"
+grep -Fq '"BUILD_MODEL_PARTIAL"' <<<"$malformed_output"
 
 if HOME="$smoke_home" "$smoke_binary" definitely-not-a-command >/dev/null 2>&1; then
   echo "Error: invalid command unexpectedly succeeded." >&2

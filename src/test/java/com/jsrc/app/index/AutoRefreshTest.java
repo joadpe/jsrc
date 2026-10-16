@@ -353,4 +353,129 @@ class AutoRefreshTest {
                 .flatMap(entry -> entry.callEdges().stream())
                 .anyMatch(edge -> edge.calleeMethod().equals("target")));
     }
+
+    private static final String INVOKER_CONFIG = """
+            architecture:
+              invokers:
+                - method: invoke
+                  targetArg: 0
+                  resolveClass: handler
+                  callerSuffixes: [View]
+            """;
+
+    @Test
+    void refreshAfterUnrelatedEditKeepsReflectiveCallers() throws Exception {
+        Files.writeString(tempDir.resolve(".jsrc.yaml"), INVOKER_CONFIG);
+        List<Path> files = writeInvokerProject();
+        indexWithConfiguredInvokers(files);
+
+        Files.writeString(files.get(2), "class Other { void run() { System.runFinalization(); } }");
+        SourceSnapshot edited = captureSnapshot();
+        IndexedCodebase refreshed = IndexedCodebase.tryLoad(tempDir, files, false,
+                edited.sourceSets(), edited.sourceLevels(), files, files, edited);
+
+        assertTrue(hasReflectiveEdge(refreshed.getEntries(), "OrderHandler", "store"));
+        assertTrue(hasReflectiveEdge(CodebaseIndex.loadPublished(tempDir),
+                "OrderHandler", "store"));
+        assertTrue(graphHasReflectiveCaller(refreshed.preBuiltCallGraph(),
+                "OrderHandler", "store"));
+    }
+
+    @Test
+    void refreshAfterInvokerConfigurationChangePublishesNewReflectiveEdges() throws Exception {
+        Files.writeString(tempDir.resolve(".jsrc.yaml"), INVOKER_CONFIG);
+        List<Path> files = writeInvokerProject();
+        indexWithConfiguredInvokers(files);
+
+        Files.writeString(tempDir.resolve(".jsrc.yaml"),
+                INVOKER_CONFIG.replace("resolveClass: handler", "resolveClass: service"));
+        SourceSnapshot changed = captureSnapshot();
+        IndexedCodebase refreshed = IndexedCodebase.tryLoad(tempDir, files, false,
+                changed.sourceSets(), changed.sourceLevels(), files, files, changed);
+
+        assertTrue(hasReflectiveEdge(refreshed.getEntries(), "OrderService", "store"));
+        assertFalse(hasReflectiveEdge(refreshed.getEntries(), "OrderHandler", "store"));
+        assertTrue(hasReflectiveEdge(CodebaseIndex.loadPublished(tempDir),
+                "OrderService", "store"));
+        assertTrue(graphHasReflectiveCaller(refreshed.preBuiltCallGraph(),
+                "OrderService", "store"));
+        assertFalse(graphHasReflectiveCaller(refreshed.preBuiltCallGraph(),
+                "OrderHandler", "store"));
+    }
+
+    @Test
+    void refreshWithoutTheProjectConfigLeavesAnIndexWithInvokersAlone() throws Exception {
+        Files.writeString(tempDir.resolve(".jsrc.yaml"), INVOKER_CONFIG);
+        List<Path> files = writeInvokerProject();
+        indexWithConfiguredInvokers(files);
+        String published = Files.readString(tempDir.resolve(".jsrc/current"));
+
+        Files.writeString(files.get(2), "class Other { void run() { System.runFinalization(); } }");
+        var refused = assertThrows(IllegalStateException.class,
+                () -> IndexedCodebase.tryLoad(tempDir, files));
+
+        assertTrue(refused.getMessage().contains("invoker"), refused.getMessage());
+        assertEquals(published, Files.readString(tempDir.resolve(".jsrc/current")));
+        assertTrue(hasReflectiveEdge(CodebaseIndex.loadPublished(tempDir),
+                "OrderHandler", "store"));
+    }
+
+    /** OrderView reaches OrderHandler.store only through the configured invoker. */
+    private List<Path> writeInvokerProject() throws Exception {
+        Path view = tempDir.resolve("OrderView.java");
+        Files.writeString(view, """
+                class OrderView {
+                    void save() { invoke("store"); }
+                    void invoke(String name) {}
+                }
+                """);
+        Path handler = tempDir.resolve("OrderHandler.java");
+        Files.writeString(handler, "class OrderHandler { void store() {} }");
+        Path other = tempDir.resolve("Other.java");
+        Files.writeString(other, "class Other { void run() { System.gc(); } }");
+        return List.of(view, handler, other);
+    }
+
+    /** Publishes an index like {@code jsrc index} with the invokers of {@code .jsrc.yaml}. */
+    private void indexWithConfiguredInvokers(List<Path> files) throws Exception {
+        SourceSnapshot snapshot = captureSnapshot();
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(snapshot.sourceLevels()), files, tempDir, List.of(),
+                snapshot.config().architecture().invokers(), snapshot.sourceSets(),
+                snapshot.sourceLevels());
+        var graph = new CallGraphBuilder();
+        graph.loadFromIndex(index.getEntries());
+        index.saveWithGraph(tempDir, graph.toCallGraph(), null, true, snapshot);
+        assertTrue(hasReflectiveEdge(CodebaseIndex.loadPublished(tempDir),
+                "OrderHandler", "store"));
+    }
+
+    private SourceSnapshot captureSnapshot() throws Exception {
+        var config = com.jsrc.app.config.ProjectConfig.load(tempDir).orElseThrow();
+        var discovery = new com.jsrc.app.project.ProjectSourceDiscovery()
+                .discover(tempDir, config);
+        var compatibility = new com.jsrc.app.project.SourceCompatibilityScanner()
+                .scan(discovery.allFiles(), discovery.model(), config);
+        return SourceSnapshot.capture(tempDir, null, config, discovery, compatibility);
+    }
+
+    private static boolean hasReflectiveEdge(List<IndexEntry> entries, String calleeClass,
+                                             String calleeMethod) {
+        return entries.stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .anyMatch(edge -> edge.invocationKind()
+                        == com.jsrc.app.model.InvocationKind.REFLECTIVE
+                        && edge.calleeClass().equals(calleeClass)
+                        && edge.calleeMethod().equals(calleeMethod));
+    }
+
+    private static boolean graphHasReflectiveCaller(com.jsrc.app.analysis.CallGraph graph,
+                                                    String calleeClass, String calleeMethod) {
+        return graph.getAllCallerIndexKeys().stream()
+                .filter(callee -> callee.className().equals(calleeClass)
+                        && callee.methodName().equals(calleeMethod))
+                .flatMap(callee -> graph.getCallersOf(callee).stream())
+                .anyMatch(call -> call.invocationKind()
+                        == com.jsrc.app.model.InvocationKind.REFLECTIVE);
+    }
 }

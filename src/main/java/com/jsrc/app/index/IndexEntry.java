@@ -13,6 +13,8 @@ import java.util.List;
  * @param smells       precomputed code smells (empty if none or not yet computed)
  * @param smellsComputed whether smells were computed for this content; when true an
  *                     empty {@code smells} list means the file has none
+ * @param invokerFingerprint fingerprint of the invoker configuration the call edges were
+ *                     extracted with; empty when no invoker was configured
  */
 public record IndexEntry(
         String path,
@@ -24,11 +26,22 @@ public record IndexEntry(
         List<CachedSmell> smells,
         int sourceVersion,
         String declarationFingerprint,
-        boolean smellsComputed
+        boolean smellsComputed,
+        String invokerFingerprint
 ) {
     public IndexEntry {
         declarationFingerprint = declarationFingerprint == null ? "" : declarationFingerprint;
         smellsComputed = smellsComputed || !smells.isEmpty();
+        invokerFingerprint = invokerFingerprint == null ? "" : invokerFingerprint;
+    }
+
+    /** Creates an entry whose call edges were extracted without configured invokers. */
+    public IndexEntry(String path, String contentHash, long lastModified,
+                      com.jsrc.app.project.SourceSet sourceSet, List<IndexedClass> classes,
+                      List<CallEdge> callEdges, List<CachedSmell> smells, int sourceVersion,
+                      String declarationFingerprint, boolean smellsComputed) {
+        this(path, contentHash, lastModified, sourceSet, classes, callEdges, smells,
+                sourceVersion, declarationFingerprint, smellsComputed, "");
     }
 
     /** Creates an entry whose smells count as computed only when the list is non-empty. */
@@ -75,15 +88,20 @@ public record IndexEntry(
 
     /** Returns a copy with different call edges. */
     public IndexEntry withEdges(List<CallEdge> newEdges) {
+        return withEdges(newEdges, invokerFingerprint);
+    }
+
+    /** Returns a copy with call edges extracted with the given invoker configuration. */
+    public IndexEntry withEdges(List<CallEdge> newEdges, String newInvokerFingerprint) {
         return new IndexEntry(
                 path, contentHash, lastModified, sourceSet, classes, newEdges, smells,
-                sourceVersion, declarationFingerprint, smellsComputed);
+                sourceVersion, declarationFingerprint, smellsComputed, newInvokerFingerprint);
     }
 
     /** Returns a copy with computed smells; an empty list records a file without smells. */
     public IndexEntry withSmells(List<CachedSmell> newSmells) {
         return new IndexEntry(
                 path, contentHash, lastModified, sourceSet, classes, callEdges, newSmells,
-                sourceVersion, declarationFingerprint, true);
+                sourceVersion, declarationFingerprint, true, invokerFingerprint);
     }
 }

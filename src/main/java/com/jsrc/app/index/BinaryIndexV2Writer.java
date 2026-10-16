@@ -51,6 +51,7 @@ public class BinaryIndexV2Writer {
             intern(entry.path(), stringTable, strings);
             intern(entry.contentHash(), stringTable, strings);
             intern(entry.declarationFingerprint(), stringTable, strings);
+            intern(entry.invokerFingerprint(), stringTable, strings);
             intern(entry.sourceSet().externalName(), stringTable, strings);
             for (var ic : entry.classes()) {
                 internClass(ic, stringTable, strings);
@@ -291,6 +292,7 @@ public class BinaryIndexV2Writer {
         out.writeInt(ref(entry.sourceSet().externalName(), stringTable));
         out.writeInt(entry.sourceVersion());
         out.writeInt(ref(entry.declarationFingerprint(), stringTable));
+        out.writeInt(ref(entry.invokerFingerprint(), stringTable));
 
         out.writeShort(entry.classes().size());
         for (var ic : entry.classes()) {

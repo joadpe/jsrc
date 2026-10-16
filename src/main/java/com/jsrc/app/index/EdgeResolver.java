@@ -91,6 +91,16 @@ public class EdgeResolver {
 
     /** Extracts from an existing parse so callers can share one JavaParser pass. */
     public Extraction extract(Path file, ParseResult<CompilationUnit> result) {
+        return extract(file, result, true);
+    }
+
+    /** Extracts call edges and synthetic methods without the declaration fingerprint. */
+    public Extraction extractEdges(Path file, ParseResult<CompilationUnit> result) {
+        return extract(file, result, false);
+    }
+
+    private Extraction extract(Path file, ParseResult<CompilationUnit> result,
+                               boolean fingerprintDeclarations) {
         List<CallEdge> edges = new ArrayList<>();
         // Insertion order: declared types, then anonymous classes in the AST pre-order
         // that also numbers them.
@@ -103,7 +113,7 @@ public class EdgeResolver {
 
         CompilationUnit cu = result.getResult().get();
         parsedCleanly = result.isSuccessful();
-        if (parsedCleanly) {
+        if (parsedCleanly && fingerprintDeclarations) {
             declarationFingerprint = declarationFingerprint(cu);
         }
         for (com.github.javaparser.ast.body.TypeDeclaration<?> declaration

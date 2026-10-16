@@ -786,6 +786,41 @@ class CodebaseIndexTest {
         assertEquals(sequential.getEntries(), parallel.getEntries());
     }
 
+    @Test
+    void unchangedFileThatOverflowsAWorkerStackIsRefreshedOnTheCallingThread() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                Runtime.getRuntime().availableProcessors() > 1, "needs parallel workers");
+        List<Path> files = new java.util.ArrayList<>();
+        for (int index = 0; index < 80; index++) {
+            files.add(writeFile("E" + index + "View.java", """
+                    package p;
+                    public class E%dView {
+                        void save() { invoke("store"); }
+                        void invoke(String name) {}
+                    }
+                    """.formatted(index)));
+        }
+        files.sort(null);
+        var handlers = List.of(new com.jsrc.app.config.ArchitectureConfig.InvokerDef(
+                "invoke", 0, "handler", List.of("View")));
+        var services = List.of(new com.jsrc.app.config.ArchitectureConfig.InvokerDef(
+                "invoke", 0, "service", List.of("View")));
+        var initial = new CodebaseIndex();
+        initial.build(new HybridJavaParser(), files, tempDir, List.of(), handlers);
+
+        // Changed invokers make the edges of every unchanged file be extracted again.
+        var overflowed = new java.util.concurrent.atomic.AtomicBoolean();
+        var refreshed = new CodebaseIndex(
+                new com.jsrc.app.index.OverflowingOnceEdgeResolver(overflowed, "E7View.java"));
+        refreshed.build(new HybridJavaParser(), files, tempDir, initial.getEntries(), services);
+        var clean = new CodebaseIndex();
+        clean.build(new HybridJavaParser(), files, tempDir, List.of(), services);
+
+        assertTrue(overflowed.get(), "The edge extraction should have overflowed once");
+        assertTrue(refreshed.refreshedUnchangedEdges());
+        assertEquals(clean.getEntries(), refreshed.getEntries());
+    }
+
     /** Overflows the stack the first time it parses D7.java, on whichever thread. */
     private static final class OverflowingOnceParser extends HybridJavaParser {
         private final java.util.concurrent.atomic.AtomicBoolean overflowed;

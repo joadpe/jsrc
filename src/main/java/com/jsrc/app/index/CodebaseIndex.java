@@ -17,8 +17,6 @@ import com.jsrc.app.json.JsonWriter;
 import com.jsrc.app.parser.CodeParser;
 import com.jsrc.app.parser.model.ClassInfo;
 
-import com.github.javaparser.JavaParser;
-
 /**
  * Builds and persists a codebase index for fast lookups.
  * Index is stored as JSON in {@code .jsrc/index.json}.
@@ -40,6 +38,7 @@ public class CodebaseIndex {
 
     private final List<IndexEntry> entries;
     private final EdgeResolver edgeResolver;
+    private boolean refreshedUnchangedEdges;
 
     public CodebaseIndex() {
         this.entries = new ArrayList<>();
@@ -51,8 +50,19 @@ public class CodebaseIndex {
         this.edgeResolver = new EdgeResolver();
     }
 
+    /** Builds with the given edge resolver, so tests can make an extraction fail. */
+    CodebaseIndex(EdgeResolver edgeResolver) {
+        this.entries = new ArrayList<>();
+        this.edgeResolver = edgeResolver;
+    }
+
     public List<IndexEntry> getEntries() {
         return entries;
+    }
+
+    /** Whether the last build extracted the call edges of unchanged files again. */
+    public boolean refreshedUnchangedEdges() {
+        return refreshedUnchangedEdges;
     }
 
     /** Verifies an unchanged index before reusing its published generation. */
@@ -103,6 +113,9 @@ public class CodebaseIndex {
                      Map<Path, com.jsrc.app.project.SourceSet> sourceSets,
                      Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels) {
         long buildStarted = System.nanoTime();
+        refreshedUnchangedEdges = false;
+        String invokerFingerprint = invokerFingerprint(invokers);
+        boolean invokersChanged = false;
         Map<String, IndexEntry> existingByPath = new LinkedHashMap<>();
         for (IndexEntry e : existing) {
             existingByPath.put(e.path(), e);
@@ -140,6 +153,7 @@ public class CodebaseIndex {
                         && hasCanonicalCallEdgeSchema(prev)) {
                     entries.add(prev);
                     unchangedFiles.put(relativePath, file);
+                    invokersChanged |= !hasCurrentInvokerEdges(prev, invokerFingerprint);
                     continue;
                 }
                 pending.add(new PendingFile(entries.size(), file, relativePath, sourceSet,
@@ -152,7 +166,7 @@ public class CodebaseIndex {
 
         long parseStarted = System.nanoTime();
         List<ParsedFile> parsedFiles = parseChanged(
-                parser, pending, edgeParsers, sourceLevels, invokers);
+                parser, pending, edgeParsers, sourceLevels, invokers, invokerFingerprint);
         for (ParsedFile parsedFile : parsedFiles) {
             entries.set(parsedFile.slot(), parsedFile.entry());
             changedFilesParsedCleanly &= parsedFile.parsedCleanly();
@@ -163,40 +177,31 @@ public class CodebaseIndex {
             IndexPhaseMetrics.recordPhase("build.parse_extract", parseStarted);
         }
 
+        // Reflective edges depend only on the caller's source and the invoker configuration,
+        // so unchanged entries keep theirs unless that configuration changed.
         boolean semanticRefreshRequired = fileSetChanged
                 || reindexed > 0
-                || !invokers.isEmpty();
+                || invokersChanged;
         String fallbackReason = semanticRefreshRequired
                 ? scopedResolutionFallback(existing, entries, changedPaths,
-                        changedFilesParsedCleanly, fileSetChanged, !invokers.isEmpty())
+                        changedFilesParsedCleanly, fileSetChanged, invokersChanged)
                 : null;
         boolean scopedResolution = semanticRefreshRequired && fallbackReason == null;
         if (semanticRefreshRequired && !scopedResolution && !unchangedFiles.isEmpty()) {
             long refreshEdgesStarted = System.nanoTime();
+            List<EdgeRefresh> unchanged = new ArrayList<>(unchangedFiles.size());
             for (int index = 0; index < entries.size(); index++) {
                 IndexEntry entry = entries.get(index);
                 Path file = unchangedFiles.get(entry.path());
-                if (file == null) continue;
-                JavaParser edgeParser = edgeParsers.forFile(file);
-                String source;
-                try {
-                    byte[] content = Files.readAllBytes(file);
-                    if (!entry.contentHash().equals(com.jsrc.app.util.Hashing.sha256(content))) {
-                        throw new IOException("Source changed during edge refresh: "
-                                + entry.path() + "; retry the command");
-                    }
-                    source = decodeSource(content);
-                } catch (IOException exception) {
-                    throw new UncheckedIOException(exception);
+                if (file != null) {
+                    unchanged.add(new EdgeRefresh(index, file, entry));
                 }
-                EdgeResolver.Extraction extraction = edgeResolver.extract(file, edgeParser, source);
-                List<CallEdge> edges = new ArrayList<>(extraction.edges());
-                if (!invokers.isEmpty()) {
-                    edges.addAll(edgeResolver.extractReflectiveEdges(
-                            file, edgeParser, invokers, source));
-                }
-                entries.set(index, entry.withEdges(edges));
             }
+            for (EdgeRefresh refreshed : refreshEdges(
+                    unchanged, edgeParsers, sourceLevels, invokers, invokerFingerprint)) {
+                entries.set(refreshed.slot(), refreshed.entry());
+            }
+            refreshedUnchangedEdges = true;
             IndexPhaseMetrics.recordPhase("build.refresh_unchanged_edges", refreshEdgesStarted);
         }
 
@@ -231,8 +236,86 @@ public class CodebaseIndex {
 
     private record ParsedFile(int slot, IndexEntry entry, boolean parsedCleanly) {}
 
+    /** An unchanged file whose raw call edges are extracted again, and its entry. */
+    private record EdgeRefresh(int slot, Path file, IndexEntry entry) {}
+
     /** Smallest share of changed files worth handing to an extra worker thread. */
     private static final int MIN_FILES_PER_WORKER = 16;
+
+    /**
+     * Extracts the raw call edges of unchanged files again for a global resolution, in
+     * parallel. JavaParser instances are not thread-safe, so each worker owns its own.
+     */
+    private List<EdgeRefresh> refreshEdges(
+            List<EdgeRefresh> unchanged,
+            com.jsrc.app.parser.SourceParserFactory edgeParsers,
+            Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels,
+            List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers,
+            String invokerFingerprint) {
+        int count = Math.min(Runtime.getRuntime().availableProcessors(),
+                unchanged.size() / MIN_FILES_PER_WORKER);
+        if (count <= 1) {
+            return unchanged.stream()
+                    .map(file -> refreshOne(file, edgeParsers, invokers, invokerFingerprint))
+                    .toList();
+        }
+        // As in parseChanged, a file that overflows a worker stack is retried on this thread.
+        List<EdgeRefresh> overflowed = java.util.Collections.synchronizedList(new ArrayList<>());
+        List<EdgeRefresh> results = new ArrayList<>(java.util.stream.IntStream.range(0, count)
+                .parallel()
+                .mapToObj(worker -> {
+                    var workerEdgeParsers = new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
+                    List<EdgeRefresh> refreshed = new ArrayList<>();
+                    for (int index = worker; index < unchanged.size(); index += count) {
+                        try {
+                            refreshed.add(refreshOne(unchanged.get(index), workerEdgeParsers,
+                                    invokers, invokerFingerprint));
+                        } catch (StackOverflowError deeplyNested) {
+                            overflowed.add(unchanged.get(index));
+                            workerEdgeParsers =
+                                    new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
+                        }
+                    }
+                    return refreshed;
+                })
+                .flatMap(List::stream)
+                .toList());
+        if (!overflowed.isEmpty()) {
+            var retryEdgeParsers = new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
+            for (EdgeRefresh file : overflowed) {
+                results.add(refreshOne(file, retryEdgeParsers, invokers, invokerFingerprint));
+            }
+        }
+        return results;
+    }
+
+    private EdgeRefresh refreshOne(
+            EdgeRefresh unchanged, com.jsrc.app.parser.SourceParserFactory edgeParsers,
+            List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers,
+            String invokerFingerprint) {
+        IndexEntry entry = unchanged.entry();
+        String source;
+        try {
+            byte[] content = Files.readAllBytes(unchanged.file());
+            if (!entry.contentHash().equals(com.jsrc.app.util.Hashing.sha256(content))) {
+                throw new IOException("Source changed during edge refresh: "
+                        + entry.path() + "; retry the command");
+            }
+            source = decodeSource(content);
+        } catch (IOException exception) {
+            throw new UncheckedIOException(exception);
+        }
+        // One parse serves both direct and reflective edges; the entry keeps its
+        // declaration fingerprint, so the refresh does not compute it again.
+        var parsed = edgeParsers.forFile(unchanged.file()).parse(source);
+        List<CallEdge> edges = new ArrayList<>(
+                edgeResolver.extractEdges(unchanged.file(), parsed).edges());
+        if (!invokers.isEmpty()) {
+            edges.addAll(edgeResolver.extractReflectiveEdges(unchanged.file(), parsed, invokers));
+        }
+        return new EdgeRefresh(unchanged.slot(), unchanged.file(),
+                entry.withEdges(edges, invokerFingerprint));
+    }
 
     /**
      * Parses changed files, in parallel when the parser can be copied. Parsers are not
@@ -242,7 +325,8 @@ public class CodebaseIndex {
             CodeParser parser, List<PendingFile> pending,
             com.jsrc.app.parser.SourceParserFactory edgeParsers,
             Map<Path, com.jsrc.app.project.SourceLevel> sourceLevels,
-            List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {
+            List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers,
+            String invokerFingerprint) {
         int workers = Math.min(Runtime.getRuntime().availableProcessors(),
                 pending.size() / MIN_FILES_PER_WORKER);
         List<CodeParser> parsers = new ArrayList<>(List.of(parser));
@@ -255,7 +339,8 @@ public class CodebaseIndex {
         }
         if (parsers.size() == 1) {
             return pending.stream()
-                    .map(file -> parseOne(file, parser, edgeParsers, invokers))
+                    .map(file -> parseOne(file, parser, edgeParsers, invokers,
+                            invokerFingerprint))
                     .toList();
         }
         int count = parsers.size();
@@ -272,7 +357,7 @@ public class CodebaseIndex {
                     for (int index = worker; index < pending.size(); index += count) {
                         try {
                             parsed.add(parseOne(pending.get(index), workerParser,
-                                    workerEdgeParsers, invokers));
+                                    workerEdgeParsers, invokers, invokerFingerprint));
                         } catch (StackOverflowError deeplyNested) {
                             overflowed.add(pending.get(index));
                             // The overflow may have left these parsers mid-parse.
@@ -289,7 +374,8 @@ public class CodebaseIndex {
             CodeParser retryParser = parser.copy().orElse(parser);
             var retryEdgeParsers = new com.jsrc.app.parser.SourceParserFactory(sourceLevels);
             for (PendingFile file : overflowed) {
-                results.add(parseOne(file, retryParser, retryEdgeParsers, invokers));
+                results.add(parseOne(file, retryParser, retryEdgeParsers, invokers,
+                        invokerFingerprint));
             }
         }
         return results;
@@ -298,7 +384,8 @@ public class CodebaseIndex {
     private ParsedFile parseOne(
             PendingFile pendingFile, CodeParser parser,
             com.jsrc.app.parser.SourceParserFactory edgeParsers,
-            List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {
+            List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers,
+            String invokerFingerprint) {
         Path file = pendingFile.file();
         String source = decodeSource(pendingFile.content());
         List<ClassInfo> classes = parser.parseClasses(file, source);
@@ -332,22 +419,54 @@ public class CodebaseIndex {
         return new ParsedFile(pendingFile.slot(), new IndexEntry(
                 pendingFile.relativePath(), pendingFile.hash(), pendingFile.lastModified(),
                 pendingFile.sourceSet(), indexed, edges, List.of(),
-                pendingFile.sourceVersion(), extraction.declarationFingerprint()),
+                pendingFile.sourceVersion(), extraction.declarationFingerprint(), false,
+                invokerFingerprint),
                 extraction.parsedCleanly());
+    }
+
+    /** Identifies an invoker configuration; empty when no invoker is configured. */
+    static String invokerFingerprint(
+            List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {
+        if (invokers.isEmpty()) {
+            return "";
+        }
+        // Order matters: a later invoker for the same method replaces an earlier one.
+        StringBuilder text = new StringBuilder("invokers-v1");
+        for (var invoker : invokers) {
+            List<String> suffixes = invoker.callerSuffixes() == null
+                    ? List.of() : invoker.callerSuffixes();
+            appendField(text, invoker.method());
+            appendField(text, Integer.toString(invoker.targetArg()));
+            appendField(text, invoker.resolveClass());
+            appendField(text, Integer.toString(suffixes.size()));
+            suffixes.forEach(suffix -> appendField(text, suffix));
+        }
+        return com.jsrc.app.util.Hashing.sha256(text.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static void appendField(StringBuilder text, String value) {
+        String field = String.valueOf(value);
+        text.append('\n').append(field.length()).append(':').append(field);
+    }
+
+    /** Whether an entry's edges were extracted with the given invoker configuration. */
+    private static boolean hasCurrentInvokerEdges(IndexEntry entry, String invokerFingerprint) {
+        if (!entry.invokerFingerprint().equals(invokerFingerprint)) {
+            return false;
+        }
+        // Without a recorded configuration, an entry must not keep reflective edges.
+        return !invokerFingerprint.isEmpty() || entry.callEdges().stream()
+                .noneMatch(edge -> edge.invocationKind()
+                        == com.jsrc.app.model.InvocationKind.REFLECTIVE);
     }
 
     private static String scopedResolutionFallback(
             List<IndexEntry> previous, List<IndexEntry> current,
             java.util.Set<String> changedPaths, boolean parsedCleanly,
-            boolean fileSetChanged, boolean hasInvokers) {
+            boolean fileSetChanged, boolean invokersChanged) {
+        if (invokersChanged) return "invokers";
         if (changedPaths.isEmpty()) return "no_changed_files";
         if (fileSetChanged || previous.size() != current.size()) return "file_set";
-        if (hasInvokers || previous.stream()
-                .flatMap(entry -> entry.callEdges().stream())
-                .anyMatch(edge -> edge.invocationKind()
-                        == com.jsrc.app.model.InvocationKind.REFLECTIVE)) {
-            return "invokers";
-        }
         if (!parsedCleanly) return "diagnostics";
         for (int index = 0; index < current.size(); index++) {
             IndexEntry oldEntry = previous.get(index);
@@ -801,7 +920,7 @@ public class CodebaseIndex {
         }
         return new IndexEntry(
                 path, hash, lastModified, sourceSet, classes, callEdges, smells,
-                sourceVersion, declarationFingerprint);
+                sourceVersion, declarationFingerprint, false, str(map, "invokerFingerprint"));
     }
 
     @SuppressWarnings("unchecked")
@@ -969,6 +1088,9 @@ public class CodebaseIndex {
         map.put("sourceSet", entry.sourceSet().externalName());
         map.put("sourceVersion", entry.sourceVersion());
         map.put("declarationFingerprint", entry.declarationFingerprint());
+        if (!entry.invokerFingerprint().isEmpty()) {
+            map.put("invokerFingerprint", entry.invokerFingerprint());
+        }
         map.put("classes", entry.classes().stream().map(this::classToMap).toList());
         if (!entry.callEdges().isEmpty()) {
             map.put("callEdges", entry.callEdges().stream().map(this::edgeToMap).toList());

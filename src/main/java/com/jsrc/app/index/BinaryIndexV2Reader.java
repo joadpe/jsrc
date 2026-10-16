@@ -598,6 +598,7 @@ public class BinaryIndexV2Reader {
                 str(in.readInt(), strings));
         int sourceVersion = in.readInt();
         String declarationFingerprint = str(in.readInt(), strings);
+        String invokerFingerprint = str(in.readInt(), strings);
 
         int classCount = in.readUnsignedShort();
         List<IndexedClass> classes = new ArrayList<>(classCount);
@@ -649,7 +650,7 @@ public class BinaryIndexV2Reader {
 
         return new IndexEntry(
                 path, hash, lastModified, sourceSet, classes, List.of(), List.of(),
-                sourceVersion, declarationFingerprint);
+                sourceVersion, declarationFingerprint, false, invokerFingerprint);
     }
 
     private static String str(int ref, String[] table) throws IOException {

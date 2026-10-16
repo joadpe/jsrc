@@ -268,6 +268,13 @@ public class IndexedCodebase {
         if (existing.isEmpty() && !forceRefresh) {
             return null;
         }
+        // Without the configuration captured with the sources the refresh would extract no
+        // invoker edges and publish an index without the reflective callers.
+        if (sourceSnapshot == null
+                && existing.stream().anyMatch(entry -> !entry.invokerFingerprint().isEmpty())) {
+            throw new IllegalStateException("Index was built with invokers; refreshing it needs"
+                    + " the project configuration of a SourceSnapshot");
+        }
 
         Map<String, IndexEntry> byPath = new HashMap<>();
         for (IndexEntry e : existing) {
@@ -278,8 +285,8 @@ public class IndexedCodebase {
         var updatedIndex = new CodebaseIndex();
         List<IndexEntry> incrementalBase = forceRefresh ? List.of() : existing;
         int reindexed = updatedIndex.build(
-                parser, canonicalFiles, sourceRoot, incrementalBase, List.of(), sourceSets,
-                sourceLevels);
+                parser, canonicalFiles, sourceRoot, incrementalBase,
+                configuredInvokers(sourceSnapshot), sourceSets, sourceLevels);
         if (updatedIndex.getEntries().size() != canonicalFiles.size()) {
             throw new com.jsrc.app.exception.JsrcIOException(
                     "Source set changed while refreshing index; retry the command.");
@@ -289,7 +296,9 @@ public class IndexedCodebase {
                 .map(IndexEntry::path)
                 .collect(java.util.stream.Collectors.toSet());
         boolean fileSetChanged = !byPath.keySet().equals(currentPaths);
-        boolean indexChanged = forceRefresh || reindexed > 0 || fileSetChanged;
+        // A changed invoker configuration refreshes edges without re-indexing any file.
+        boolean indexChanged = forceRefresh || reindexed > 0 || fileSetChanged
+                || updatedIndex.refreshedUnchangedEdges();
 
         if (indexChanged) {
             for (int index = 0; index < refreshed.size(); index++) {
@@ -361,6 +370,17 @@ public class IndexedCodebase {
         indexed.migrationCache = selectMigrations(visible, loadedMigrations);
         indexed.sourceSnapshot = sourceSnapshot;
         return indexed;
+    }
+
+    /** Invokers of the configuration captured with the sources; none without a snapshot. */
+    private static List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> configuredInvokers(
+            SourceSnapshot sourceSnapshot) {
+        if (sourceSnapshot == null || sourceSnapshot.config() == null
+                || sourceSnapshot.config().architecture() == null
+                || sourceSnapshot.config().architecture().invokers() == null) {
+            return List.of();
+        }
+        return sourceSnapshot.config().architecture().invokers();
     }
 
     private static List<IndexEntry> selectEntries(

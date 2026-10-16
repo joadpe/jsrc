@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class IncrementalEdgeReuseTest {
     @TempDir
@@ -240,6 +241,174 @@ class IncrementalEdgeReuseTest {
         clean.build(parser, files, root, List.of());
         assertEquals(clean.getEntries().stream().map(IndexEntry::callEdges).toList(),
                 incremental.getEntries().stream().map(IndexEntry::callEdges).toList());
+    }
+
+    @Test
+    void unchangedBuildWithInvokersReusesPublishedEntries() throws IOException {
+        List<Path> files = invokerProject();
+        var parser = new HybridJavaParser();
+        var initial = new CodebaseIndex();
+        initial.build(parser, files, root, List.of(), INVOKERS);
+        initial.saveWithGraph(root, null);
+        List<IndexEntry> published = CodebaseIndex.loadPublished(root);
+        assertTrue(hasReflectiveEdge(published, "OrderHandler", "store"));
+
+        var unchanged = new CodebaseIndex();
+        assertEquals(0, unchanged.build(parser, files, root, published, INVOKERS));
+        for (int index = 0; index < files.size(); index++) {
+            assertSame(published.get(index), unchanged.getEntries().get(index));
+        }
+        assertFalse(unchanged.refreshedUnchangedEdges());
+    }
+
+    @Test
+    void bodyOnlyEditKeepsReflectiveEdgesOfUnchangedFiles() throws IOException {
+        List<Path> files = invokerProject();
+        var parser = new HybridJavaParser();
+        var initial = new CodebaseIndex();
+        initial.build(parser, files, root, List.of(), INVOKERS);
+        initial.saveWithGraph(root, null);
+        List<IndexEntry> published = CodebaseIndex.loadPublished(root);
+
+        Files.writeString(files.get(2), "class Other { void run() { System.runFinalization(); } }");
+        var incremental = new CodebaseIndex();
+        assertEquals(1, incremental.build(parser, files, root, published, INVOKERS));
+        assertSame(published.get(0), incremental.getEntries().get(0));
+        assertSame(published.get(1), incremental.getEntries().get(1));
+        assertFalse(incremental.refreshedUnchangedEdges());
+        assertTrue(hasReflectiveEdge(incremental.getEntries(), "OrderHandler", "store"));
+
+        var clean = new CodebaseIndex();
+        clean.build(parser, files, root, List.of(), INVOKERS);
+        assertEquals(edges(clean.getEntries()), edges(incremental.getEntries()));
+    }
+
+    @Test
+    void editedInvokerCallerGetsCurrentReflectiveEdges() throws IOException {
+        List<Path> files = invokerProject();
+        var parser = new HybridJavaParser();
+        var initial = new CodebaseIndex();
+        initial.build(parser, files, root, List.of(), INVOKERS);
+
+        Files.writeString(files.get(0), """
+                class OrderView {
+                    void save() { invoke("remove"); }
+                    void invoke(String name) {}
+                }
+                """);
+        var incremental = new CodebaseIndex();
+        assertEquals(1, incremental.build(parser, files, root, initial.getEntries(), INVOKERS));
+        assertTrue(hasReflectiveEdge(incremental.getEntries(), "OrderHandler", "remove"));
+        assertFalse(hasReflectiveEdge(incremental.getEntries(), "OrderHandler", "store"));
+
+        var clean = new CodebaseIndex();
+        clean.build(parser, files, root, List.of(), INVOKERS);
+        assertEquals(edges(clean.getEntries()), edges(incremental.getEntries()));
+    }
+
+    @Test
+    void changedInvokerConfigurationRefreshesUnchangedFiles() throws IOException {
+        List<Path> files = invokerProject();
+        var parser = new HybridJavaParser();
+        var initial = new CodebaseIndex();
+        initial.build(parser, files, root, List.of(), INVOKERS);
+        initial.saveWithGraph(root, null);
+        List<IndexEntry> published = CodebaseIndex.loadPublished(root);
+        var services = List.of(new com.jsrc.app.config.ArchitectureConfig.InvokerDef(
+                "invoke", 0, "service", List.of("View")));
+
+        var changed = new CodebaseIndex();
+        assertEquals(0, changed.build(parser, files, root, published, services));
+        assertTrue(changed.refreshedUnchangedEdges());
+        assertNotSame(published.get(0), changed.getEntries().get(0));
+        assertTrue(hasReflectiveEdge(changed.getEntries(), "OrderService", "store"));
+        assertFalse(hasReflectiveEdge(changed.getEntries(), "OrderHandler", "store"));
+
+        var clean = new CodebaseIndex();
+        clean.build(parser, files, root, List.of(), services);
+        assertEquals(edges(clean.getEntries()), edges(changed.getEntries()));
+        assertEquals(invokerFingerprints(clean.getEntries()),
+                invokerFingerprints(changed.getEntries()));
+    }
+
+    @Test
+    void removedInvokerConfigurationDropsReflectiveEdges() throws IOException {
+        List<Path> files = invokerProject();
+        var parser = new HybridJavaParser();
+        var initial = new CodebaseIndex();
+        initial.build(parser, files, root, List.of(), INVOKERS);
+
+        var removed = new CodebaseIndex();
+        assertEquals(0, removed.build(parser, files, root, initial.getEntries(), List.of()));
+        assertTrue(removed.refreshedUnchangedEdges());
+        assertFalse(hasReflectiveEdge(removed.getEntries(), "OrderHandler", "store"));
+
+        var clean = new CodebaseIndex();
+        clean.build(parser, files, root, List.of(), List.of());
+        assertEquals(clean.getEntries(), removed.getEntries());
+    }
+
+    @Test
+    void addedFileRefreshesManyUnchangedFilesLikeACleanBuild() throws IOException {
+        List<Path> files = new java.util.ArrayList<>(invokerProject());
+        for (int index = 0; index < 96; index++) {
+            files.add(source("pkg/Screen" + index + "View.java", """
+                    package pkg;
+                    class Screen%1$dView {
+                        void open() { invoke("load"); new OrderHandler().store(); }
+                        void invoke(String name) {}
+                    }
+                    """.formatted(index)));
+        }
+        var parser = new HybridJavaParser();
+        var initial = new CodebaseIndex();
+        initial.build(parser, files, root, List.of(), INVOKERS);
+
+        files.add(source("Added.java", "class Added { void run() { new Other().run(); } }"));
+        var incremental = new CodebaseIndex();
+        assertEquals(1, incremental.build(parser, files, root, initial.getEntries(), INVOKERS));
+        assertTrue(incremental.refreshedUnchangedEdges());
+        assertTrue(hasReflectiveEdge(incremental.getEntries(), "pkg.Screen95Handler", "load"));
+
+        var clean = new CodebaseIndex();
+        clean.build(parser, files, root, List.of(), INVOKERS);
+        assertEquals(clean.getEntries(), incremental.getEntries());
+    }
+
+    private static final List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> INVOKERS =
+            List.of(new com.jsrc.app.config.ArchitectureConfig.InvokerDef(
+                    "invoke", 0, "handler", List.of("View")));
+
+    /** OrderView reaches OrderHandler.store only through the configured invoker. */
+    private List<Path> invokerProject() throws IOException {
+        return List.of(
+                source("OrderView.java", """
+                        class OrderView {
+                            void save() { invoke("store"); }
+                            void invoke(String name) {}
+                        }
+                        """),
+                source("OrderHandler.java",
+                        "class OrderHandler { void store() {} void remove() {} }"),
+                source("Other.java", "class Other { void run() { System.gc(); } }"));
+    }
+
+    private static boolean hasReflectiveEdge(List<IndexEntry> entries, String calleeClass,
+                                             String calleeMethod) {
+        return entries.stream()
+                .flatMap(entry -> entry.callEdges().stream())
+                .anyMatch(edge -> edge.invocationKind()
+                        == com.jsrc.app.model.InvocationKind.REFLECTIVE
+                        && edge.calleeClass().equals(calleeClass)
+                        && edge.calleeMethod().equals(calleeMethod));
+    }
+
+    private static List<List<CallEdge>> edges(List<IndexEntry> entries) {
+        return entries.stream().map(IndexEntry::callEdges).toList();
+    }
+
+    private static List<String> invokerFingerprints(List<IndexEntry> entries) {
+        return entries.stream().map(IndexEntry::invokerFingerprint).toList();
     }
 
     private Path source(String name, String content) throws IOException {

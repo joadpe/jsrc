@@ -1,5 +1,6 @@
 package com.jsrc.app.project;
 
+import com.jsrc.app.util.SourceText;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -124,8 +125,8 @@ public final class ProjectModelDetector {
         try {
             Path settings = gradleSettings(root);
             Path rootBuild = gradleBuild(root);
-            String settingsText = settings == null ? "" : Files.readString(settings);
-            String buildText = rootBuild == null ? "" : Files.readString(rootBuild);
+            String settingsText = settings == null ? "" : SourceText.read(settings);
+            String buildText = rootBuild == null ? "" : SourceText.read(rootBuild);
             List<String> modulePaths = gradleModules(settingsText);
             GradleScopes scopes = gradleScopes(buildText);
             String javaVersion = combineGradleLevels(
@@ -153,7 +154,7 @@ public final class ProjectModelDetector {
                 }
                 try {
                     Path buildFile = gradleBuild(path);
-                    String moduleBuild = buildFile == null ? "" : Files.readString(buildFile);
+                    String moduleBuild = buildFile == null ? "" : SourceText.read(buildFile);
                     moduleData.add(new GradleModuleData(
                             gradleModuleName(modulePath), path, moduleBuild));
                 } catch (IOException exception) {

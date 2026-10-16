@@ -1,5 +1,6 @@
 package com.jsrc.app.project;
 
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -10,6 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProjectModelDetectorTest {
+
+    private static final Charset WINDOWS_1252 = Charset.forName("windows-1252");
 
     @TempDir
     Path projectRoot;
@@ -258,6 +261,41 @@ class ProjectModelDetectorTest {
                 projectRoot.resolve("src/main/java"),
                 model.modules().getFirst().mainSourceRoots().getFirst());
         assertEquals("BUILD_MODEL_FALLBACK", model.diagnostics().getFirst().code());
+    }
+
+    @Test
+    void detectsJavaVersionFromWindows1252GradleBuild() throws Exception {
+        Files.write(projectRoot.resolve("build.gradle"), """
+                plugins { id 'java' }
+                // configuración
+                java { sourceCompatibility = JavaVersion.VERSION_1_8 }
+                """.getBytes(WINDOWS_1252));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(BuildSystem.GRADLE, model.buildSystem());
+        assertEquals("8", model.javaVersion());
+        assertEquals("8", model.modules().getFirst().javaVersion());
+        assertEquals(List.of(), model.diagnostics());
+    }
+
+    @Test
+    void detectsGradleModulesFromWindows1252SettingsAndModuleBuild() throws Exception {
+        Files.write(projectRoot.resolve("settings.gradle"), """
+                // módulos de catálogo
+                include 'billing'
+                """.getBytes(WINDOWS_1252));
+        Files.writeString(projectRoot.resolve("build.gradle"), "plugins { id 'java' }");
+        Path billing = Files.createDirectories(projectRoot.resolve("billing"));
+        Files.write(billing.resolve("build.gradle"), """
+                // compilación para Java 8
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                """.getBytes(WINDOWS_1252));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+        assertEquals(List.of(), model.diagnostics());
     }
 
     @Test

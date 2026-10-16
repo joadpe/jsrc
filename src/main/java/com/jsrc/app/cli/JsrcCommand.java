@@ -168,7 +168,9 @@ public class JsrcCommand implements Runnable {
                 diagnostics);
         var sourceSets = projectSources.allSourceSets();
         long loadStarted = System.nanoTime();
-        IndexedCodebase indexed = skipIndex != null
+        // Commands that never read sources have no source snapshot, so they must not
+        // refresh or publish the index (a refresh without it would use no invokers).
+        IndexedCodebase indexed = skipIndex != null || sourceIndependent
                 ? null
                 : IndexedCodebase.tryLoad(
                         projectModel.root(), javaFiles, globalOptions.frozenIndex(), sourceSets,

@@ -374,6 +374,19 @@ final class IndexSnapshotStore {
     }
 
     private static void forceDirectory(Path directory) {
+        forceDirectory(directory, System.getProperty("os.name", ""));
+    }
+
+    /**
+     * Flushes a directory so that entries just created or renamed in it survive power loss.
+     * Windows cannot open a directory as a FileChannel, so there is no directory sync to
+     * attempt there (NTFS journals those metadata changes), and a warning on every
+     * publication would only be noise.
+     */
+    static void forceDirectory(Path directory, String osName) {
+        if (osName.startsWith("Windows")) {
+            return;
+        }
         try (FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ)) {
             channel.force(true);
         } catch (IOException | UnsupportedOperationException ex) {

@@ -323,6 +323,35 @@ class IndexSnapshotStoreTest {
     }
 
     @Test
+    void directorySyncIsSkippedWithoutWarningOnWindows(@TempDir Path tempDir) {
+        // No platform can open a missing directory, so the warning shows whether a sync was
+        // attempted, whichever platform runs the test.
+        Path missing = tempDir.resolve("missing");
+
+        for (String windows : List.of("Windows 11", "Windows Server 2022")) {
+            assertFalse(stderrOf(() -> IndexSnapshotStore.forceDirectory(missing, windows))
+                    .contains("Directory sync unavailable"), windows);
+        }
+        for (String other : List.of("Linux", "Mac OS X")) {
+            assertTrue(stderrOf(() -> IndexSnapshotStore.forceDirectory(missing, other))
+                    .contains("Directory sync unavailable for " + missing), other);
+        }
+    }
+
+    private static String stderrOf(Runnable action) {
+        var original = System.err;
+        var captured = new java.io.ByteArrayOutputStream();
+        System.setErr(new java.io.PrintStream(
+                captured, true, java.nio.charset.StandardCharsets.UTF_8));
+        try {
+            action.run();
+        } finally {
+            System.setErr(original);
+        }
+        return captured.toString(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    @Test
     void publishingIndexCreatesGenerationAndManifest(@TempDir Path projectRoot) throws Exception {
         Path source = projectRoot.resolve("A.java");
         Files.writeString(source, "class A {}");

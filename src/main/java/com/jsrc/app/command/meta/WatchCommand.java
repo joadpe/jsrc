@@ -51,6 +51,9 @@ public class WatchCommand implements Command {
     public int execute(CommandContext ctx) {
         activeConfigPath = ctx.sourceSnapshot() == null
                 ? null : ctx.sourceSnapshot().configPath();
+        // Discovered files are absolute and the index refresh relativizes them against the
+        // root, so resolve a relative --dir, such as the default ".", as index does.
+        Path root = Paths.get(ctx.rootPath()).toAbsolutePath().normalize();
         System.err.println("jsrc watch mode started. Send JSON commands on stdin. {\"command\":\"quit\"} to exit.");
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
@@ -113,7 +116,7 @@ public class WatchCommand implements Command {
                             ? new RefreshResult(ctx.indexed(), ctx.javaFiles(),
                                     ctx.projectModel(), ctx.fileSourceSets())
                             : loadOrRefreshIndex(
-                                    Paths.get(ctx.rootPath()), ctx.javaFiles(), cachedIndex,
+                                    root, ctx.javaFiles(), cachedIndex,
                                     ctx.frozenIndex(), ctx.config(), ctx.projectModel(),
                                     ctx.sourceSets(), ctx.noTest(), ctx.fileSourceSets());
                     if (sourceIndependent) {

@@ -1,5 +1,6 @@
 package com.jsrc.app.cli;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -172,6 +173,48 @@ class RelativeRootCommandsTest {
     }
 
     @Test
+    void watchAnswersFromThePublishedIndexForEveryRootMode() throws Exception {
+        Path project = Files.createDirectory(tempDir.resolve("project"));
+        Files.writeString(project.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                <groupId>example</groupId><artifactId>demo</artifactId><version>1</version>
+                <properties><maven.compiler.release>17</maven.compiler.release></properties>
+                </project>
+                """);
+        Path sources = Files.createDirectories(project.resolve("src/main/java/com/example"));
+        Files.writeString(sources.resolve("Demo.java"), """
+                package com.example;
+                public class Demo {
+                    public void run() { helper(); }
+                    void helper() {}
+                }
+                """);
+        assertTrue(run(project, "index").contains("Done. Indexed"));
+        String requests = """
+                {"command":"classes"}
+                {"command":"read","arg":"Demo.run"}
+                {"command":"callers","arg":"Demo.helper"}
+                {"command":"quit"}
+                """;
+
+        for (String output : List.of(
+                runWithInput(project, requests, "watch"),
+                runWithInput(tempDir, requests, "--dir", "project", "watch"),
+                runWithInput(tempDir, requests, "--dir", project.toString(), "watch"))) {
+            List<String> responses = output.lines()
+                    .filter(line -> line.startsWith("{")).toList();
+            assertEquals(3, responses.size(), output);
+            for (String response : responses) {
+                assertTrue(response.startsWith("{\"exit\":0,"), output);
+            }
+            assertTrue(responses.get(0).contains("\"name\":\"Demo\""), output);
+            assertTrue(responses.get(1).contains("helper();"), output);
+            assertTrue(responses.get(2).contains("\"callers\":[\"com.example.Demo.run\"]"),
+                    output);
+        }
+    }
+
+    @Test
     void overviewAppliesProjectBudgetForEveryRootMode() throws Exception {
         Path project = budgetProject("tiny");
 
@@ -262,6 +305,12 @@ class RelativeRootCommandsTest {
     }
 
     private static String run(Path workingDirectory, String... args) throws Exception {
+        return runWithInput(workingDirectory, null, args);
+    }
+
+    /** Runs jsrc with {@code input}, if any, on stdin and then closes it, which ends watch. */
+    private static String runWithInput(Path workingDirectory, String input, String... args)
+            throws Exception {
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
         String classpath = System.getProperty("surefire.test.class.path",
                 System.getProperty("java.class.path"));
@@ -272,6 +321,11 @@ class RelativeRootCommandsTest {
                 .redirectErrorStream(true);
         builder.environment().remove("JSRC_BUDGET");
         Process process = builder.start();
+        if (input != null) {
+            try (var stdin = process.getOutputStream()) {
+                stdin.write(input.getBytes(StandardCharsets.UTF_8));
+            }
+        }
         assertTrue(process.waitFor(40, TimeUnit.SECONDS), "Command timed out");
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         return output;

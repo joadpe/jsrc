@@ -494,8 +494,10 @@ If a command fails with exit code 2, verify you are using the subcommand syntax,
 
 Per-module source-level detection below requires 2.6.0 or later.
 
-Java sources are read as UTF-8; files that are not valid UTF-8 are read as
-Windows-1252, the usual encoding of legacy projects edited on Windows.
+Java sources and `.jsrc.yaml` are read as UTF-8; files that are not valid UTF-8
+are read as Windows-1252, the usual encoding of legacy projects edited on
+Windows. A `.jsrc.yaml` that starts with a UTF-16 byte order mark is read as
+UTF-16.
 
 Create `.jsrc.yaml` in your project root:
 

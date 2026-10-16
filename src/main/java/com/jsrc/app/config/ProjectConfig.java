@@ -1,6 +1,8 @@
 package com.jsrc.app.config;
 
+import com.jsrc.app.util.SourceText;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -108,7 +110,7 @@ public record ProjectConfig(
         Path configFile = directory.resolve(CONFIG_FILE);
         if (!Files.exists(configFile)) return Optional.empty();
         try {
-            return Optional.of(parse(Files.readString(configFile)));
+            return Optional.of(parse(readText(configFile)));
         } catch (IOException e) {
             logger.error("Error reading {}: {}", configFile, e.getMessage());
             return Optional.empty();
@@ -121,11 +123,24 @@ public record ProjectConfig(
             return Optional.empty();
         }
         try {
-            return Optional.of(parse(Files.readString(configPath)));
+            return Optional.of(parse(readText(configPath)));
         } catch (IOException e) {
             logger.error("Error reading {}: {}", configPath, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * Decodes the config like Java sources: as UTF-8, or as Windows-1252 (the "ANSI"
+     * default of Windows editors) when it is not valid UTF-8. A UTF-16 byte order mark,
+     * as written by redirection in Windows PowerShell 5, selects UTF-16 instead.
+     */
+    private static String readText(Path configFile) throws IOException {
+        byte[] content = Files.readAllBytes(configFile);
+        boolean utf16 = content.length >= 2
+                && (content[0] == (byte) 0xFF && content[1] == (byte) 0xFE
+                        || content[0] == (byte) 0xFE && content[1] == (byte) 0xFF);
+        return utf16 ? new String(content, StandardCharsets.UTF_16) : SourceText.decode(content);
     }
 
     @SuppressWarnings("unchecked")

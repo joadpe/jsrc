@@ -70,6 +70,38 @@ class LintCommandTest {
     }
 
     @Test
+    void localClassPrivateConstructor_notReportedAsDeadCode() throws Exception {
+        // The owner of Loc is Outer$m$1$Loc$1, whose last segment is not the constructor name
+        var diags = run("Outer$m$1$Loc$1", """
+                package app;
+                public class Outer {
+                    void m() {
+                        class Loc { private Loc(int a) {} }
+                        new Loc(1);
+                    }
+                }
+                """);
+        assertTrue(diags.stream().noneMatch(d -> d.get("message").toString().contains("Loc()")),
+                "Local class constructor should not be reported as dead code. Got: " + diags);
+    }
+
+    @Test
+    void nestedEnumConstructor_notReportedAsDeadCode() throws Exception {
+        var diags = run("Palette$Color", """
+                package app;
+                public class Palette {
+                    enum Color {
+                        RED(1);
+                        private final int rgb;
+                        Color(int rgb) { this.rgb = rgb; }
+                    }
+                }
+                """);
+        assertTrue(diags.stream().noneMatch(d -> d.get("message").toString().contains("Color()")),
+                "Enum constructor should not be reported as dead code. Got: " + diags);
+    }
+
+    @Test
     void toStringEquals_skipped() throws Exception {
         var diags = run("Svc", """
                 public class Svc {

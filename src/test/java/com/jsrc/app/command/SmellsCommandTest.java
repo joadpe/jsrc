@@ -15,10 +15,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.jsrc.app.index.CachedSmell;
 import com.jsrc.app.index.CodebaseIndex;
+import com.jsrc.app.index.IndexEntry;
 import com.jsrc.app.index.IndexedCodebase;
 import com.jsrc.app.output.JsonFormatter;
 import com.jsrc.app.output.JsonReader;
 import com.jsrc.app.parser.HybridJavaParser;
+import com.jsrc.app.parser.model.CodeSmell;
 import com.jsrc.app.command.analysis.SmellsCommand;
 
 class SmellsCommandTest {
@@ -63,9 +65,9 @@ class SmellsCommandTest {
     @DisplayName("--all caches one-letter severity codes and reads them back")
     void allCachesOneLetterSeverityCodes() throws Exception {
         Path risky = writeFile("Risky.java", EMPTY_CATCH);
-        publishIndex(List.of());
+        publishIndex();
         var ctx = contextFor(IndexedCodebase.tryLoad(tempDir, javaFiles()));
-        assertFalse(ctx.indexed().hasCachedSmells());
+        assertFalse(CodebaseIndex.loadPublished(tempDir).getFirst().smellsComputed());
 
         assertEquals(Map.of("WARNING", 1L), scanAll(ctx).get("bySeverity"));
 
@@ -74,22 +76,82 @@ class SmellsCommandTest {
                 .toList();
         assertEquals(expected, CodebaseIndex.loadPublished(tempDir).getFirst().smells());
         assertEquals("W", expected.getFirst().severity());
-        assertTrue(ctx.indexed().hasCachedSmells());
-        assertEquals(Map.of("WARNING", 1L), scanAll(ctx).get("bySeverity"),
+        var parser = new CountingParser();
+        var cachedRun = contextFor(IndexedCodebase.tryLoad(tempDir, javaFiles()), parser);
+        assertEquals(Map.of("WARNING", 1L), scanAll(cachedRun).get("bySeverity"),
                 "Cached smells should keep their severity");
+        assertEquals(0, parser.detections);
     }
 
     @Test
     @DisplayName("--all reports the severity of smells cached by index auto-refresh")
     void allReportsSeverityCachedByAutoRefresh() throws Exception {
         Path risky = writeFile("Risky.java", "public class Risky { public void load() {} }");
-        publishIndex(List.of());
+        publishIndex();
         Files.writeString(risky, EMPTY_CATCH);
 
         var ctx = contextFor(IndexedCodebase.tryLoad(tempDir, javaFiles()));
-        assertTrue(ctx.indexed().hasCachedSmells(), "Refresh should cache the edited file's smells");
+        assertFalse(ctx.indexed().getCachedSmells("Risky.java").isEmpty(),
+                "Refresh should cache the edited file's smells");
 
         assertEquals(Map.of("WARNING", 1L), scanAll(ctx).get("bySeverity"));
+    }
+
+    @Test
+    @DisplayName("--all analyzes files the partially filled smell cache never covered")
+    void allAnalyzesFilesMissingFromPartialCache() throws Exception {
+        Path risky = writeFile("Risky.java", EMPTY_CATCH);
+        writeFile("Other.java", EMPTY_CATCH.replace("Risky", "Other"));
+        writeFile("Calm.java", "public class Calm { public int answer() { return 1; } }");
+        publishIndex();
+        Files.writeString(risky, EMPTY_CATCH + "// edited\n");
+        var ctx = contextFor(IndexedCodebase.tryLoad(tempDir, javaFiles()));
+        assertFalse(ctx.indexed().getCachedSmells("Risky.java").isEmpty(),
+                "Refresh should cache the edited file's smells");
+
+        var result = scanAll(ctx);
+
+        assertEquals(2L, result.get("totalFindings"));
+        assertEquals(2L, result.get("filesWithSmells"));
+        assertTrue(CodebaseIndex.loadPublished(tempDir).stream()
+                .allMatch(IndexEntry::smellsComputed),
+                "Every file, including the clean one, should now be cached");
+    }
+
+    @Test
+    @DisplayName("--all reuses cached results for files without smells")
+    void allReusesCachedResultsForCleanFiles() throws Exception {
+        writeFile("Risky.java", EMPTY_CATCH);
+        writeFile("Calm.java", "public class Calm { public int answer() { return 1; } }");
+        publishIndex();
+        var firstRun = scanAll(contextFor(IndexedCodebase.tryLoad(tempDir, javaFiles())));
+
+        var parser = new CountingParser();
+        var secondRun = scanAll(contextFor(IndexedCodebase.tryLoad(tempDir, javaFiles()), parser));
+
+        assertEquals(firstRun, secondRun);
+        assertEquals(0, parser.detections, "Cached files should not be parsed again");
+    }
+
+    @Test
+    @DisplayName("--all with a frozen index analyzes uncached files without publishing them")
+    void frozenAllAnalyzesUncachedFilesWithoutPublishing() throws Exception {
+        Path risky = writeFile("Risky.java", EMPTY_CATCH);
+        writeFile("Other.java", EMPTY_CATCH.replace("Risky", "Other"));
+        publishIndex();
+        Files.writeString(risky, EMPTY_CATCH + "// edited\n");
+        IndexedCodebase.tryLoad(tempDir, javaFiles());
+        String published = Files.readString(tempDir.resolve(".jsrc/current"));
+
+        var files = javaFiles();
+        sharedOut = new ByteArrayOutputStream();
+        var ctx = new CommandContext(files, tempDir.toString(), null,
+                new JsonFormatter(false, null, new PrintStream(sharedOut)),
+                IndexedCodebase.tryLoad(tempDir, files, true), new HybridJavaParser(),
+                false, null, false, false, null, true);
+
+        assertEquals(2L, scanAll(ctx).get("totalFindings"));
+        assertEquals(published, Files.readString(tempDir.resolve(".jsrc/current")));
     }
 
     @Test
@@ -97,10 +159,10 @@ class SmellsCommandTest {
     @SuppressWarnings("unchecked")
     void allReadsLegacyFullNameSeverities() throws Exception {
         writeFile("Legacy.java", "public class Legacy { public void run() {} }");
-        publishIndex(List.of(
+        publishIndex(
                 cachedSmell("LEGACY_ERROR", "ERROR"), cachedSmell("COMPACT_ERROR", "E"),
                 cachedSmell("LEGACY_WARNING", "WARNING"), cachedSmell("COMPACT_WARNING", "W"),
-                cachedSmell("LEGACY_INFO", "INFO"), cachedSmell("COMPACT_INFO", "I")));
+                cachedSmell("LEGACY_INFO", "INFO"), cachedSmell("COMPACT_INFO", "I"));
         var ctx = contextFor(IndexedCodebase.tryLoad(tempDir, javaFiles()));
         assertTrue(ctx.indexed().getCachedSmells("Legacy.java").stream()
                 .anyMatch(smell -> smell.severity().equals("WARNING")),
@@ -338,12 +400,15 @@ class SmellsCommandTest {
             }
             """;
 
-    /** Publishes a binary index snapshot whose entries all carry the given cached smells. */
-    private void publishIndex(List<CachedSmell> cachedSmells) throws Exception {
+    /**
+     * Publishes a binary index snapshot. Without arguments no smells are computed, as after
+     * {@code jsrc index}; otherwise every entry carries the given cached smells.
+     */
+    private void publishIndex(CachedSmell... cachedSmells) throws Exception {
         var index = new CodebaseIndex();
         index.build(new HybridJavaParser(), javaFiles(), tempDir, List.of());
-        var entries = index.getEntries().stream()
-                .map(entry -> entry.withSmells(cachedSmells))
+        var entries = cachedSmells.length == 0 ? index.getEntries() : index.getEntries().stream()
+                .map(entry -> entry.withSmells(List.of(cachedSmells)))
                 .toList();
         new CodebaseIndex(entries).saveWithGraph(tempDir, null);
     }
@@ -353,10 +418,25 @@ class SmellsCommandTest {
     }
 
     private CommandContext contextFor(IndexedCodebase indexed) throws Exception {
+        return contextFor(indexed, new HybridJavaParser());
+    }
+
+    private CommandContext contextFor(IndexedCodebase indexed, HybridJavaParser parser)
+            throws Exception {
         sharedOut = new ByteArrayOutputStream();
         return new CommandContext(javaFiles(), tempDir.toString(), null,
-                new JsonFormatter(false, null, new PrintStream(sharedOut)), indexed,
-                new HybridJavaParser());
+                new JsonFormatter(false, null, new PrintStream(sharedOut)), indexed, parser);
+    }
+
+    /** Parser that counts smell detections, to tell cache hits from re-parsing. */
+    private static final class CountingParser extends HybridJavaParser {
+        int detections;
+
+        @Override
+        public List<CodeSmell> detectSmells(Path path) {
+            detections++;
+            return super.detectSmells(path);
+        }
     }
 
     @SuppressWarnings("unchecked")

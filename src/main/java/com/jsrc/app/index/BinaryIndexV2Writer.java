@@ -19,7 +19,7 @@ import com.jsrc.app.parser.model.MethodReference;
  *   <li>CLASSES — entries with classes/fields/methods</li>
  *   <li>EDGES — raw call edges per file</li>
  *   <li>GRAPH — pre-resolved callerIndex + calleeIndex adjacency lists</li>
- *   <li>SMELLS — cached code smells</li>
+ *   <li>SMELLS — cached code smells; listed files without smells were analyzed clean</li>
  * </ol>
  *
  * <p>Write uses temp file + atomic rename to prevent corruption.</p>
@@ -157,11 +157,11 @@ public class BinaryIndexV2Writer {
             out.writeByte(0); // no graph
         }
 
-        // 5. SMELLS
-        int totalSmellFiles = (int) entries.stream().filter(e -> !e.smells().isEmpty()).count();
+        // 5. SMELLS — every file whose smells were computed, including files without any
+        int totalSmellFiles = (int) entries.stream().filter(IndexEntry::smellsComputed).count();
         out.writeInt(totalSmellFiles);
         for (var entry : entries) {
-            if (entry.smells().isEmpty()) continue;
+            if (!entry.smellsComputed()) continue;
             out.writeInt(ref(entry.path(), stringTable));
             out.writeInt(entry.smells().size());
             for (var smell : entry.smells()) {

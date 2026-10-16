@@ -138,7 +138,8 @@ final class IndexSnapshotStore {
                     throw new IOException("Source changed before smell cache update: "
                             + entry.path());
                 }
-                if (update != null && !entry.smells().equals(update.smells())) {
+                if (update != null && update.smellsComputed()
+                        && !(entry.smellsComputed() && entry.smells().equals(update.smells()))) {
                     merged.add(entry.withSmells(update.smells()));
                     changed = true;
                 } else {

@@ -21,6 +21,23 @@ import static org.junit.jupiter.api.Assertions.*;
 class BinaryIndexV2RoundtripTest {
 
     @Test
+    void roundtripPreservesWhetherSmellsWereComputed(@TempDir Path tempDir) throws Exception {
+        var clean = new IndexEntry("Clean.java", "a", 0L, List.of()).withSmells(List.of());
+        var unanalyzed = new IndexEntry("Fresh.java", "b", 0L, List.of());
+        var smelly = new IndexEntry("Smelly.java", "c", 0L, List.of()).withSmells(List.of(
+                new CachedSmell("EMPTY_CATCH_BLOCK", "W", 3, "run", "Smelly", "empty catch")));
+        Path indexFile = tempDir.resolve("index.bin");
+        BinaryIndexV2Writer.write(indexFile, List.of(clean, unanalyzed, smelly), null);
+
+        for (var entries : List.of(BinaryIndexV2Reader.read(indexFile).entries(),
+                BinaryIndexV2Reader.readLazy(indexFile).getData().entries())) {
+            assertEquals(List.of(true, false, true),
+                    entries.stream().map(IndexEntry::smellsComputed).toList());
+            assertEquals(smelly.smells(), entries.get(2).smells());
+        }
+    }
+
+    @Test
     void roundtripPreservesCallGraph(@TempDir Path tempDir) throws Exception {
         // Build a call graph manually
         var callerIndex = new HashMap<MethodReference, Set<MethodCall>>();

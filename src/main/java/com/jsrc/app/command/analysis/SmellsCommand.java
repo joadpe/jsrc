@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jsrc.app.index.CachedSmell;
 import com.jsrc.app.model.CommandHint;
 import com.jsrc.app.util.MethodResolver;
 import com.jsrc.app.util.SignatureUtils;
@@ -92,52 +93,42 @@ public class SmellsCommand implements Command {
     }
 
     private int scanAll(CommandContext ctx) {
-        // Use cached smells from index when available (instant vs re-parsing all files)
-        if (ctx.indexed() != null && ctx.indexed().hasCachedSmells()) {
-            return scanAllFromIndex(ctx);
-        }
-
-        // No cache — detect smells, collect all, cache, then output summary
+        // Reuse smells cached in the index (instant vs re-parsing all files); files whose
+        // smells the index never computed are detected now and cached for next time
         Path root = Path.of(ctx.rootPath()).toAbsolutePath().normalize();
         List<Map<String, Object>> allFindings = new java.util.ArrayList<>();
         Map<String, Integer> bySeverity = new java.util.LinkedHashMap<>();
         Map<String, Integer> byRule = new java.util.LinkedHashMap<>();
-        boolean shouldPersist = ctx.indexed() != null && !ctx.frozenIndex();
         int filesWithSmells = 0;
 
         for (Path file : ctx.javaFiles()) {
-            var smells = ctx.parser().detectSmells(file);
+            String relativePath = root.relativize(file.toAbsolutePath().normalize()).toString();
+            List<CachedSmell> smells = ctx.indexed() != null
+                    ? ctx.indexed().smells(relativePath, ctx.parser())
+                    : ctx.parser().detectSmells(file).stream().map(CachedSmell::from).toList();
             if (smells.isEmpty()) continue;
             filesWithSmells++;
-            String relativePath = root.relativize(file.toAbsolutePath().normalize()).toString();
 
             for (var s : smells) {
-                bySeverity.merge(s.severity().name(), 1, Integer::sum);
+                String severity = s.severityLevel().name();
+                bySeverity.merge(severity, 1, Integer::sum);
                 byRule.merge(s.ruleId(), 1, Integer::sum);
                 allFindings.add(Map.of(
                         "file", relativePath,
                         "class", s.className(),
-                        "method", s.methodName(),
+                        "method", s.method(),
                         "line", s.line(),
                         "ruleId", s.ruleId(),
-                        "severity", s.severity().name(),
+                        "severity", severity,
                         "message", s.message()));
-            }
-
-            // Cache for next time
-            if (shouldPersist) {
-                var cached = smells.stream()
-                        .map(com.jsrc.app.index.CachedSmell::from)
-                        .toList();
-                ctx.indexed().setCachedSmells(relativePath, cached);
             }
         }
 
-        if (shouldPersist) {
+        if (ctx.indexed() != null && !ctx.frozenIndex()) {
             ctx.indexed().save(java.nio.file.Path.of(ctx.rootPath()));
         }
 
-        // Sort and produce summary (same format as cached path)
+        // Sort: ERRORS first, then WARNINGS, then by ruleId
         allFindings.sort(java.util.Comparator
                 .<Map<String, Object>, Integer>comparing(f -> switch (f.get("severity").toString()) {
                     case "ERROR" -> 0; case "WARNING" -> 1; default -> 2;
@@ -149,66 +140,6 @@ public class SmellsCommand implements Command {
                 .limit(20).toList();
         if (topFindings.isEmpty()) topFindings = allFindings.stream().limit(20).toList();
 
-        var sortedRules = byRule.entrySet().stream()
-                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                .map(e -> Map.of("rule", (Object) e.getKey(), "count", (Object) e.getValue()))
-                .toList();
-
-        Map<String, Object> result = new java.util.LinkedHashMap<>();
-        result.put("totalFindings", allFindings.size());
-        result.put("filesWithSmells", filesWithSmells);
-        result.put("bySeverity", bySeverity);
-        result.put("byRule", sortedRules);
-        result.put("topFindings", topFindings);
-        if (allFindings.size() > 20) {
-            result.put("hint", "Use --smells <ClassName> for details on a specific class");
-        }
-        ctx.formatter().printResult(result);
-        return allFindings.size();
-    }
-
-    private int scanAllFromIndex(CommandContext ctx) {
-        List<Map<String, Object>> allFindings = new java.util.ArrayList<>();
-        Map<String, Integer> bySeverity = new java.util.LinkedHashMap<>();
-        Map<String, Integer> byRule = new java.util.LinkedHashMap<>();
-        int filesWithSmells = 0;
-
-        for (var entry : ctx.indexed().getEntries()) {
-            var cachedSmells = ctx.indexed().getCachedSmells(entry.path());
-            if (cachedSmells.isEmpty()) continue;
-            filesWithSmells++;
-            for (var cs : cachedSmells) {
-                String severity = cs.severityLevel().name();
-                bySeverity.merge(severity, 1, Integer::sum);
-                byRule.merge(cs.ruleId(), 1, Integer::sum);
-                allFindings.add(Map.of(
-                        "file", entry.path(),
-                        "class", cs.className(),
-                        "method", cs.method(),
-                        "line", cs.line(),
-                        "ruleId", cs.ruleId(),
-                        "severity", severity,
-                        "message", cs.message()));
-            }
-        }
-
-        // Sort: ERRORS first, then WARNINGS, then by ruleId
-        allFindings.sort(java.util.Comparator
-                .<Map<String, Object>, Integer>comparing(f -> switch (f.get("severity").toString()) {
-                    case "ERROR" -> 0; case "WARNING" -> 1; default -> 2;
-                })
-                .thenComparing(f -> f.get("ruleId").toString()));
-
-        // Top findings (most actionable — ERRORS + WARNINGS first, max 20)
-        List<Map<String, Object>> topFindings = allFindings.stream()
-                .filter(f -> !"INFO".equals(f.get("severity")))
-                .limit(20)
-                .toList();
-        if (topFindings.isEmpty()) {
-            topFindings = allFindings.stream().limit(20).toList();
-        }
-
-        // Sort byRule descending
         var sortedRules = byRule.entrySet().stream()
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
                 .map(e -> Map.of("rule", (Object) e.getKey(), "count", (Object) e.getValue()))

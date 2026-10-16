@@ -3,6 +3,7 @@ package com.jsrc.app.jfr;
 import com.jsrc.app.index.CachedSmell;
 import com.jsrc.app.index.IndexedCodebase;
 import com.jsrc.app.jfr.JfrProfile.HotMethod;
+import com.jsrc.app.parser.CodeParser;
 
 import java.nio.file.Path;
 import java.util.*;
@@ -73,10 +74,11 @@ public final class JfrCorrelator {
      *
      * @param profile JFR profile with hot methods
      * @param indexed jsrc codebase index (may be null)
-     * @param rootPath project root for resolving file paths
+     * @param parser  detects smells of files the index never analyzed
      * @return correlation result
      */
-    public static CorrelationResult correlate(JfrProfile profile, IndexedCodebase indexed, String rootPath) {
+    public static CorrelationResult correlate(JfrProfile profile, IndexedCodebase indexed,
+                                              CodeParser parser) {
         Objects.requireNonNull(profile, "profile must not be null");
 
         if (indexed == null) {
@@ -97,7 +99,7 @@ public final class JfrCorrelator {
 
             if (filePath.isPresent()) {
                 String file = filePath.get();
-                List<CachedSmell> cachedSmells = indexed.getCachedSmells(file);
+                List<CachedSmell> cachedSmells = indexed.smells(file, parser);
                 int smellCount = cachedSmells != null ? cachedSmells.size() : 0;
 
                 methods.add(new CorrelatedMethod(hm.className(), hm.methodName(),

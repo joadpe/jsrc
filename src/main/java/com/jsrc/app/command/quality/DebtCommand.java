@@ -69,6 +69,11 @@ public class DebtCommand implements Command {
             }
         }
 
+        // Persist smells detected for files the index had never analyzed
+        if (ctx.indexed() != null && !ctx.frozenIndex()) {
+            ctx.indexed().save(java.nio.file.Path.of(ctx.rootPath()));
+        }
+
         // Sort by score descending
         scores.sort((a, b) -> Integer.compare((int) b.get("score"), (int) a.get("score")));
 
@@ -114,14 +119,13 @@ public class DebtCommand implements Command {
     }
 
     private int countSmells(ClassInfo ci, CommandContext ctx) {
-        // Use cached smells from index if available
-        if (ctx.indexed() != null && ctx.indexed().hasCachedSmells()) {
-            var filePath = ctx.indexed().findFileForClass(ci.name());
-            if (filePath.isPresent()) {
-                return ctx.indexed().getCachedSmells(filePath.get()).size();
-            }
+        // Use the index smell cache; files it never analyzed are detected and cached
+        if (ctx.indexed() == null) {
+            return 0;
         }
-        return 0;
+        return ctx.indexed().findFileForClass(ci.name())
+                .map(path -> ctx.indexed().smells(path, ctx.parser()).size())
+                .orElse(0);
     }
 
     private int estimateComplexity(ClassInfo ci) {

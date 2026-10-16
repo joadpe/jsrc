@@ -39,6 +39,8 @@ public class IndexedCodebase {
     private java.util.Map<String, IndexedClass> classLookup; // lazy O(1) class lookup
     private java.util.Map<String, String> classToPath; // lazy O(1) class→file path
     private java.util.Map<String, List<CachedMigration>> migrationCache; // path → migrations
+    private java.util.Map<String, Integer> entryPositions; // lazy O(1) path → entries index
+    private boolean unsavedSmells; // smells cached in memory but not yet persisted
     private SourceSnapshot sourceSnapshot;
 
     private IndexedCodebase(List<IndexEntry> entries) {
@@ -703,41 +705,67 @@ public class IndexedCodebase {
         return entries.stream().anyMatch(e -> !e.callEdges().isEmpty());
     }
 
-    /** Returns true if the index has precomputed code smells. */
-    public boolean hasCachedSmells() {
+    /**
+     * Returns the smells of a file. Smells the index never computed are detected with
+     * {@code parser}; for indexed files they stay cached in memory until {@link #save}.
+     */
+    public List<CachedSmell> smells(String path, CodeParser parser) {
         ensureSmellsLoaded();
-        return entries.stream().anyMatch(e -> !e.smells().isEmpty());
+        Integer position = entryPositions().get(path);
+        if (position == null) {
+            return detectSmells(path, parser);
+        }
+        IndexEntry entry = entries.get(position);
+        if (!entry.smellsComputed()) {
+            entry = entry.withSmells(detectSmells(path, parser));
+            entries.set(position, entry);
+            unsavedSmells = true;
+        }
+        return entry.smells();
+    }
+
+    private List<CachedSmell> detectSmells(String path, CodeParser parser) {
+        return parser.detectSmells(sourceRoot.resolve(path)).stream()
+                .map(CachedSmell::from)
+                .toList();
     }
 
     /** Returns cached smells for a given file path, or empty list. */
     public List<CachedSmell> getCachedSmells(String path) {
-        for (var entry : entries) {
-            if (entry.path().equals(path)) {
-                return entry.smells();
-            }
-        }
-        return List.of();
+        Integer position = entryPositions().get(path);
+        return position == null ? List.of() : entries.get(position).smells();
     }
 
     /** Updates cached smells for a given file path. */
     public void setCachedSmells(String path, List<CachedSmell> smells) {
-        for (int i = 0; i < entries.size(); i++) {
-            var entry = entries.get(i);
-            if (entry.path().equals(path)) {
-                entries.set(i, new IndexEntry(entry.path(), entry.contentHash(),
-                        entry.lastModified(), entry.classes(), entry.callEdges(), smells));
-                return;
-            }
+        Integer position = entryPositions().get(path);
+        if (position != null) {
+            entries.set(position, entries.get(position).withSmells(smells));
+            unsavedSmells = true;
         }
     }
 
-    /** Persists the index (with cached smells) to disk. */
+    /** Persists smells cached since the index was loaded; does nothing if there are none. */
     public void save(java.nio.file.Path projectRoot) {
+        if (!unsavedSmells) {
+            return;
+        }
         try {
             IndexSnapshotStore.updateSmells(projectRoot, entries, sourceSnapshot);
+            unsavedSmells = false;
         } catch (Exception e) {
             logger.warn("Failed to persist cached smells: {}", e.getMessage());
         }
+    }
+
+    private java.util.Map<String, Integer> entryPositions() {
+        if (entryPositions == null) {
+            entryPositions = new java.util.HashMap<>();
+            for (int i = 0; i < entries.size(); i++) {
+                entryPositions.putIfAbsent(entries.get(i).path(), i);
+            }
+        }
+        return entryPositions;
     }
 
     /**

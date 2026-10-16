@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -404,6 +405,26 @@ class IndexSnapshotStoreTest {
         assertEquals(1, persisted.stream().filter(entry -> entry.path().equals("A.java"))
                 .findFirst().orElseThrow().smells().size());
         assertTrue(Files.notExists(projectRoot.resolve(".jsrc/index.json")));
+    }
+
+    @Test
+    void smellCachePersistsFilesAnalyzedWithoutSmells(@TempDir Path projectRoot)
+            throws Exception {
+        Path source = projectRoot.resolve("A.java");
+        Files.writeString(source, "class A {}");
+        var entry = new IndexEntry("A.java",
+                com.jsrc.app.util.Hashing.sha256(Files.readAllBytes(source)),
+                0L, SourceSet.UNKNOWN, List.of(), List.of(), List.of(), 0);
+        new CodebaseIndex(List.of(entry)).saveWithGraph(projectRoot, null);
+        assertFalse(CodebaseIndex.loadPublished(projectRoot).getFirst().smellsComputed());
+        var indexed = IndexedCodebase.tryLoad(projectRoot, List.of(source), true);
+
+        indexed.setCachedSmells("A.java", List.of());
+        indexed.save(projectRoot);
+
+        var persisted = CodebaseIndex.loadPublished(projectRoot).getFirst();
+        assertTrue(persisted.smellsComputed());
+        assertTrue(persisted.smells().isEmpty());
     }
 
     @Test

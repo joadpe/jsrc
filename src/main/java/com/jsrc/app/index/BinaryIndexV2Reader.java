@@ -206,28 +206,7 @@ public class BinaryIndexV2Reader {
         }
 
         // 5. SMELLS
-        int smellFileCount = checkedCount(in, "smell files", 8);
-        for (int sf = 0; sf < smellFileCount; sf++) {
-            String path = str(in.readInt(), strings);
-            int smellCount = checkedCount(in, "smells", 24);
-            List<CachedSmell> smells = new ArrayList<>(smellCount);
-            for (int i = 0; i < smellCount; i++) {
-                String ruleId = str(in.readInt(), strings);
-                String severity = str(in.readInt(), strings);
-                int line = in.readInt();
-                String method = str(in.readInt(), strings);
-                String className = str(in.readInt(), strings);
-                String message = str(in.readInt(), strings);
-                smells.add(new CachedSmell(ruleId, severity, line, method, className, message));
-            }
-            // Merge smells into entry
-            for (int i = 0; i < entries.size(); i++) {
-                if (entries.get(i).path().equals(path)) {
-                    entries.set(i, entries.get(i).withSmells(smells));
-                    break;
-                }
-            }
-        }
+        readSmells(in, strings, entries);
 
         // 6. MIGRATIONS
         Map<String, List<CachedMigration>> migrations = new HashMap<>();
@@ -389,28 +368,7 @@ public class BinaryIndexV2Reader {
         }
 
         // 5. SMELLS
-        int smellFileCount = checkedCount(in, "smell files", 8);
-        for (int sf = 0; sf < smellFileCount; sf++) {
-            String path = str(in.readInt(), strings);
-            int smellCount = checkedCount(in, "smells", 24);
-            List<CachedSmell> smells = new ArrayList<>(smellCount);
-            for (int i = 0; i < smellCount; i++) {
-                String ruleId = str(in.readInt(), strings);
-                String severity = str(in.readInt(), strings);
-                int line = in.readInt();
-                String method = str(in.readInt(), strings);
-                String className = str(in.readInt(), strings);
-                String message = str(in.readInt(), strings);
-                smells.add(new CachedSmell(ruleId, severity, line, method, className, message));
-            }
-            // Merge smells into entry
-            for (int i = 0; i < entries.size(); i++) {
-                if (entries.get(i).path().equals(path)) {
-                    entries.set(i, entries.get(i).withSmells(smells));
-                    break;
-                }
-            }
-        }
+        readSmells(in, strings, entries);
 
         // 6. MIGRATIONS
         Map<String, List<CachedMigration>> migrations = new HashMap<>();
@@ -474,6 +432,36 @@ public class BinaryIndexV2Reader {
      * Skips the graph section by reading and discarding its data.
      * Used by readLazy to continue to smells/migrations sections.
      */
+    /** Reads cached smells; every listed file counts as analyzed, even with no smells. */
+    private static void readSmells(DataInputStream in, String[] strings, List<IndexEntry> entries)
+            throws IOException {
+        int smellFileCount = checkedCount(in, "smell files", 8);
+        Map<String, Integer> positions = new HashMap<>();
+        if (smellFileCount > 0) {
+            for (int i = 0; i < entries.size(); i++) {
+                positions.putIfAbsent(entries.get(i).path(), i);
+            }
+        }
+        for (int sf = 0; sf < smellFileCount; sf++) {
+            String path = str(in.readInt(), strings);
+            int smellCount = checkedCount(in, "smells", 24);
+            List<CachedSmell> smells = new ArrayList<>(smellCount);
+            for (int i = 0; i < smellCount; i++) {
+                String ruleId = str(in.readInt(), strings);
+                String severity = str(in.readInt(), strings);
+                int line = in.readInt();
+                String method = str(in.readInt(), strings);
+                String className = str(in.readInt(), strings);
+                String message = str(in.readInt(), strings);
+                smells.add(new CachedSmell(ruleId, severity, line, method, className, message));
+            }
+            Integer position = positions.get(path);
+            if (position != null) {
+                entries.set(position, entries.get(position).withSmells(smells));
+            }
+        }
+    }
+
     private static void skipGraphSection(DataInputStream in, String[] strings) throws IOException {
         int methodCount = checkedCount(in, "graph methods", 14);
         for (int i = 0; i < methodCount; i++) {

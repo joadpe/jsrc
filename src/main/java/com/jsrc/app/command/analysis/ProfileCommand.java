@@ -58,7 +58,7 @@ public class ProfileCommand implements Command {
 
             // Hot methods — with or without correlation
             if (correlate && ctx.indexed() != null) {
-                CorrelationResult corr = JfrCorrelator.correlate(profile, ctx.indexed(), ctx.rootPath());
+                CorrelationResult corr = JfrCorrelator.correlate(profile, ctx.indexed(), ctx.parser());
                 result.put("topMethods", formatCorrelatedMethods(corr.methods()));
                 if (!corr.correlations().isEmpty()) {
                     result.put("correlations", formatCorrelations(corr.correlations()));

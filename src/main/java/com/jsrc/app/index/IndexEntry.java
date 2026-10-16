@@ -10,7 +10,9 @@ import java.util.List;
  * @param lastModified file last modified timestamp (epoch millis)
  * @param classes      class metadata indexed from this file
  * @param callEdges    call edges extracted from this file
- * @param smells       precomputed code smells (empty if not yet computed)
+ * @param smells       precomputed code smells (empty if none or not yet computed)
+ * @param smellsComputed whether smells were computed for this content; when true an
+ *                     empty {@code smells} list means the file has none
  */
 public record IndexEntry(
         String path,
@@ -21,10 +23,21 @@ public record IndexEntry(
         List<CallEdge> callEdges,
         List<CachedSmell> smells,
         int sourceVersion,
-        String declarationFingerprint
+        String declarationFingerprint,
+        boolean smellsComputed
 ) {
     public IndexEntry {
         declarationFingerprint = declarationFingerprint == null ? "" : declarationFingerprint;
+        smellsComputed = smellsComputed || !smells.isEmpty();
+    }
+
+    /** Creates an entry whose smells count as computed only when the list is non-empty. */
+    public IndexEntry(String path, String contentHash, long lastModified,
+                      com.jsrc.app.project.SourceSet sourceSet, List<IndexedClass> classes,
+                      List<CallEdge> callEdges, List<CachedSmell> smells, int sourceVersion,
+                      String declarationFingerprint) {
+        this(path, contentHash, lastModified, sourceSet, classes, callEdges, smells,
+                sourceVersion, declarationFingerprint, false);
     }
 
     public IndexEntry(String path, String contentHash, long lastModified,
@@ -64,13 +77,13 @@ public record IndexEntry(
     public IndexEntry withEdges(List<CallEdge> newEdges) {
         return new IndexEntry(
                 path, contentHash, lastModified, sourceSet, classes, newEdges, smells,
-                sourceVersion, declarationFingerprint);
+                sourceVersion, declarationFingerprint, smellsComputed);
     }
 
-    /** Returns a copy with different smells. */
+    /** Returns a copy with computed smells; an empty list records a file without smells. */
     public IndexEntry withSmells(List<CachedSmell> newSmells) {
         return new IndexEntry(
                 path, contentHash, lastModified, sourceSet, classes, callEdges, newSmells,
-                sourceVersion, declarationFingerprint);
+                sourceVersion, declarationFingerprint, true);
     }
 }

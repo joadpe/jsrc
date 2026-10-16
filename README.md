@@ -506,11 +506,13 @@ read as Windows-1252, the usual encoding of legacy projects edited on Windows. A
 `.jsrc.yaml` that starts with a UTF-16 byte order mark is read as UTF-16.
 
 A `pom.xml` that is not valid UTF-8 is read as Windows-1252 too, unless its XML
-declaration or byte order mark names an encoding other than UTF-8.
+declaration or byte order mark names an encoding other than UTF-8. This applies
+to files up to 16 MiB; larger ones go to the XML parser as written.
 
 Native executables read a `pom.xml` only in UTF-8, UTF-16, US-ASCII, ISO-8859-1
-or windows-1252. They report one whose XML declaration names another encoding,
-such as ISO-8859-15, as `BUILD_MODEL_PARTIAL`; the JAR reads it.
+or windows-1252, and windows-1252 only up to 16 MiB. They report one whose XML
+declaration names another encoding, such as ISO-8859-15, as
+`BUILD_MODEL_PARTIAL`; the JAR reads it.
 
 Create `.jsrc.yaml` in your project root:
 

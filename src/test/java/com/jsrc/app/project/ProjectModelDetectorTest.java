@@ -797,6 +797,123 @@ class ProjectModelDetectorTest {
     }
 
     @Test
+    void readsGradleIncludeListsThatSpanLines() throws Exception {
+        assertEquals(List.of("app", "core", "legacy/billing"),
+                gradleModulePaths("settings.gradle.kts", """
+                        include(
+                            ":app",
+                            ":core", // shared code
+                            /* ":old",
+                            ":older", */ ":legacy:billing",
+                        )
+                        """));
+        assertEquals(List.of("app", "core", "legacy/billing", "legacy/reports", "tools", "docs"),
+                gradleModulePaths("settings.gradle", """
+                        include 'app',
+                                'core'
+                        include 'legacy:billing', // moved from the old tree
+                                'legacy:reports'
+                        include('tools',
+                                'docs')
+                        """));
+        // A list that is never closed counts its first line only, and a call left with a
+        // trailing comma ends where the next include starts.
+        assertEquals(List.of("app", "core", "docs"),
+                gradleModulePaths("settings.gradle.kts", """
+                        include(":app", ":core",
+                            ":unclosed"
+                        include(":docs")
+                        """));
+        assertEquals(List.of("app", "core", "docs"),
+                gradleModulePaths("settings.gradle", """
+                        include 'app', 'core',
+                        include 'docs'
+                        """));
+    }
+
+    @Test
+    void readsGradleIncludesThatDoNotStartALine() throws Exception {
+        assertEquals(List.of("app", "docs", "tools", "reports"),
+                gradleModulePaths("settings.gradle", """
+                        rootProject.name = 'shop'; include 'app'
+                        if (hasProperty('withDocs')) { include 'docs' }
+                        include 'tools' /* a comment that spans
+                        lines */ include 'reports'
+                        """));
+        assertEquals(List.of("app", "docs", "tools", "reports"),
+                gradleModulePaths("settings.gradle.kts", """
+                        rootProject.name = "shop"; include(":app")
+                        if (file("docs").isDirectory) { include(":docs") }
+                        include(":tools") /* a comment that spans
+                        lines */ include(":reports")
+                        """));
+    }
+
+    @Test
+    void readsOnlyLiteralArgumentsOfGradleIncludes() throws Exception {
+        // Strings after the call, templates, concatenations and variables name no project.
+        assertEquals(List.of("app", "core"), gradleModulePaths("settings.gradle", """
+                include 'app'; rootProject.name = 'shop'
+                include 'core' /* a comment that spans
+                lines */ includeBuild 'build-logic'
+                include "plugins:${pluginName}"
+                file('modules').eachDir { include "modules:${it.name}" }
+                ['tools'].each { include 'modules:' + it }
+                """));
+        assertEquals(List.of("app", "core"), gradleModulePaths("settings.gradle.kts", """
+                include(":app"); rootProject.name = "shop"
+                include(":core") /* a comment that spans
+                lines */ includeBuild("build-logic")
+                include(":plugins:$pluginName")
+                file("modules").listFiles()?.forEach { include(":modules:${it.name}") }
+                listOf("tools").forEach { include(":modules:" + it) }
+                listOf("docs").forEach { include(it) }
+                """));
+    }
+
+    @Test
+    void readsGradleIncludeHelperListsThatSpanLines() throws Exception {
+        // The repository filters of a settings script only start with include.
+        assertEquals(List.of("api", "core", "docs"), gradleModulePaths("settings.gradle.kts", """
+                fun includeProject(name: String, published: Boolean = false) {
+                    include(name)
+                }
+                includeProject("api")
+                includeProject(":core", published = true)
+                includeProject(
+                    ":docs",
+                )
+                includeBuild("build-logic")
+                dependencyResolutionManagement {
+                    repositories {
+                        maven {
+                            content {
+                                includeGroup("com.example")
+                                includeGroupByRegex("com.example.*")
+                                includeGroupAndSubgroups("org.example")
+                                includeModule("org.example", "client")
+                                includeModuleByRegex("org.example", "client-.*")
+                                includeVersion("org.example", "client", "1.0")
+                                includeVersionByRegex("org.example", "client", "1.*")
+                            }
+                        }
+                    }
+                }
+                """));
+    }
+
+    /** The module directories, relative to the project, that a settings script includes. */
+    private List<String> gradleModulePaths(String settingsFile, String settings)
+            throws Exception {
+        Path project = Files.createTempDirectory(projectRoot, "settings");
+        Files.writeString(project.resolve(settingsFile), settings);
+        ProjectModel model = new ProjectModelDetector().detect(project);
+        return model.modules().stream()
+                .map(module -> model.root().relativize(module.path()).toString().replace('\\', '/'))
+                .toList();
+    }
+
+    @Test
     void dynamicGradleReleaseDoesNotFallBackToStaticSource() throws Exception {
         Files.writeString(projectRoot.resolve("build.gradle.kts"), """
                 sourceCompatibility = JavaVersion.VERSION_17

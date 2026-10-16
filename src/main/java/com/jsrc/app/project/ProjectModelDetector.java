@@ -31,9 +31,6 @@ import org.xml.sax.helpers.DefaultHandler;
 public final class ProjectModelDetector {
 
     private static final Pattern QUOTED_VALUE = Pattern.compile("[\"']([^\"']+)[\"']");
-    /** The name of the call that starts a line, when it starts with include. */
-    private static final Pattern GRADLE_INCLUDE = Pattern.compile(
-            "\\s*(include\\p{javaJavaIdentifierPart}*)");
     private static final Pattern GRADLE_PROJECT = Pattern.compile(
             "project\\s*\\(\\s*[\"']:(.*?)[\"']\\s*\\)");
     /** Gradle API calls whose names start with include and that do not add a project. */
@@ -636,38 +633,211 @@ public final class ProjectModelDetector {
     }
 
     /**
-     * Reads the project paths of each line that starts with an {@code include} call, outside
-     * comments. A build's own helper named {@code include} and a capital letter, such as
-     * {@code includeProject 'a'}, counts as an include call. A Gradle call whose name only
-     * starts with {@code include}, such as {@code includeBuild} or {@code includeGroup}, adds
-     * no project.
+     * The project paths, without the leading colon, that the {@code include} calls of a
+     * settings script add. A call counts where it starts a statement: at the start of a line,
+     * after a {@code ;} or a <code>{</code>, or right after another include call. Its whole
+     * argument list is read: an {@code include(...)} list up to the parenthesis that closes
+     * it, however many lines later, and a Groovy command call such as {@code include 'a', 'b'}
+     * up to the end of its statement, which goes on to the next line after a trailing comma.
+     * Comments are ignored. A build's own helper named {@code include} and a capital letter,
+     * such as {@code includeProject("a")}, counts as an include call. A Gradle call whose name
+     * only starts with {@code include}, such as {@code includeBuild} or {@code includeGroup},
+     * adds no project, and neither does an argument that is not a literal string, such as
+     * {@code include(it)}, {@code include("lib-$name")} or {@code include('lib-' + name)}.
      */
     private static List<String> gradleModules(String settings) {
+        String code = withoutComments(settings);
         Set<String> modules = new LinkedHashSet<>();
-        for (String line : withoutComments(settings).lines().toList()) {
-            Matcher include = GRADLE_INCLUDE.matcher(line);
-            if (!include.lookingAt() || !isInclude(include.group(1))) {
-                continue;
-            }
-            Matcher matcher = QUOTED_VALUE.matcher(line);
-            while (matcher.find()) {
-                String module = matcher.group(1).replaceFirst("^:", "");
-                if (!module.isBlank()) {
-                    modules.add(module);
+        boolean statementStart = true;
+        int index = 0;
+        while (index < code.length()) {
+            if (statementStart && isIncludeAt(code, index)) {
+                int name = tokenEnd(code, index);
+                int arguments = name;
+                while (arguments < code.length() && isSpace(code.charAt(arguments))) {
+                    arguments++;
+                }
+                char first = arguments < code.length() ? code.charAt(arguments) : '\n';
+                if (first == '(') {
+                    index = readIncludeList(code, arguments, modules);
+                    continue;
+                }
+                if (first == '\'' || first == '"'
+                        || arguments > name && Character.isJavaIdentifierStart(first)) {
+                    index = readIncludeCommand(code, arguments, modules);
+                    continue;
                 }
             }
+            statementStart = startsStatement(code.charAt(index), statementStart);
+            index = tokenEnd(code, index);
         }
         return List.copyOf(modules);
     }
 
     /**
-     * Whether a call of this name is include or a helper that wraps it: include and a capital
-     * letter, such as includeProject, other than a Gradle call that adds no project.
+     * Adds the project paths of the {@code include(...)} list that opens at {@code open} and
+     * returns the index after the parenthesis that closes it. A list that is still open where
+     * the script ends, or where another include starts a statement, was never closed: it adds
+     * only the paths on its first line and returns the index where it stopped.
      */
-    private static boolean isInclude(String name) {
-        return name.equals("include")
-                || Character.isUpperCase(name.charAt("include".length()))
-                        && !GRADLE_NON_PROJECT_INCLUDES.contains(name);
+    private static int readIncludeList(String code, int open, Set<String> modules) {
+        List<String> paths = new ArrayList<>();
+        int firstLinePaths = -1;
+        int depth = 1;
+        char previous = '(';
+        boolean statementStart = false;
+        int index = open + 1;
+        while (index < code.length() && !(statementStart && isIncludeAt(code, index))) {
+            char character = code.charAt(index);
+            int end = tokenEnd(code, index);
+            if (character == '(') {
+                depth++;
+            } else if (character == ')') {
+                if (--depth == 0) {
+                    modules.addAll(paths);
+                    return end;
+                }
+            } else if (character == '\'' || character == '"') {
+                addProjectPath(code, index, end, previous, paths);
+            } else if (isLineBreak(character) && firstLinePaths < 0) {
+                firstLinePaths = paths.size();
+            }
+            if (!isSpace(character) && !isLineBreak(character)) {
+                previous = code.charAt(end - 1);
+            }
+            statementStart = startsStatement(character, statementStart);
+            index = end;
+        }
+        modules.addAll(firstLinePaths < 0 ? paths : paths.subList(0, firstLinePaths));
+        return index;
+    }
+
+    /**
+     * Adds the project paths of a Groovy command call such as {@code include 'a', 'b'} whose
+     * arguments start at {@code start}, and returns the index where they end: at a {@code ;}
+     * or a <code>}</code>, at the end of a line that does not end with a comma or of the
+     * script, where another include starts a statement, or where an operand follows another
+     * without a comma, as when a block comment that spanned lines joined two statements.
+     */
+    private static int readIncludeCommand(String code, int start, Set<String> modules) {
+        // The first argument follows the name as one follows a comma.
+        char previous = ',';
+        boolean statementStart = false;
+        int index = start;
+        while (index < code.length() && !(statementStart && isIncludeAt(code, index))) {
+            char character = code.charAt(index);
+            boolean quote = character == '\'' || character == '"';
+            if (character == ';' || character == '}' || isLineBreak(character) && previous != ','
+                    || (quote || Character.isJavaIdentifierStart(character))
+                            && endsOperand(previous)) {
+                break;
+            }
+            int end = tokenEnd(code, index);
+            if (quote) {
+                addProjectPath(code, index, end, previous, modules);
+            }
+            if (!isSpace(character) && !isLineBreak(character)) {
+                previous = code.charAt(end - 1);
+            }
+            statementStart = startsStatement(character, statementStart);
+            index = end;
+        }
+        return index;
+    }
+
+    /**
+     * Adds the project path that the string from {@code start} to {@code end} names, unless
+     * the quote opens no string or the string is only a part of the argument: a template such
+     * as {@code "lib-$name"} or {@code ":${it.name}"}, or an operand of a {@code +}, as in
+     * {@code 'lib-' + name}. {@code previous} is the last character before the string that is
+     * not a space or a line break.
+     */
+    private static void addProjectPath(
+            String code, int start, int end, char previous, java.util.Collection<String> paths) {
+        if (end == start + 1 || previous == '+') {
+            return;
+        }
+        int next = end;
+        while (next < code.length()
+                && (isSpace(code.charAt(next)) || isLineBreak(code.charAt(next)))) {
+            next++;
+        }
+        if (next < code.length() && code.charAt(next) == '+') {
+            return;
+        }
+        char quote = code.charAt(start);
+        int quotes = code.startsWith(String.valueOf(quote).repeat(3), start) ? 3 : 1;
+        String value = code.substring(start + quotes, end - quotes);
+        if (quote == '"' && isTemplate(value)) {
+            return;
+        }
+        String path = value.replaceFirst("^:", "");
+        if (!path.isBlank()) {
+            paths.add(path);
+        }
+    }
+
+    /** Whether a double-quoted Groovy or Kotlin string holds a $name or ${...} template. */
+    private static boolean isTemplate(String value) {
+        for (int dollar = value.indexOf('$');
+                dollar >= 0 && dollar + 1 < value.length();
+                dollar = value.indexOf('$', dollar + 1)) {
+            char next = value.charAt(dollar + 1);
+            if ((dollar == 0 || value.charAt(dollar - 1) != '\\')
+                    && (next == '{' || Character.isJavaIdentifierStart(next))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether the identifier at {@code index} is include or a helper that wraps it: include and
+     * a capital letter, such as includeProject, other than a Gradle call that adds no project.
+     */
+    private static boolean isIncludeAt(String code, int index) {
+        if (!code.startsWith("include", index)) {
+            return false;
+        }
+        int end = tokenEnd(code, index);
+        return end == index + "include".length()
+                || Character.isUpperCase(code.charAt(index + "include".length()))
+                        && !GRADLE_NON_PROJECT_INCLUDES.contains(code.substring(index, end));
+    }
+
+    /** The end of the string, the identifier or the other single character at {@code index}. */
+    private static int tokenEnd(String code, int index) {
+        char character = code.charAt(index);
+        if (character == '\'' || character == '"') {
+            return stringEnd(code, index);
+        }
+        int end = index + 1;
+        if (Character.isJavaIdentifierStart(character)) {
+            while (end < code.length() && Character.isJavaIdentifierPart(code.charAt(end))) {
+                end++;
+            }
+        }
+        return end;
+    }
+
+    /** Whether a statement starts after {@code character}, given whether one did before it. */
+    private static boolean startsStatement(char character, boolean statementStart) {
+        return isLineBreak(character) || character == ';' || character == '{'
+                || statementStart && isSpace(character);
+    }
+
+    /** Whether a token that ends with {@code last} ends a string, a name or a call. */
+    private static boolean endsOperand(char last) {
+        return last == '\'' || last == '"' || last == ')' || last == ']'
+                || Character.isJavaIdentifierPart(last);
+    }
+
+    private static boolean isSpace(char character) {
+        return character == ' ' || character == '\t' || character == '\f' || character == '\u000B';
+    }
+
+    private static boolean isLineBreak(char character) {
+        return character == '\n' || character == '\r';
     }
 
     private static Set<String> gradleDependencies(String buildFile) {

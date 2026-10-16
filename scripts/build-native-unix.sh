@@ -106,11 +106,11 @@ rm -f "$archive_path"
 mkdir -p "$native_lib_dir"
 
 if [[ "$actual_os" == "Linux" ]]; then
-  cc -shared -fPIC -I"$work_dir/tree-sitter/lib/include" -I"$work_dir/tree-sitter/lib/src" "$work_dir/tree-sitter/lib/src/lib.c" -Wl,-soname,libtree-sitter.so -o "$native_lib_dir/libtree-sitter.so"
-  cc -shared -fPIC -I"$work_dir/tree-sitter-java/src" "$work_dir/tree-sitter-java/src/parser.c" -o "$native_lib_dir/libtree-sitter-java.so"
+  cc -shared -fPIC -O2 -I"$work_dir/tree-sitter/lib/include" -I"$work_dir/tree-sitter/lib/src" "$work_dir/tree-sitter/lib/src/lib.c" -Wl,-soname,libtree-sitter.so -o "$native_lib_dir/libtree-sitter.so"
+  cc -shared -fPIC -O2 -I"$work_dir/tree-sitter-java/src" "$work_dir/tree-sitter-java/src/parser.c" -o "$native_lib_dir/libtree-sitter-java.so"
 else
-  cc -dynamiclib -fPIC -I"$work_dir/tree-sitter/lib/include" -I"$work_dir/tree-sitter/lib/src" "$work_dir/tree-sitter/lib/src/lib.c" -Wl,-install_name,@rpath/libtree-sitter.dylib -o "$native_lib_dir/libtree-sitter.dylib"
-  cc -dynamiclib -fPIC -I"$work_dir/tree-sitter-java/src" "$work_dir/tree-sitter-java/src/parser.c" -Wl,-install_name,@rpath/libtree-sitter-java.dylib -o "$native_lib_dir/libtree-sitter-java.dylib"
+  cc -dynamiclib -fPIC -O2 -I"$work_dir/tree-sitter/lib/include" -I"$work_dir/tree-sitter/lib/src" "$work_dir/tree-sitter/lib/src/lib.c" -Wl,-install_name,@rpath/libtree-sitter.dylib -o "$native_lib_dir/libtree-sitter.dylib"
+  cc -dynamiclib -fPIC -O2 -I"$work_dir/tree-sitter-java/src" "$work_dir/tree-sitter-java/src/parser.c" -Wl,-install_name,@rpath/libtree-sitter-java.dylib -o "$native_lib_dir/libtree-sitter-java.dylib"
 fi
 
 native-image --enable-native-access=ALL-UNNAMED "-Djava.library.path=$native_lib_dir" -jar "$jar_path" -o "$bundle_dir/jsrc" -H:+UnlockExperimentalVMOptions -H:+SharedArenaSupport

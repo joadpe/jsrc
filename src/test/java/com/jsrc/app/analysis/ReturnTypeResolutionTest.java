@@ -191,6 +191,40 @@ class ReturnTypeResolutionTest {
     }
 
     @Test
+    @DisplayName("Should not attribute a nested return type to a top-level class with the same simple name")
+    void shouldNotMapNestedSimpleNameToTopLevelClass() throws Exception {
+        writeFile("Alpha.java", """
+                package app;
+                public class Alpha {
+                    public static Builder up() { return null; }
+                    public static class Builder {
+                        public Alpha build() { return null; }
+                    }
+                }
+                """);
+        writeFile("Builder.java", """
+                package top;
+                public class Builder {
+                    public void build(String request) {}
+                }
+                """);
+        writeFile("Caller.java", """
+                package app;
+                public class Caller {
+                    public Alpha make() {
+                        return Alpha.up().build();
+                    }
+                }
+                """);
+
+        CallGraphBuilder graph = loadGraph();
+
+        // up() returns the nested Alpha.Builder, spelled "Builder"; top.Builder is another class.
+        assertTrue(calleesOf(graph, "make").contains("app.Alpha$Builder.build"),
+                "Got: " + calleesOf(graph, "make"));
+    }
+
+    @Test
     @DisplayName("Should count simple and qualified spellings of one return type as one receiver")
     void shouldTreatSpellingsOfOneReturnTypeAsOneReceiver() throws Exception {
         writeFile("Account.java", """

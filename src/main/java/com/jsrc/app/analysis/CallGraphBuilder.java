@@ -454,14 +454,22 @@ public class CallGraphBuilder {
                             sameLineTypes.add(rt);
                         }
                     }
-                } else if (!rt.contains(".") && qualifieds.size() == 1) {
-                    // A return type resolved before its class was indexed keeps the simple
-                    // name; count it as the one class it names, like the qualified spelling.
-                    sameLineTypes.add(qualifieds.iterator().next());
                 } else {
                     sameLineTypes.add(rt);
                 }
             }
+        }
+        // A return type resolved before its class was indexed keeps the simple name. Drop it
+        // only when the same line also holds the qualified spelling of an indexed class of that
+        // name: nested classes are indexed as Outer$Simple, so a lone simple name may be one of
+        // them and is left for resolveRegistered to match.
+        if (sameLineTypes.size() > 1) {
+            List<String> spelledTwice = sameLineTypes.stream()
+                    .filter(type -> !type.contains(".")
+                            && qualifiedNames.getOrDefault(type, Set.of()).stream()
+                                    .anyMatch(sameLineTypes::contains))
+                    .toList();
+            sameLineTypes.removeAll(spelledTwice);
         }
         if (sameLineTypes.size() == 1) {
             return sameLineTypes.iterator().next();

@@ -465,9 +465,7 @@ public final class ProjectModelDetector {
      * other declared or signaled encoding are left to the parser.
      */
     private static InputSource xmlSource(byte[] content) {
-        boolean utf8Bom = content.length >= 3 && content[0] == (byte) 0xEF
-                && content[1] == (byte) 0xBB && content[2] == (byte) 0xBF;
-        byte[] body = utf8Bom ? Arrays.copyOfRange(content, 3, content.length) : content;
+        byte[] body = withoutUtf8ByteOrderMark(content);
         String windows1252 = SourceText.decodeWindows1252(body);
         Matcher encoding = XML_DECLARED_ENCODING.matcher(windows1252);
         if (encoding.lookingAt() && isWindows1252(encoding.group(1))) {
@@ -1204,8 +1202,18 @@ public final class ProjectModelDetector {
 
     /** Reads a Gradle script without the byte order mark that some Windows editors write. */
     private static String readGradleScript(Path script) throws IOException {
-        String text = SourceText.read(script);
-        return text.startsWith("\uFEFF") ? text.substring(1) : text;
+        return SourceText.decode(withoutUtf8ByteOrderMark(Files.readAllBytes(script)));
+    }
+
+    /**
+     * The bytes after a leading UTF-8 byte order mark, EF BB BF, or all of them when there is
+     * none. Drop the mark before decoding: when the text after it is not valid UTF-8, it
+     * decodes as Windows-1252, which reads the mark as "\u00EF\u00BB\u00BF".
+     */
+    private static byte[] withoutUtf8ByteOrderMark(byte[] content) {
+        boolean utf8Bom = content.length >= 3 && content[0] == (byte) 0xEF
+                && content[1] == (byte) 0xBB && content[2] == (byte) 0xBF;
+        return utf8Bom ? Arrays.copyOfRange(content, 3, content.length) : content;
     }
 
     private static Path firstRegularFile(Path first, Path second) {

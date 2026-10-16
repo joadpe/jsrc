@@ -277,6 +277,44 @@ class ProjectModelDetectorTest {
     }
 
     @Test
+    void readsGradleSubprojectsBlockAfterAByteOrderMarkInAWindows1252Script() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing'");
+        // "ï»¿" is written as EF BB BF, a UTF-8 byte order mark, but the "ó"
+        // after it is the Windows-1252 byte F3, so the script is not valid UTF-8.
+        Files.write(projectRoot.resolve("build.gradle"), ("ï»¿" + """
+                subprojects {
+                    // configuración
+                    sourceCompatibility = JavaVersion.VERSION_1_8
+                }
+                """).getBytes(WINDOWS_1252));
+        Files.createDirectories(projectRoot.resolve("billing"));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("unknown", model.javaVersion());
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void readsGradleIncludeAfterAByteOrderMarkInAWindows1252Script() throws Exception {
+        // As above, a byte order mark before Windows-1252 text.
+        Files.write(projectRoot.resolve("settings.gradle"), ("ï»¿" + """
+                include 'billing', 'reports'
+                // módulos de catálogo
+                """).getBytes(WINDOWS_1252));
+        Files.writeString(projectRoot.resolve("build.gradle"),
+                "subprojects { sourceCompatibility = JavaVersion.VERSION_1_8 }");
+        Files.createDirectories(projectRoot.resolve("billing"));
+        Files.createDirectories(projectRoot.resolve("reports"));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(List.of("billing", "reports"),
+                model.modules().stream().map(ProjectModule::name).toList());
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+    }
+
+    @Test
     void appliesGradleProjectBlocksToTheirModuleInsteadOfTheRoot() throws Exception {
         Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing', 'reports'");
         Files.writeString(projectRoot.resolve("build.gradle"), """

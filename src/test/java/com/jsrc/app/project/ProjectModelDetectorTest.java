@@ -160,6 +160,70 @@ class ProjectModelDetectorTest {
     }
 
     @Test
+    void readsGradleSourceCompatibilityOneDotEightAsJavaEight() throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                plugins { id 'java' }
+                sourceCompatibility = 1.8
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("8", model.javaVersion());
+        assertEquals("8", model.modules().getFirst().javaVersion());
+    }
+
+    @Test
+    void readsGradleSourceCompatibilityFromNumbersStringsAndJavaVersion() throws Exception {
+        assertGradleJavaVersion("8", "sourceCompatibility = '1.8'");
+        assertGradleJavaVersion("8", "sourceCompatibility = \"1.8\"");
+        assertGradleJavaVersion("11", "sourceCompatibility = '11'");
+        assertGradleJavaVersion("11", "sourceCompatibility = 11");
+        assertGradleJavaVersion("10", "sourceCompatibility = 1.10");
+        assertGradleJavaVersion("8", "sourceCompatibility = '1.8.0'");
+        assertGradleJavaVersion("11", "sourceCompatibility = 11.0");
+        // Groovy reads 1_8 as 18: a level comes from the whole number or not at all.
+        assertGradleJavaVersion("unknown", "sourceCompatibility = 1_8");
+        assertGradleJavaVersion("8", "sourceCompatibility = JavaVersion.VERSION_1_8");
+        assertGradleJavaVersion("8", "sourceCompatibility = JavaVersion.toVersion('1.8')");
+        assertGradleJavaVersion("17", "java { sourceCompatibility = JavaVersion.toVersion(17) }");
+    }
+
+    @Test
+    void gradleModulesShareSourceCompatibilityWrittenInDifferentForms() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing', 'reports'");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                subprojects {
+                    apply plugin: 'java'
+                    sourceCompatibility = 1.8
+                }
+                """);
+        Path billing = Files.createDirectories(projectRoot.resolve("billing"));
+        Files.writeString(billing.resolve("build.gradle"),
+                "sourceCompatibility = JavaVersion.VERSION_1_8");
+        Files.createDirectories(projectRoot.resolve("reports"));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+        assertEquals("8", model.module("reports").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void doesNotReadGradleReleaseOneDotEightAsJavaOne() throws Exception {
+        // options.release takes a whole number such as 8, never 1.8.
+        assertGradleJavaVersion(
+                "unknown", "tasks.withType(JavaCompile) { options.release = 1.8 }");
+    }
+
+    @Test
+    void readsLongDottedGradleVersionWithoutOverflowingTheStack() throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle"),
+                "sourceCompatibility = '1" + ".8".repeat(10_000) + "'\n");
+
+        assertEquals("8", new ProjectModelDetector().detect(projectRoot).javaVersion());
+    }
+
+    @Test
     void detectsGradleModulesToolchainAndProjectDependencies() throws Exception {
         Files.writeString(projectRoot.resolve("settings.gradle.kts"), """
                 rootProject.name = "shop"
@@ -395,5 +459,12 @@ class ProjectModelDetectorTest {
     private void writeGradleModule(String module, String body) throws Exception {
         Path directory = Files.createDirectories(projectRoot.resolve(module));
         Files.writeString(directory.resolve("build.gradle.kts"), "plugins { java }\n" + body);
+    }
+
+    private void assertGradleJavaVersion(String expected, String declaration) throws Exception {
+        Files.writeString(projectRoot.resolve("build.gradle"),
+                "plugins { id 'java' }\n" + declaration + "\n");
+        assertEquals(expected, new ProjectModelDetector().detect(projectRoot).javaVersion(),
+                declaration);
     }
 }

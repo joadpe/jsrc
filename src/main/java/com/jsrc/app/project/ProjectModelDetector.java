@@ -26,10 +26,20 @@ public final class ProjectModelDetector {
             "project\\s*\\(\\s*[\"']:(.*?)[\"']\\s*\\)");
     private static final Pattern GRADLE_TOOLCHAIN = Pattern.compile(
             "JavaLanguageVersion\\.of\\s*\\(\\s*(\\d+)\\s*\\)");
+    /** A whole number; the lookahead keeps 1.8 from reading as Java 1. */
     private static final Pattern GRADLE_RELEASE = Pattern.compile(
-            "options\\.release(?:\\.set\\s*\\(\\s*|\\s*=\\s*)(\\d+)\\s*\\)?");
+            "options\\.release(?:\\.set\\s*\\(\\s*|\\s*=\\s*)(\\d+)(?![\\w.])\\s*\\)?");
+    /**
+     * A version number or string such as 8, 1.8, '1.8' or "11.0.2", a
+     * {@code JavaVersion.VERSION_} constant, or {@code JavaVersion.toVersion} of either.
+     * The lookahead takes the number whole: when the token goes on, as in 1_8 or 11L, the
+     * level is unknown instead of read from a prefix. The possessive group matches a long
+     * dotted number without recursing once per part.
+     */
     private static final Pattern GRADLE_COMPATIBILITY = Pattern.compile(
-            "sourceCompatibility\\s*=\\s*(?:JavaVersion\\.VERSION_)?([0-9_]+)");
+            "sourceCompatibility\\s*=\\s*(?:JavaVersion\\.toVersion\\s*\\(\\s*)?"
+                    + "(?:JavaVersion\\.VERSION_(?<constant>(?:1_)?\\d+)"
+                    + "|(?<quote>[\"']?)(?<number>\\d+(?:\\.\\d+)*+)(?![\\w.])\\k<quote>)");
     private static final Pattern GRADLE_SHARED_BLOCK = Pattern.compile(
             "(?m)^\\s*(allprojects|subprojects)\\s*\\{");
 
@@ -505,9 +515,13 @@ public final class ProjectModelDetector {
         }
         Matcher compatibility = GRADLE_COMPATIBILITY.matcher(activeBuild);
         if (activeBuild.contains("sourceCompatibility")) {
-            return compatibility.find()
-                    ? normalizeJavaVersion(compatibility.group(1).replace('_', '.'))
-                    : "unknown";
+            if (!compatibility.find()) {
+                return "unknown";
+            }
+            String constant = compatibility.group("constant");
+            return gradleFeatureVersion(constant != null
+                    ? constant.replace('_', '.')
+                    : compatibility.group("number"));
         }
         Matcher toolchain = GRADLE_TOOLCHAIN.matcher(activeBuild);
         if (activeBuild.contains("languageVersion")) {
@@ -669,6 +683,12 @@ public final class ProjectModelDetector {
 
     private static String normalizeJavaVersion(String version) {
         return version.startsWith("1.") ? version.substring(2) : version;
+    }
+
+    /** As Gradle's JavaVersion.toVersion: 1.8 and 1.8.0 are Java 8, 11.0.2 is Java 11. */
+    private static String gradleFeatureVersion(String version) {
+        String[] numbers = version.split("\\.");
+        return "1".equals(numbers[0]) && numbers.length > 1 ? numbers[1] : numbers[0];
     }
 
     private static Path gradleSettings(Path root) {

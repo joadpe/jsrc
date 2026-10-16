@@ -47,6 +47,16 @@ public final class SourceText {
         }
     }
 
+    /** Whether the bytes are valid UTF-8, which {@link #decode} decodes as UTF-8. */
+    public static boolean isUtf8(byte[] content) {
+        try {
+            StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(content));
+            return true;
+        } catch (CharacterCodingException notUtf8) {
+            return false;
+        }
+    }
+
     private static String decodeWindows1252(byte[] content) {
         char[] chars = new char[content.length];
         for (int i = 0; i < content.length; i++) {

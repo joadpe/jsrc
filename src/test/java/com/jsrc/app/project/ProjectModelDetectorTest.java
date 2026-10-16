@@ -482,6 +482,145 @@ class ProjectModelDetectorTest {
         assertEquals("BUILD_MODEL_PARTIAL", model.diagnostics().getFirst().code());
     }
 
+    @Test
+    void detectsJavaVersionFromWindows1252PomThatDeclaresUtf8OrNoEncoding() throws Exception {
+        // "\u00EF\u00BB\u00BF" is written as EF BB BF, a UTF-8 byte order mark.
+        for (String prolog : List.of(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
+                "<?xml version='1.0' encoding='utf-8' standalone='no'?>\n",
+                "<?xml version=\"1.0\"?>\n",
+                "",
+                "\u00EF\u00BB\u00BF<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")) {
+            Files.write(projectRoot.resolve("pom.xml"), (prolog + """
+                    <project xmlns="http://maven.apache.org/POM/4.0.0">
+                      <!-- configuración -->
+                      <modelVersion>4.0.0</modelVersion>
+                      <groupId>com.example</groupId><artifactId>billing</artifactId><version>1</version>
+                      <properties><maven.compiler.source>1.8</maven.compiler.source></properties>
+                    </project>
+                    """).getBytes(WINDOWS_1252));
+
+            ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+            assertEquals("8", model.javaVersion(), prolog);
+            assertEquals(List.of(), model.diagnostics(), prolog);
+        }
+    }
+
+    @Test
+    void rejectsDoctypeInWindows1252PomThatDeclaresUtf8() throws Exception {
+        Path level = Files.writeString(projectRoot.resolve("level.txt"), "1.8");
+        Files.write(projectRoot.resolve("pom.xml"), """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!-- configuración -->
+                <!DOCTYPE project [<!ENTITY level SYSTEM "%s">]>
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <properties><maven.compiler.source>&level;</maven.compiler.source></properties>
+                </project>
+                """.formatted(level.toUri()).getBytes(WINDOWS_1252));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("unknown", model.javaVersion());
+        assertTrue(model.diagnostics().getFirst().message().contains("DOCTYPE"),
+                model.diagnostics().toString());
+    }
+
+    @Test
+    void keepsWindows1252MavenModuleThatDeclaresUtf8() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version>
+                  <modules><module>billing</module></modules>
+                </project>
+                """);
+        Path billing = Files.createDirectories(projectRoot.resolve("billing"));
+        Files.write(billing.resolve("pom.xml"), """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project>
+                  <!-- módulo de catálogo -->
+                  <modelVersion>4.0.0</modelVersion>
+                  <parent>
+                    <groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version>
+                  </parent>
+                  <artifactId>billing</artifactId>
+                  <properties><maven.compiler.source>1.8</maven.compiler.source></properties>
+                </project>
+                """.getBytes(WINDOWS_1252));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+        assertEquals(List.of(), model.diagnostics());
+    }
+
+    @Test
+    void readsPomInTheEncodingItDeclaresOrSignals() throws Exception {
+        String[][] encodings = {
+                // Notepad's "Unicode" and Windows PowerShell 5 redirection write a byte order mark.
+                {"UTF-16LE", "\uFEFF", "UTF-16", "catálogo"},
+                {"UTF-16LE", "", "UTF-16", "catálogo"},
+                {"IBM037", "", "IBM037", "catálogo"},
+                // ISO-8859-15 writes "œ" as BD, which Windows-1252 would read as "½".
+                {"ISO-8859-15", "", "ISO-8859-15", "œuvres"}};
+        for (int i = 0; i < encodings.length; i++) {
+            String[] encoding = encodings[i];
+            Path project = Files.createDirectories(projectRoot.resolve("project" + i));
+            Files.write(project.resolve("pom.xml"), (encoding[1] + """
+                    <?xml version="1.0" encoding="%s"?>
+                    <project>
+                      <modelVersion>4.0.0</modelVersion>
+                      <groupId>com.example</groupId><artifactId>%s</artifactId><version>1</version>
+                      <properties><maven.compiler.source>1.8</maven.compiler.source></properties>
+                    </project>
+                    """.formatted(encoding[2], encoding[3])).getBytes(Charset.forName(encoding[0])));
+
+            ProjectModel model = new ProjectModelDetector().detect(project);
+
+            String label = String.join(" ", encoding);
+            assertEquals(encoding[3], model.modules().getFirst().name(), label);
+            assertEquals("8", model.javaVersion(), label);
+            assertEquals(List.of(), model.diagnostics(), label);
+        }
+    }
+
+    @Test
+    void reportsMalformedPomWithoutPrintingParserErrors() throws Exception {
+        Files.writeString(projectRoot.resolve("pom.xml"), "<project>");
+        var originalErr = System.err;
+        var capturedErr = new java.io.ByteArrayOutputStream();
+        System.setErr(new java.io.PrintStream(capturedErr));
+        ProjectModel model;
+        try {
+            model = new ProjectModelDetector().detect(projectRoot);
+        } finally {
+            System.setErr(originalErr);
+        }
+
+        assertEquals("BUILD_MODEL_PARTIAL", model.diagnostics().getFirst().code());
+        assertEquals("", capturedErr.toString());
+    }
+
+    @Test
+    void dropsMavenModuleWhosePomIsADevice() throws Exception {
+        Path zero = Path.of("/dev/zero");
+        org.junit.jupiter.api.Assumptions.assumeTrue(Files.exists(zero), "No /dev/zero here");
+        Files.writeString(projectRoot.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version>
+                  <modules><module>zero</module></modules>
+                </project>
+                """);
+        Files.createSymbolicLink(
+                Files.createDirectories(projectRoot.resolve("zero")).resolve("pom.xml"), zero);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertTrue(model.module("zero").isEmpty());
+        assertEquals("BUILD_MODEL_PARTIAL", model.diagnostics().getFirst().code());
+    }
+
     private void writePom(String module, String body) throws Exception {
         Path directory = Files.createDirectories(projectRoot.resolve(module));
         Files.writeString(directory.resolve("pom.xml"), """

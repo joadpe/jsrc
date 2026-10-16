@@ -1,6 +1,8 @@
 package com.jsrc.app.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -28,6 +30,14 @@ class SourceTextTest {
         String source = "// Facturación del año – “señal” €\nclass A { String s = \"acción\"; }\n";
 
         assertEquals(source, SourceText.decode(source.getBytes(WINDOWS_1252)));
+    }
+
+    @Test
+    void tellsWhetherDecodeReadsBytesAsUtf8() {
+        String source = "// Configuración ñ €\n";
+
+        assertTrue(SourceText.isUtf8(source.getBytes(StandardCharsets.UTF_8)));
+        assertFalse(SourceText.isUtf8(source.getBytes(WINDOWS_1252)));
     }
 
     @Test

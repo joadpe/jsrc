@@ -499,6 +499,9 @@ forms) and `.jsrc.yaml` are read as UTF-8; files that are not valid UTF-8 are
 read as Windows-1252, the usual encoding of legacy projects edited on Windows. A
 `.jsrc.yaml` that starts with a UTF-16 byte order mark is read as UTF-16.
 
+A `pom.xml` that is not valid UTF-8 is read as Windows-1252 too, unless its XML
+declaration or byte order mark names an encoding other than UTF-8.
+
 Create `.jsrc.yaml` in your project root:
 
 When no source level can be verified from Maven/Gradle or this file, JSON v1

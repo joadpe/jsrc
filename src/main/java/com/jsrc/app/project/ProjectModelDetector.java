@@ -1,23 +1,30 @@
 package com.jsrc.app.project;
 
 import com.jsrc.app.util.SourceText;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.SequenceInputStream;
+import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
+import org.xml.sax.helpers.DefaultHandler;
 
 /** Discovers Maven and Gradle project structure using local files only. */
 public final class ProjectModelDetector {
@@ -43,6 +50,13 @@ public final class ProjectModelDetector {
                     + "|(?<quote>[\"']?)(?<number>\\d+(?:\\.\\d+)*+)(?![\\w.])\\k<quote>)");
     private static final Pattern GRADLE_SHARED_BLOCK = Pattern.compile(
             "(?m)^\\s*(allprojects|subprojects)\\s*\\{");
+    private static final Pattern XML_DECLARED_ENCODING = Pattern.compile(
+            "<\\?xml\\s[^>]*?\\sencoding\\s*=\\s*[\"']([^\"']*)[\"']");
+    /**
+     * Largest pom.xml read whole to choose its decoding; real ones take kilobytes. Anything
+     * larger, such as a device, is streamed to the parser as is.
+     */
+    private static final int MAX_BUFFERED_XML_BYTES = 16 * 1024 * 1024;
 
     public ProjectModel detect(Path projectRoot) {
         Path root = projectRoot.toAbsolutePath().normalize();
@@ -350,9 +364,49 @@ public final class ProjectModelDetector {
         factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
         factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
         factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        // Parse errors become diagnostics; without a handler the parser also prints them to stderr.
+        builder.setErrorHandler(new DefaultHandler());
         try (InputStream input = Files.newInputStream(pom)) {
-            return factory.newDocumentBuilder().parse(input).getDocumentElement();
+            byte[] content = input.readNBytes(MAX_BUFFERED_XML_BYTES + 1);
+            InputSource source = content.length > MAX_BUFFERED_XML_BYTES
+                    ? new InputSource(new SequenceInputStream(
+                            new ByteArrayInputStream(content), input))
+                    : xmlSource(content);
+            return builder.parse(source).getDocumentElement();
         }
+    }
+
+    /**
+     * Legacy Windows projects may save a pom.xml as Windows-1252 while its XML declaration names
+     * UTF-8 or no encoding, which means UTF-8. Maven reads such a file, but the XML parser rejects
+     * its bytes, so it is decoded like Java sources instead. Valid UTF-8 and every other declared
+     * or signaled encoding are left to the parser.
+     */
+    private static InputSource xmlSource(byte[] content) {
+        if (!SourceText.isUtf8(content)) {
+            boolean utf8Bom = content.length >= 3 && content[0] == (byte) 0xEF
+                    && content[1] == (byte) 0xBB && content[2] == (byte) 0xBF;
+            String text = SourceText.decode(
+                    utf8Bom ? Arrays.copyOfRange(content, 3, content.length) : content);
+            if (declaresUtf8(text)) {
+                return new InputSource(new StringReader(text));
+            }
+        }
+        return new InputSource(new ByteArrayInputStream(content));
+    }
+
+    /**
+     * Whether XML decoded one char per byte starts like ASCII, unlike UTF-16, UTF-32 and EBCDIC,
+     * and has no XML declaration or one that names UTF-8 or no encoding.
+     */
+    private static boolean declaresUtf8(String text) {
+        if (text.isEmpty() || "<\t\n\r ".indexOf(text.charAt(0)) < 0
+                || text.chars().limit(4).anyMatch(character -> character == 0)) {
+            return false;
+        }
+        Matcher encoding = XML_DECLARED_ENCODING.matcher(text);
+        return !encoding.lookingAt() || encoding.group(1).equalsIgnoreCase("UTF-8");
     }
 
     private static String mavenJavaVersion(Element project) {

@@ -162,9 +162,10 @@ class TreeSitterParserTest {
         MethodInfo pick = parser.findMethods(file, "pick").getFirst();
         assertEquals(List.of("protected", "static"), pick.modifiers());
         assertEquals("java.util.List<T>", pick.returnType());
-        // tree-sitter-java's spread_parameter has no type or name fields.
-        assertEquals(List.of(new MethodInfo.ParameterInfo("int", "count"),
-                new MethodInfo.ParameterInfo("?", "?")), pick.parameters());
+        // tree-sitter-java's spread_parameter has no type or name fields, and CI builds the
+        // grammar from its latest commit, so only the varargs parameter's presence is fixed.
+        assertEquals(2, pick.parameters().size());
+        assertEquals(new MethodInfo.ParameterInfo("int", "count"), pick.parameters().getFirst());
         assertEquals(2, pick.startLine());
         assertEquals(5, pick.endLine());
 
@@ -172,6 +173,23 @@ class TreeSitterParserTest {
         assertEquals(List.of(), plain.modifiers());
         assertEquals("void", plain.returnType());
         assertEquals(List.of(), plain.parameters());
+    }
+
+    @Test
+    @DisplayName("Should find methods whose names are not ASCII")
+    void shouldFindNonAsciiMethodName() throws IOException {
+        Path file = writeFile("Cobro.java", """
+                public class Cobro {
+                    public void método() {}
+                    public void metodo() {}
+                }
+                """);
+
+        List<MethodInfo> methods = parser.findMethods(file, "método");
+
+        assertEquals(1, methods.size());
+        assertEquals("método", methods.getFirst().name());
+        assertEquals(2, methods.getFirst().startLine());
     }
 
     @Test

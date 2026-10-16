@@ -123,6 +123,16 @@ class SourceReaderTest {
     }
 
     @Test
+    @DisplayName("Should not skip files that may spell the class name with unicode escapes")
+    void shouldNotSkipFilesWithUnicodeEscapes() throws IOException {
+        Path escaped = writeFile("Escaped.java", "public class \\u0045scaped { }\n");
+        Path unrelated = writeFile("Other.java", "public class Other { }\n");
+
+        assertFalse(SourceReader.cannotDeclare(escaped, "Escaped"));
+        assertTrue(SourceReader.cannotDeclare(unrelated, "Escaped"));
+    }
+
+    @Test
     @DisplayName("Should only derive a declared name from plain identifiers")
     void shouldDeriveDeclaredSimpleName() {
         assertEquals("Target", SourceReader.declaredSimpleName("Target"));

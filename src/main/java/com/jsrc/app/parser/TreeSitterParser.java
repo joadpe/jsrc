@@ -33,6 +33,10 @@ import io.github.treesitter.jtreesitter.Tree;
  * Every {@link Node} accessor is a native downcall, and in a GraalVM native image each
  * downcall costs microseconds instead of nanoseconds, so this class keeps node accesses
  * to the ones its results need.
+ * <p>
+ * An instance is not thread-safe; use one per thread. Its parser and compiled queries
+ * hold native memory that is only freed when the process exits, so reuse instances
+ * instead of creating one per file.
  */
 public class TreeSitterParser implements CodeParser {
 

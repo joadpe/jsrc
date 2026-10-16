@@ -122,7 +122,7 @@ public class SourceReader {
      * pointless. The bytes are compared directly because an ASCII name has the same bytes
      * in UTF-8 and in single-byte encodings; unicode escapes could spell the name otherwise.
      */
-    private static boolean cannotDeclare(Path file, String simpleName) {
+    static boolean cannotDeclare(Path file, String simpleName) {
         try {
             String text = new String(java.nio.file.Files.readAllBytes(file),
                     java.nio.charset.StandardCharsets.ISO_8859_1);

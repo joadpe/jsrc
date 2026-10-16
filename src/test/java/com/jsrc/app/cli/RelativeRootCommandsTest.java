@@ -1,5 +1,6 @@
 package com.jsrc.app.cli;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -170,6 +171,75 @@ class RelativeRootCommandsTest {
         }
     }
 
+    @Test
+    void overviewAppliesProjectBudgetForEveryRootMode() throws Exception {
+        Path project = budgetProject("tiny");
+
+        for (String output : List.of(
+                run(project, "overview"),
+                run(tempDir, "--dir", "project", "overview"),
+                run(tempDir, "--dir", project.toString(), "overview"))) {
+            assertTrue(output.contains("{\"_budget\":{\"profile\":\"tiny\"}"), output);
+        }
+    }
+
+    @Test
+    void projectBudgetDeniesCommandWithDirRoot() throws Exception {
+        budgetProject("tiny");
+
+        String output = run(tempDir, "--dir", "project", "--protocol", "1", "context", "Demo");
+
+        assertTrue(output.contains("\"code\":\"BUDGET_DENIED\""), output);
+        assertTrue(output.contains("\"budget\":{\"profile\":\"tiny\""), output);
+    }
+
+    @Test
+    void parseErrorUsesProjectBudgetOfDirRoot() throws Exception {
+        budgetProject("tiny");
+
+        // The invalid --limit stops parsing before the root is read.
+        for (String output : List.of(
+                run(tempDir, "--protocol", "1", "--limit", "x", "--dir", "project", "overview"),
+                run(tempDir, "--protocol", "1", "--limit", "x", "-dproject", "overview"))) {
+            assertTrue(output.contains("\"code\":\"INVALID_ARGUMENT\""), output);
+            assertTrue(output.contains("\"budget\":{\"profile\":\"tiny\""), output);
+        }
+    }
+
+    @Test
+    void parseErrorIsReportedWhenProjectConfigIsBroken() throws Exception {
+        Path project = budgetProject("[tiny");
+
+        for (String output : List.of(
+                run(project, "overview", "--bogus"),
+                run(tempDir, "--dir", "project", "overview", "--bogus"))) {
+            assertTrue(output.contains("Unknown option: '--bogus'"), output);
+        }
+    }
+
+    @Test
+    void workingDirectoryConfigSetsBudgetOnlyThroughConfigOption() throws Exception {
+        budgetProject("tiny");
+        Path other = Files.createDirectory(tempDir.resolve("other"));
+        Files.writeString(other.resolve("Other.java"), "class Other {}\n");
+        Files.writeString(tempDir.resolve(".jsrc.yaml"), "budget: small\n");
+
+        String unconfigured = run(tempDir, "--dir", "other", "overview");
+        String configured = run(tempDir, "--dir", "project", "--config", ".jsrc.yaml",
+                "overview");
+
+        assertTrue(unconfigured.contains("\"totalFiles\":1"), unconfigured);
+        assertFalse(unconfigured.contains("_budget"), unconfigured);
+        assertTrue(configured.contains("{\"_budget\":{\"profile\":\"small\"}"), configured);
+    }
+
+    private Path budgetProject(String budget) throws IOException {
+        Path project = Files.createDirectory(tempDir.resolve("project"));
+        Files.writeString(project.resolve(".jsrc.yaml"), "budget: " + budget + "\n");
+        Files.writeString(project.resolve("Demo.java"), "class Demo { void run() {} }\n");
+        return project;
+    }
+
     private static String smellySource() {
         return "class Demo { void run(int a, int b, int c, int d, int e, int f, int g, int h) {} }\n";
     }
@@ -187,8 +257,10 @@ class RelativeRootCommandsTest {
         List<String> command = new ArrayList<>(List.of(java, "--enable-native-access=ALL-UNNAMED",
                 "-cp", classpath, "com.jsrc.app.App"));
         command.addAll(Arrays.asList(args));
-        Process process = new ProcessBuilder(command).directory(workingDirectory.toFile())
-                .redirectErrorStream(true).start();
+        ProcessBuilder builder = new ProcessBuilder(command).directory(workingDirectory.toFile())
+                .redirectErrorStream(true);
+        builder.environment().remove("JSRC_BUDGET");
+        Process process = builder.start();
         assertTrue(process.waitFor(40, TimeUnit.SECONDS), "Command timed out");
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         return output;

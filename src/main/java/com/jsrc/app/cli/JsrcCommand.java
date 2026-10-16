@@ -73,15 +73,19 @@ public class JsrcCommand implements Runnable {
     }
 
     public ProjectConfig loadConfig() {
-        if (globalOptions.configPath() != null && !globalOptions.configPath().isBlank()) {
-            return ProjectConfig.loadFrom(Path.of(globalOptions.configPath())).orElse(null);
+        return loadConfig(globalOptions.configPath(), resolvedRoot());
+    }
+
+    /** Loads the {@code --config} file when given, else {@code .jsrc.yaml} in the source root. */
+    static ProjectConfig loadConfig(String configPath, String sourceRoot) {
+        if (configPath != null && !configPath.isBlank()) {
+            return ProjectConfig.loadFrom(Path.of(configPath)).orElse(null);
         }
-        return ProjectConfig.load(Path.of(resolvedRoot())).orElse(null);
+        return ProjectConfig.load(Path.of(sourceRoot)).orElse(null);
     }
 
     public BudgetProfile resolveBudgetProfile() {
-        return OutputModeResolver.resolveBudgetProfile(
-                globalOptions.budget(), globalOptions.configPath());
+        return OutputModeResolver.resolveBudgetProfile(globalOptions.budget(), this::loadConfig);
     }
 
     public BudgetContext buildBudgetContext() {

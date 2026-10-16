@@ -42,10 +42,14 @@ final class JsonParameterExceptionHandler implements CommandLine.IParameterExcep
         GlobalOptions parsed = rootCommand.globalOptions();
         String budgetValue = optionValue(args, "--budget", parsed.budget());
         String configPath = optionValue(args, "--config", parsed.configPath());
+        String sourceRoot = optionValue(args, "--dir",
+                optionValue(args, "-d", rootCommand.resolvedRoot()));
         BudgetProfile profile;
         try {
-            profile = OutputModeResolver.resolveBudgetProfile(budgetValue, configPath);
-        } catch (IllegalArgumentException exception) {
+            profile = OutputModeResolver.resolveBudgetProfile(
+                    budgetValue, () -> JsrcCommand.loadConfig(configPath, sourceRoot));
+        } catch (RuntimeException exception) {
+            // An invalid budget or an unreadable config must not hide the parse error.
             profile = BudgetProfile.STANDARD;
         }
         boolean json = parsed.jsonOutput() || hasOption(args, "--json");
@@ -80,6 +84,7 @@ final class JsonParameterExceptionHandler implements CommandLine.IParameterExcep
     }
 
     private static String optionValue(String[] args, String option, String fallback) {
+        boolean shortOption = !option.startsWith("--");
         for (int i = 0; i < args.length; i++) {
             String argument = args[i];
             if (argument.startsWith(option + "=")) {
@@ -87,6 +92,9 @@ final class JsonParameterExceptionHandler implements CommandLine.IParameterExcep
             }
             if (option.equals(argument) && i + 1 < args.length) {
                 return args[i + 1];
+            }
+            if (shortOption && argument.startsWith(option) && argument.length() > option.length()) {
+                return argument.substring(option.length());
             }
         }
         return fallback;

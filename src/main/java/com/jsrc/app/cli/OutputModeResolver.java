@@ -1,13 +1,18 @@
 package com.jsrc.app.cli;
 
 import com.jsrc.app.config.ProjectConfig;
-import java.nio.file.Path;
+import java.util.function.Supplier;
 
 final class OutputModeResolver {
 
     private OutputModeResolver() {}
 
-    static BudgetProfile resolveBudgetProfile(String cliBudget, String configPath) {
+    /**
+     * Resolves {@code --budget}, then {@code JSRC_BUDGET}, then the {@code budget} of the
+     * command's project config, which is loaded only when neither of the others is set.
+     */
+    static BudgetProfile resolveBudgetProfile(
+            String cliBudget, Supplier<ProjectConfig> projectConfig) {
         if (cliBudget != null) {
             return BudgetProfile.fromString(cliBudget);
         }
@@ -15,9 +20,7 @@ final class OutputModeResolver {
         if (envBudget != null && !envBudget.isBlank()) {
             return BudgetProfile.fromString(envBudget);
         }
-        ProjectConfig config = configPath != null
-                ? ProjectConfig.loadFrom(Path.of(configPath)).orElse(null)
-                : ProjectConfig.load(Path.of(".")).orElse(null);
+        ProjectConfig config = projectConfig.get();
         if (config != null && config.budget() != null) {
             return BudgetProfile.fromString(config.budget());
         }

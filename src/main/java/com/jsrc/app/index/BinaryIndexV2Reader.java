@@ -524,14 +524,15 @@ public class BinaryIndexV2Reader {
                     : new MethodReference(className, methodName, paramCount, null);
         }
 
-        // CallerIndex
-        Map<MethodReference, Set<MethodCall>> callerIndex = new HashMap<>();
+        // CallerIndex. Written in graph order, so CallGraph.of finds these lists sorted; it
+        // also drops duplicates, so the calls need no hashing here.
+        Map<MethodReference, List<MethodCall>> callerIndex = new LinkedHashMap<>();
         int callerEntryCount = checkedCount(in, "graph callers", 8);
         for (int i = 0; i < callerEntryCount; i++) {
             int calleeId = in.readInt();
             MethodReference callee = calleeId >= 0 && calleeId < methodCount ? methods[calleeId] : null;
             int callerCount = checkedCount(in, "graph caller edges", 12);
-            Set<MethodCall> callers = new HashSet<>(callerCount);
+            List<MethodCall> callers = new ArrayList<>(callerCount);
             for (int j = 0; j < callerCount; j++) {
                 int callerId = in.readInt();
                 int line = in.readInt();
@@ -553,13 +554,13 @@ public class BinaryIndexV2Reader {
         }
 
         // CalleeIndex
-        Map<MethodReference, Set<MethodCall>> calleeIndex = new HashMap<>();
+        Map<MethodReference, List<MethodCall>> calleeIndex = new HashMap<>();
         int calleeEntryCount = checkedCount(in, "graph callees", 8);
         for (int i = 0; i < calleeEntryCount; i++) {
             int callerId = in.readInt();
             MethodReference caller = callerId >= 0 && callerId < methodCount ? methods[callerId] : null;
             int calleeCount = checkedCount(in, "graph callee edges", 12);
-            Set<MethodCall> callees = new HashSet<>(calleeCount);
+            List<MethodCall> callees = new ArrayList<>(calleeCount);
             for (int j = 0; j < calleeCount; j++) {
                 int cId = in.readInt();
                 int line = in.readInt();
@@ -581,13 +582,12 @@ public class BinaryIndexV2Reader {
         }
 
         // Build methodsByName
-        Set<MethodReference> allMethods = new HashSet<>(Arrays.asList(methods));
-        Map<String, Set<MethodReference>> methodsByName = new HashMap<>();
+        Map<String, List<MethodReference>> methodsByName = new HashMap<>();
         for (MethodReference ref : methods) {
-            methodsByName.computeIfAbsent(ref.methodName(), k -> new HashSet<>()).add(ref);
+            methodsByName.computeIfAbsent(ref.methodName(), k -> new ArrayList<>()).add(ref);
         }
 
-        return CallGraph.of(callerIndex, calleeIndex, allMethods, methodsByName);
+        return CallGraph.of(callerIndex, calleeIndex, Arrays.asList(methods), methodsByName);
     }
 
     private static IndexEntry readEntry(DataInputStream in, String[] strings) throws IOException {

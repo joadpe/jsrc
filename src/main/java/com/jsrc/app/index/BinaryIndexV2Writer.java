@@ -272,6 +272,7 @@ public class BinaryIndexV2Writer {
         }
     }
 
+    /** The methods of the graph, numbered in this order, which follows the graph's own. */
     private static Set<MethodReference> graphMethods(CallGraph graph) {
         Set<MethodReference> methods = new LinkedHashSet<>(graph.getAllMethods());
         for (MethodReference callee : graph.getAllCallerIndexKeys()) {
@@ -281,7 +282,7 @@ public class BinaryIndexV2Writer {
                 methods.add(call.callee());
             }
         }
-        return Set.copyOf(methods);
+        return methods;
     }
 
     private static void writeEntry(DataOutputStream out, IndexEntry entry,

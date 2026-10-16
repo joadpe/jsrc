@@ -637,20 +637,8 @@ public class CallGraphBuilder {
      * Call after {@link #build(List)} or {@link #loadFromIndex(List)}.
      */
     public CallGraph toCallGraph() {
-        // Deep-copy sets to ensure immutability
-        Map<MethodReference, Set<MethodCall>> callerCopy = new HashMap<>();
-        for (var e : callerIndex.entrySet()) {
-            callerCopy.put(e.getKey(), Set.copyOf(e.getValue()));
-        }
-        Map<MethodReference, Set<MethodCall>> calleeCopy = new HashMap<>();
-        for (var e : calleeIndex.entrySet()) {
-            calleeCopy.put(e.getKey(), Set.copyOf(e.getValue()));
-        }
-        Map<String, Set<MethodReference>> byNameCopy = new HashMap<>();
-        for (var e : methodsByName.entrySet()) {
-            byNameCopy.put(e.getKey(), Set.copyOf(e.getValue()));
-        }
-        return CallGraph.of(callerCopy, calleeCopy, Set.copyOf(allMethods), byNameCopy);
+        // CallGraph.of copies every set, into the order a graph read from the index has.
+        return CallGraph.of(callerIndex, calleeIndex, allMethods, methodsByName);
     }
 
     // -- registration pass --

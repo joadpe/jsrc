@@ -16,7 +16,7 @@ import java.util.List;
  * @param className         enclosing class name (empty if unknown)
  * @param startLine         1-based start line in source file
  * @param endLine           1-based end line in source file
- * @param returnType        declared return type as string
+ * @param returnType        declared return type as string; empty for constructors
  * @param modifiers         access/other modifiers (e.g. "public", "static")
  * @param parameters        parameter declarations (type + name pairs)
  * @param content           raw source text of the method
@@ -66,6 +66,15 @@ public record MethodInfo(
 
     public boolean isStatic() {
         return modifiers.contains("static");
+    }
+
+    /**
+     * Constructors are reported as methods named after their class, without a return type.
+     * Check this rather than the name: a local class owner such as Outer$m$1$Loc$1 does not
+     * end with the constructor name Loc.
+     */
+    public boolean isConstructor() {
+        return returnType == null || returnType.isEmpty();
     }
 
     public boolean hasAnnotation(String annotationName) {

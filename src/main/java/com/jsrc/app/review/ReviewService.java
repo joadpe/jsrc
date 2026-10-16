@@ -1,5 +1,7 @@
 package com.jsrc.app.review;
 
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParserConfiguration;
 import com.jsrc.app.analysis.CallGraph;
 import com.jsrc.app.model.ResolutionLevel;
 import com.jsrc.app.parser.CodeParser;
@@ -29,6 +31,8 @@ public final class ReviewService {
     private final CodeParser parser;
     private final CallGraph graph;
     private final List<Path> javaFiles;
+    private final JavaParser javaParser = new JavaParser(new ParserConfiguration()
+            .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21));
 
     public ReviewService(Path root, CodeParser parser, CallGraph graph, List<Path> javaFiles) {
         this.root = root.toAbsolutePath().normalize();
@@ -70,6 +74,9 @@ public final class ReviewService {
             unresolved.add(change.path() + ": no Java declarations resolved");
             return;
         }
+        ImplicitConstructors beforeConstructors = ImplicitConstructors.parse(javaParser, change.before());
+        ImplicitConstructors afterConstructors = ImplicitConstructors.parse(javaParser, change.after());
+        Set<String> unmodelledConstructors = new LinkedHashSet<>();
         int initial = symbols.size();
         Set<String> types = new LinkedHashSet<>(before.keySet());
         types.addAll(after.keySet());
@@ -77,7 +84,8 @@ public final class ReviewService {
             int typeInitial = symbols.size();
             ClassInfo oldType = before.get(type);
             ClassInfo newType = after.get(type);
-            if (!Objects.equals(typeContract(oldType), typeContract(newType))) {
+            boolean typeChanged = !Objects.equals(typeContract(oldType), typeContract(newType));
+            if (typeChanged) {
                 String contract = oldType == null ? "added" : newType == null ? "removed" : "changed";
                 boolean publicContract = (isPublic(oldType) || isPublic(newType))
                         && (!Objects.equals(typeHeader(oldType), typeHeader(newType))
@@ -88,8 +96,26 @@ public final class ReviewService {
                         status(oldType, newType), typeContract(oldType), typeContract(newType),
                         contract, publicContract ? "high" : "medium", reasons, List.of(), "exact"));
             }
-            Map<String, MethodInfo> oldMethods = methods(oldType);
-            Map<String, MethodInfo> newMethods = methods(newType);
+            // A side without constructor declarations has the constructor Java declares implicitly,
+            // so a declared constructor is compared with the one it replaces
+            MethodInfo oldImplicit = null;
+            MethodInfo newImplicit = null;
+            String constructorsUnresolved = null;
+            if (oldType != null && newType != null) {
+                constructorsUnresolved = beforeConstructors.unresolved(type);
+                if (constructorsUnresolved == null) constructorsUnresolved = afterConstructors.unresolved(type);
+                if (constructorsUnresolved == null) {
+                    oldImplicit = beforeConstructors.of(type);
+                    newImplicit = afterConstructors.of(type);
+                } else if (typeChanged) {
+                    unresolved.add(type + ": " + constructorsUnresolved);
+                } else {
+                    // Reported only if nothing else in the file explains the change
+                    unmodelledConstructors.add(type + ": " + constructorsUnresolved);
+                }
+            }
+            Map<String, MethodInfo> oldMethods = methods(oldType, oldImplicit);
+            Map<String, MethodInfo> newMethods = methods(newType, newImplicit);
             Set<String> methodKeys = new LinkedHashSet<>(oldMethods.keySet());
             methodKeys.addAll(newMethods.keySet());
             for (String key : methodKeys) {
@@ -98,12 +124,18 @@ public final class ReviewService {
                 if (oldMethod != null && newMethod != null
                         && Objects.equals(oldMethod.content(), newMethod.content())
                         && Objects.equals(methodContract(oldMethod), methodContract(newMethod))) continue;
+                boolean wasImplicit = oldMethod != null && oldMethod == oldImplicit;
+                boolean isImplicit = newMethod != null && newMethod == newImplicit;
+                // Implicit on both sides, it can differ only in the access the type symbol reports
+                if (wasImplicit && isImplicit) continue;
                 MethodInfo method = newMethod != null ? newMethod : oldMethod;
                 String symbol = type + "." + key;
-                String contract = oldMethod == null ? "added" : newMethod == null ? "removed"
+                boolean constructorUnresolved = constructorsUnresolved != null && method.isConstructor();
+                String contract = constructorUnresolved ? "unknown" : oldMethod == null ? "added"
+                        : newMethod == null ? "removed"
                         : Objects.equals(methodContract(oldMethod), methodContract(newMethod))
                         ? "unchanged" : "changed";
-                boolean publicContract = isPublic(oldMethod) || isPublic(newMethod);
+                boolean publicContract = !constructorUnresolved && (isPublic(oldMethod) || isPublic(newMethod));
                 List<String> reasons = new ArrayList<>();
                 List<String> impacted = new ArrayList<>();
                 String confidence = "exact";
@@ -128,8 +160,15 @@ public final class ReviewService {
                                 impact.uncertain() ? "inferred" : "exact"));
                     }
                 }
+                if (constructorUnresolved) {
+                    unresolved.add(symbol + ": " + constructorsUnresolved);
+                    confidence = "unknown";
+                }
                 if (!impacted.isEmpty()) reasons.add(impacted.size() + " caller(s) in call graph");
                 if (publicContract && !"unchanged".equals(contract)) reasons.add("public method contract " + contract);
+                if (constructorUnresolved) reasons.add("constructor contract unresolved");
+                if (wasImplicit) reasons.add("implicit constructor before the change");
+                if (isImplicit) reasons.add("implicit constructor after the change");
                 if (reasons.isEmpty()) reasons.add("method body changed; no resolved callers");
                 String risk = publicContract && !"unchanged".equals(contract) ? "high"
                         : confidence.equals("unknown") ? "unknown"
@@ -142,6 +181,7 @@ public final class ReviewService {
         }
         if (symbols.size() == initial && !Objects.equals(change.before(), change.after())) {
             unresolved.add(change.path() + ": change is outside resolved declarations or formatting-only");
+            unresolved.addAll(unmodelledConstructors);
         }
         if (symbols.size() == initial && change.status().equals("renamed")) {
             unresolved.add(change.path() + ": path moved; packaging impact not analyzed");
@@ -164,12 +204,13 @@ public final class ReviewService {
         }
     }
 
-    private static Map<String, MethodInfo> methods(ClassInfo type) {
+    private static Map<String, MethodInfo> methods(ClassInfo type, MethodInfo implicitConstructor) {
         if (type == null) return Map.of();
         Map<String, MethodInfo> result = new LinkedHashMap<>();
         for (MethodInfo method : type.methods()) {
             result.put(methodKey(method), method);
         }
+        if (implicitConstructor != null) result.putIfAbsent(methodKey(implicitConstructor), implicitConstructor);
         return result;
     }
 

@@ -52,6 +52,51 @@ class ReviewCommandTest {
     }
 
     @Test
+    void privateConstructorNarrowsTheImplicitPublicOneItsCallersUse(@TempDir Path root) throws Exception {
+        Path api = root.resolve("src/main/java/demo/Api.java");
+        Files.createDirectories(api.getParent());
+        Files.writeString(api, """
+                package demo;
+                public class Api { void run() {} }
+                """);
+        Files.writeString(root.resolve("src/main/java/demo/Caller.java"), """
+                package demo;
+                class Caller { void go() { new Api().run(); } }
+                """);
+        git(root, "init", "-q");
+        git(root, "config", "user.email", "test@example.com");
+        git(root, "config", "user.name", "Test");
+        git(root, "add", ".");
+        git(root, "commit", "-qm", "initial");
+        Files.writeString(api, """
+                package demo;
+                public class Api { private Api() {} void run() {} }
+                """);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream previous = System.out;
+        try {
+            System.setOut(new PrintStream(out, true, StandardCharsets.UTF_8));
+            assertEquals(0, JsrcCliFactory.create().execute("--dir", root.toString(), "--json", "review"));
+        } finally {
+            System.setOut(previous);
+        }
+        var data = (java.util.Map<?, ?>) com.jsrc.app.output.JsonReader.parse(
+                out.toString(StandardCharsets.UTF_8).trim());
+        var constructor = ((java.util.List<?>) data.get("symbols")).stream()
+                .map(symbol -> (java.util.Map<?, ?>) symbol)
+                .filter(symbol -> "demo.Api.Api()".equals(symbol.get("symbol")))
+                .findFirst().orElseThrow(() -> new AssertionError(data.toString()));
+        // Caller.go() no longer compiles: the implicit public Api() became private
+        assertEquals("changed", constructor.get("contract"), constructor.toString());
+        assertEquals("high", constructor.get("risk"), constructor.toString());
+        assertEquals("exact", constructor.get("confidence"), constructor.toString());
+        assertEquals(java.util.List.of("demo.Caller.go()"), constructor.get("impacted"));
+        assertEquals(java.util.List.of(), data.get("unresolved"));
+        assertEquals("high", ((java.util.Map<?, ?>) data.get("summary")).get("risk"));
+    }
+
+    @Test
     void invalidRefIsAnErrorRatherThanAnEmptyReview(@TempDir Path root) throws Exception {
         Files.writeString(root.resolve("README.md"), "fixture");
         git(root, "init", "-q");

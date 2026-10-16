@@ -264,19 +264,164 @@ class ReviewServiceTest {
                 """);
 
         ReviewReport report = review(root, List.of(source));
-        var hidden = report.symbols().stream()
-                .filter(symbol -> symbol.symbol().equals("demo.Api.Api()"))
-                .findFirst().orElseThrow();
-        var exposed = report.symbols().stream()
-                .filter(symbol -> symbol.symbol().equals("demo.Api.Api(int)"))
-                .findFirst().orElseThrow();
-        assertEquals("added", hidden.contract());
-        assertNotEquals("high", hidden.risk());
-        assertTrue(hidden.reasons().stream().noneMatch(reason -> reason.contains("public")));
+        // Api had the implicit public Api(); declaring it private narrows it
+        var hidden = symbol(report, "demo.Api.Api()");
+        var exposed = symbol(report, "demo.Api.Api(int)");
+        assertEquals("changed", hidden.contract());
+        assertEquals("high", hidden.risk());
+        assertTrue(hidden.before().startsWith("public "), hidden.before());
+        assertTrue(hidden.after().startsWith("private "), hidden.after());
+        assertTrue(hidden.reasons().contains("public method contract changed"), hidden.reasons().toString());
+        assertTrue(hidden.reasons().contains("implicit constructor before the change"),
+                hidden.reasons().toString());
         assertEquals("added", exposed.contract());
         assertEquals("high", exposed.risk());
         assertTrue(exposed.reasons().contains("public method contract added"));
-        assertTrue(report.unresolved().stream().noneMatch(issue -> issue.contains("constructor visibility")));
+        assertTrue(report.unresolved().stream().noneMatch(issue -> issue.contains("constructor")),
+                report.unresolved().toString());
+    }
+
+    @Test
+    void implicitConstructorHasTheAccessJavaGivesIt(@TempDir Path root) throws Exception {
+        Path local = write(root, "src/main/java/demo/Local.java", """
+                package demo;
+                class Local { void run() {} }
+                """);
+        Path shapes = write(root, "src/main/java/demo/Shapes.java", """
+                package demo;
+                public interface Shapes { class Circle {} }
+                """);
+        Path color = write(root, "src/main/java/demo/Color.java", """
+                package demo;
+                public enum Color { RED }
+                """);
+        commit(root);
+        Files.writeString(local, """
+                package demo;
+                class Local { private Local() {} void run() {} }
+                """);
+        Files.writeString(shapes, """
+                package demo;
+                public interface Shapes { class Circle { private Circle() {} } }
+                """);
+        Files.writeString(color, """
+                package demo;
+                public enum Color { RED(1); Color(int rgb) {} }
+                """);
+
+        ReviewReport report = review(root, List.of(local, shapes, color));
+
+        var packageAccess = symbol(report, "demo.Local.Local()");
+        assertEquals("changed", packageAccess.contract());
+        assertFalse(packageAccess.before().contains("public"), packageAccess.before());
+        assertNotEquals("high", packageAccess.risk());
+        // Member classes of interfaces are implicitly public, and so is their implicit constructor
+        var interfaceMember = symbol(report, "demo.Shapes$Circle.Circle()");
+        assertEquals("changed", interfaceMember.contract());
+        assertEquals("high", interfaceMember.risk());
+        // new cannot call an enum constructor, so the implicit private one is not compared
+        assertTrue(report.symbols().stream().noneMatch(s -> s.symbol().equals("demo.Color.Color()")),
+                report.symbols().toString());
+        assertEquals("added", symbol(report, "demo.Color.Color(int)").contract());
+        assertNotEquals("high", symbol(report, "demo.Color.Color(int)").risk());
+    }
+
+    @Test
+    void declaredConstructorsReplaceOrRestoreTheImplicitOne(@TempDir Path root) throws Exception {
+        Path api = write(root, "src/main/java/demo/Api.java", """
+                package demo;
+                public class Api { public int run() { return 1; } }
+                """);
+        Path holder = write(root, "src/main/java/demo/Holder.java", """
+                package demo;
+                public class Holder { private Holder() {} }
+                """);
+        Path hidden = write(root, "src/main/java/demo/Hidden.java", """
+                package demo;
+                public class Hidden {}
+                """);
+        commit(root);
+        Files.writeString(api, """
+                package demo;
+                public class Api { public Api(int seed) {} public int run() { return 1; } }
+                """);
+        Files.writeString(holder, """
+                package demo;
+                public class Holder {}
+                """);
+        Files.writeString(hidden, """
+                package demo;
+                class Hidden {}
+                """);
+
+        ReviewReport report = review(root, List.of(api, holder, hidden));
+
+        // new Api() no longer compiles: the implicit Api() is gone
+        var replaced = symbol(report, "demo.Api.Api()");
+        assertEquals("removed", replaced.contract());
+        assertEquals("high", replaced.risk());
+        assertTrue(replaced.reasons().contains("implicit constructor before the change"),
+                replaced.reasons().toString());
+        assertEquals("added", symbol(report, "demo.Api.Api(int)").contract());
+        // Without declarations Holder gets the implicit public Holder()
+        var restored = symbol(report, "demo.Holder.Holder()");
+        assertEquals("changed", restored.contract());
+        assertEquals("high", restored.risk());
+        assertTrue(restored.after().startsWith("public "), restored.after());
+        assertTrue(restored.reasons().contains("implicit constructor after the change"),
+                restored.reasons().toString());
+        // Without declarations on either side, the type symbol reports the narrower access
+        assertEquals("high", symbol(report, "demo.Hidden").risk());
+        assertTrue(report.symbols().stream().noneMatch(s -> s.symbol().equals("demo.Hidden.Hidden()")),
+                report.symbols().toString());
+    }
+
+    @Test
+    void recordsCompareTheirImplicitCanonicalConstructor(@TempDir Path root) throws Exception {
+        Path point = write(root, "src/main/java/demo/Point.java", """
+                package demo;
+                public record Point(int x, int y) {}
+                """);
+        Path plain = write(root, "src/main/java/demo/Plain.java", """
+                package demo;
+                public record Plain(int x) {}
+                """);
+        Path checked = write(root, "src/main/java/demo/Checked.java", """
+                package demo;
+                public record Checked(int x) { public Checked { if (x < 0) throw new IllegalStateException(); } }
+                """);
+        commit(root);
+        Files.writeString(point, """
+                package demo;
+                public record Point(int x, int y, int z) {}
+                """);
+        Files.writeString(plain, """
+                package demo;
+                public record Plain(int x) { public Plain { if (x < 0) throw new IllegalStateException(); } }
+                """);
+        Files.writeString(checked, """
+                package demo;
+                public record Checked(long x) { public Checked { if (x < 0) throw new IllegalStateException(); } }
+                """);
+
+        ReviewReport report = review(root, List.of(point, plain, checked));
+
+        var old = symbol(report, "demo.Point.Point(int, int)");
+        assertEquals("removed", old.contract());
+        assertEquals("high", old.risk());
+        var canonical = symbol(report, "demo.Point.Point(int, int, int)");
+        assertEquals("added", canonical.contract());
+        assertEquals("high", canonical.risk());
+        assertTrue(canonical.reasons().contains("implicit constructor after the change"),
+                canonical.reasons().toString());
+        // The parsed model has no record constructor declarations: no claim either way
+        assertTrue(report.symbols().stream().noneMatch(s -> s.symbol().startsWith("demo.Plain.Plain(")
+                        || s.symbol().startsWith("demo.Checked.Checked(")),
+                report.symbols().toString());
+        assertTrue(report.unresolved().stream().anyMatch(issue -> issue.startsWith("demo.Checked: ")
+                && issue.contains("record declares constructors")), report.unresolved().toString());
+        assertTrue(report.unresolved().stream().anyMatch(issue -> issue.startsWith("demo.Plain: ")
+                && issue.contains("record declares constructors")), report.unresolved().toString());
     }
 
     @Test
@@ -313,6 +458,11 @@ class ReviewServiceTest {
 
     private static ReviewReport review(Path root, List<Path> files) {
         return new ReviewService(root, new HybridJavaParser(), CallGraph.empty(), files).review("HEAD");
+    }
+
+    private static ReviewReport.SymbolReview symbol(ReviewReport report, String name) {
+        return report.symbols().stream().filter(symbol -> symbol.symbol().equals(name)).findFirst()
+                .orElseThrow(() -> new AssertionError(name + " not in " + report.symbols()));
     }
 
     private static Path write(Path root, String name, String value) throws Exception {

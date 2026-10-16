@@ -291,7 +291,12 @@ confidence. The `summary`, `unresolved` and `omitted` fields distinguish missing
 semantic evidence from low risk and show what a budget removed. Test suggestions
 are not executed. Invalid refs fail with a nonzero exit code. The command does
 not infer runtime or binary compatibility; duplicate qualified types across
-modules are marked unresolved.
+modules are marked unresolved. A class or record without constructor
+declarations is compared through the constructor Java declares for it, so
+adding `private Api() {}` to a public class narrows a public constructor.
+Constructors declared in records are not modelled. They are marked unresolved
+when the record's declaration changes, or when no other symbol in its file
+changed.
 
 ## Commands
 

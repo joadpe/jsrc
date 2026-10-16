@@ -124,9 +124,12 @@ public class JsrcCommand implements Runnable {
                         globalOptions.noTest());
         com.jsrc.app.index.IndexPhaseMetrics.recordPhase("context.discovery", discoveryStarted);
         var projectModel = projectSources.model();
-        long compatibilityStarted = System.nanoTime();
         boolean sourceIndependent = java.util.Set.of(
                 "skill", "describe", "version", "help").contains(commandName);
+        if (!sourceIndependent) {
+            printProjectDiagnostics(projectModel.diagnostics());
+        }
+        long compatibilityStarted = System.nanoTime();
         var compatibility = sourceIndependent
                 ? new com.jsrc.app.project.SourceCompatibilityScanner.Result(
                         projectSources.allFiles(), java.util.List.of())
@@ -200,6 +203,23 @@ public class JsrcCommand implements Runnable {
                 sourceSets,
                 diagnostics,
                 sourceSnapshot);
+    }
+
+    /**
+     * Prints build-model problems to stderr, once each. They come before source diagnostics
+     * because they often explain them: an unreadable build file leaves every source level
+     * unknown and can drop whole modules. They are only printed: JSON envelopes and exit codes
+     * still depend on source diagnostics alone, and {@code overview --json} lists the model's
+     * diagnostics. BUILD_MODEL_FALLBACK is not printed: it is the normal mode of projects
+     * without Maven or Gradle metadata, such as Eclipse layouts configured through .jsrc.yaml,
+     * which would see it on every command.
+     */
+    static void printProjectDiagnostics(List<com.jsrc.app.project.ProjectDiagnostic> diagnostics) {
+        diagnostics.stream()
+                .filter(diagnostic -> !"BUILD_MODEL_FALLBACK".equals(diagnostic.code()))
+                .distinct()
+                .forEach(diagnostic -> System.err.printf(
+                        "%s: %s%n", diagnostic.code(), diagnostic.message()));
     }
 
     /**

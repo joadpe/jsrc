@@ -518,6 +518,14 @@ JavaParser 3.27.0 cannot parse Java 11 `var` lambda parameters; jsrc reports
 `SOURCE_PARSER_LIMITATION` and quarantines those files instead of presenting
 incomplete semantic results as exact.
 
+When jsrc cannot fully read or interpret a Maven or Gradle build file, it
+prints a `BUILD_MODEL_PARTIAL` warning on stderr before any
+`SOURCE_LEVEL_UNKNOWN` it causes: modules, source roots or source levels from
+that file may be missing. The warning does not change exit codes or JSON
+output. `overview --json` lists it under `project.diagnostics`, as well as
+`BUILD_MODEL_FALLBACK`, which marks projects without Maven or Gradle metadata
+and is not printed.
+
 ```yaml
 sourceRoots:
   - src/main/java

@@ -75,11 +75,12 @@ public class OverviewCommand implements Command {
             return value;
         }).toList());
         if (!model.diagnostics().isEmpty()) {
-            project.put("diagnostics", model.diagnostics().stream()
-                    .map(diagnostic -> java.util.Map.of(
-                            "code", diagnostic.code(),
-                            "message", diagnostic.message()))
-                    .toList());
+            project.put("diagnostics", model.diagnostics().stream().map(diagnostic -> {
+                var value = new LinkedHashMap<String, Object>();
+                value.put("code", diagnostic.code());
+                value.put("message", diagnostic.message());
+                return value;
+            }).toList());
         }
         return project;
     }

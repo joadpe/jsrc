@@ -231,7 +231,7 @@ class FrozenIndexContractTest {
         assertNotNull(IndexedCodebase.tryLoad(tempDir, List.of(sourceFile), false));
 
         byte[] bytes = Files.readAllBytes(publishedBinary());
-        assertEquals(10, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
+        assertEquals(11, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
     }
 
     private Path publishedBinary() throws java.io.IOException {
@@ -248,7 +248,19 @@ class FrozenIndexContractTest {
         assertNotNull(IndexedCodebase.tryLoad(tempDir, List.of(sourceFile), false));
 
         byte[] bytes = Files.readAllBytes(publishedBinary());
-        assertEquals(10, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
+        assertEquals(11, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
+    }
+
+    @Test
+    void normalLoadRebuildsSchemaWithoutLambdaOwnerTypeParameters() throws Exception {
+        buildValidIndex();
+        Path indexFile = publishedBinary();
+        setIndexVersion(indexFile, 10);
+
+        assertNotNull(IndexedCodebase.tryLoad(tempDir, List.of(sourceFile), false));
+
+        byte[] bytes = Files.readAllBytes(publishedBinary());
+        assertEquals(11, java.nio.ByteBuffer.wrap(bytes, 4, 4).getInt());
     }
 
     private void setIndexVersion(Path indexFile, int version) throws Exception {

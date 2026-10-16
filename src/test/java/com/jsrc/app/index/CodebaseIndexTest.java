@@ -688,6 +688,53 @@ class CodebaseIndexTest {
         assertEquals(sequential.getEntries(), parallel.getEntries());
     }
 
+    @Test
+    void lambdaOwnersKeepClassTypeParametersAcrossJsonAndBinaryRoundtrip() throws Exception {
+        Path javaFile = writeFile("Box.java", """
+                package app;
+                class Box<T> { void m() { Runnable r = () -> {}; } }
+                class Plain<T> { void m() {} }
+                class Holder<K, V> { Holder() { Runnable r = () -> {}; } }
+                """);
+        var index = new CodebaseIndex();
+
+        index.build(new HybridJavaParser(), List.of(javaFile), tempDir, List.of());
+        assertEquals(List.of("m", "m$lambda$1"), methodNames(index.getEntries(), "Box"));
+        assertEquals(List.of("Holder", "Holder$lambda$1"),
+                methodNames(index.getEntries(), "Holder"));
+        assertClassTypeParameters(index.getEntries());
+
+        index.save(tempDir);
+        assertClassTypeParameters(CodebaseIndex.load(tempDir));
+
+        var graphBuilder = new com.jsrc.app.analysis.CallGraphBuilder();
+        graphBuilder.loadFromIndex(index.getEntries());
+        Path binary = tempDir.resolve("lambda-owners.bin");
+        BinaryIndexV2Writer.write(
+                binary, index.getEntries(), graphBuilder.toCallGraph());
+        assertClassTypeParameters(BinaryIndexV2Reader.read(binary).entries());
+    }
+
+    private static void assertClassTypeParameters(List<IndexEntry> entries) {
+        assertEquals(List.of("T"), indexedClass(entries, "Box").typeParameters());
+        assertEquals(List.of("K", "V"), indexedClass(entries, "Holder").typeParameters());
+        assertEquals(List.of("T"), indexedClass(entries, "Plain").typeParameters());
+    }
+
+    private static List<String> methodNames(List<IndexEntry> entries, String className) {
+        return indexedClass(entries, className).methods().stream()
+                .map(IndexedMethod::name)
+                .toList();
+    }
+
+    private static IndexedClass indexedClass(List<IndexEntry> entries, String name) {
+        return entries.stream()
+                .flatMap(entry -> entry.classes().stream())
+                .filter(indexedClass -> indexedClass.name().equals(name))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Class not indexed: " + name));
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);

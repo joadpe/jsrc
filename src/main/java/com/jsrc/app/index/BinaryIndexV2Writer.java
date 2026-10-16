@@ -27,7 +27,7 @@ import com.jsrc.app.parser.model.MethodReference;
 public class BinaryIndexV2Writer {
 
     static final byte[] MAGIC = {'J', 'S', 'R', '2'};
-    static final int VERSION = 10;
+    static final int VERSION = 11;
 
     /**
      * Writes the unified index to disk.

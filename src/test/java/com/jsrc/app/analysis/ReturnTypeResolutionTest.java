@@ -149,6 +149,163 @@ class ReturnTypeResolutionTest {
                 "All callees should be resolved. Got: " + calleeDescriptions);
     }
 
+    @Test
+    @DisplayName("Should leave a chained call unresolved when several same-line receivers declare it")
+    void shouldNotGuessBetweenSameLineReceivers() throws Exception {
+        writeFile("X.java", """
+                public class X {
+                    public String getName() { return null; }
+                }
+                """);
+        writeFile("Y.java", """
+                public class Y {
+                    public String getName() { return null; }
+                }
+                """);
+        writeFile("A.java", """
+                public class A {
+                    public X getX() { return null; }
+                }
+                """);
+        writeFile("B.java", """
+                public class B {
+                    public Y getY() { return null; }
+                }
+                """);
+        writeFile("Caller.java", """
+                public class Caller {
+                    public String both(A a, B b) {
+                        return a.getX().getName() + b.getY().getName();
+                    }
+                    public String single(A a) {
+                        return a.getX().getName();
+                    }
+                }
+                """);
+
+        CallGraphBuilder graph = loadGraph();
+
+        // Calls carry a line but no column, so either receiver may own each getName().
+        assertEquals(Set.of("A.getX", "B.getY", "?.getName"), calleesOf(graph, "both"));
+        assertEquals(Set.of("A.getX", "X.getName"), calleesOf(graph, "single"));
+    }
+
+    @Test
+    @DisplayName("Should count simple and qualified spellings of one return type as one receiver")
+    void shouldTreatSpellingsOfOneReturnTypeAsOneReceiver() throws Exception {
+        writeFile("Account.java", """
+                package app;
+                public class Account {
+                    public Customer getCustomer() { return null; }
+                }
+                """);
+        writeFile("Customer.java", """
+                package app;
+                public class Customer {
+                    public String getName() { return null; }
+                }
+                """);
+        writeFile("Order.java", """
+                package app;
+                public class Order {
+                    public Customer getCustomer() { return null; }
+                }
+                """);
+        writeFile("Product.java", """
+                package app;
+                public class Product {
+                    public String getName() { return null; }
+                }
+                """);
+        writeFile("Report.java", """
+                package app;
+                public class Report {
+                    public boolean same(Account account, Order order) {
+                        return account.getCustomer().getName().equals(order.getCustomer().getName());
+                    }
+                }
+                """);
+
+        CallGraphBuilder graph = loadGraph();
+
+        // Account is indexed before Customer, so its return type keeps the simple name
+        // while Order's is qualified; both spellings name the same receiver class.
+        assertTrue(calleesOf(graph, "same").contains("app.Customer.getName"),
+                "Got: " + calleesOf(graph, "same"));
+    }
+
+    @Test
+    @DisplayName("Should judge every call of a pass against the state at the start of the pass")
+    void shouldNotLetOneResolutionHideAnotherInTheSamePass() throws Exception {
+        writeFile("OneItem.java", """
+                package one;
+                public class Item {
+                    public void first() {}
+                    public void second() {}
+                }
+                """);
+        writeFile("TwoItem.java", """
+                package two;
+                public class Item {}
+                """);
+        writeFile("Factory.java", """
+                package app;
+                import two.Item;
+                public class Factory {
+                    public Item make() { return null; }
+                }
+                """);
+        writeFile("Left.java", """
+                package app;
+                public class Left {
+                    public void left(Factory factory, Ext ext) {
+                        factory.make().first();
+                        ext.get().second();
+                    }
+                }
+                """);
+        writeFile("Right.java", """
+                package app;
+                public class Right {
+                    public void right(Factory factory, Ext ext) {
+                        factory.make().second();
+                        ext.get().first();
+                    }
+                }
+                """);
+
+        CallGraphBuilder graph = loadGraph();
+
+        // factory.make() returns two.Item, so each caller resolves one call to an
+        // undeclared two.Item method. Registering it mid-pass made the other caller's
+        // same-named call look non-unique, depending on which caller came first.
+        assertTrue(calleesOf(graph, "left").contains("one.Item.second"),
+                "Got: " + calleesOf(graph, "left"));
+        assertTrue(calleesOf(graph, "right").contains("one.Item.first"),
+                "Got: " + calleesOf(graph, "right"));
+    }
+
+    private CallGraphBuilder loadGraph() throws IOException {
+        List<Path> files;
+        try (var stream = Files.list(tempDir)) {
+            files = stream.filter(p -> p.toString().endsWith(".java")).sorted().toList();
+        }
+        var index = new CodebaseIndex();
+        index.build(new HybridJavaParser(), files, tempDir, List.of());
+        index.save(tempDir);
+
+        var graph = new CallGraphBuilder();
+        graph.loadFromIndex(CodebaseIndex.load(tempDir));
+        return graph;
+    }
+
+    private static Set<String> calleesOf(CallGraphBuilder graph, String methodName) {
+        return graph.findMethodsByName(methodName).stream()
+                .flatMap(method -> graph.getCalleesOf(method).stream())
+                .map(call -> call.callee().className() + "." + call.callee().methodName())
+                .collect(Collectors.toSet());
+    }
+
     private Path writeFile(String name, String content) throws IOException {
         Path file = tempDir.resolve(name);
         Files.writeString(file, content);

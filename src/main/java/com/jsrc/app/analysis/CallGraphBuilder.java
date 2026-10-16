@@ -342,9 +342,14 @@ public class CallGraphBuilder {
     /**
      * Single pass of unknown callee resolution.
      * Returns true if any callees were resolved.
+     * <p>
+     * Every call is judged against the state at the start of the pass: callees resolved
+     * here are registered by name only after the pass, so the outcome does not depend on
+     * the iteration order of the hash-based call sets.
      */
     private boolean resolvePass(Map<String, String> returnTypes,
                                 Map<String, Set<String>> qualifiedNames) {
+        List<MethodReference> resolvedCallees = new java.util.ArrayList<>();
         boolean changed = false;
 
         for (var callerEntry : calleeIndex.entrySet()) {
@@ -381,8 +386,7 @@ public class CallGraphBuilder {
                     callerIndex.getOrDefault(call.callee(), Collections.emptySet()).remove(call);
                     callerIndex.computeIfAbsent(newCallee, k -> new HashSet<>()).add(newCall);
 
-                    allMethods.add(newCallee);
-                    methodsByName.computeIfAbsent(newCallee.methodName(), k -> new HashSet<>()).add(newCallee);
+                    resolvedCallees.add(newCallee);
                     changed = true;
                     callerChanged = true;
                 } else {
@@ -393,6 +397,11 @@ public class CallGraphBuilder {
             if (callerChanged) {
                 callerEntry.setValue(callSet(updatedCalls));
             }
+        }
+
+        for (MethodReference newCallee : resolvedCallees) {
+            allMethods.add(newCallee);
+            methodsByName.computeIfAbsent(newCallee.methodName(), k -> new HashSet<>()).add(newCallee);
         }
 
         if (changed) {
@@ -414,7 +423,10 @@ public class CallGraphBuilder {
                                        Map<Integer, List<MethodCall>> resolvedByLine,
                                        Map<String, String> returnTypes,
                                        Map<String, Set<String>> qualifiedNames) {
-        // Strategy 1: same-line calls whose return type declares this method
+        // Strategy 1: same-line calls whose return type declares this method.
+        // Calls carry a line but no column, so the receiver is known only when exactly
+        // one same-line return type qualifies; otherwise Strategy 2 decides.
+        Set<String> sameLineTypes = new HashSet<>();
         List<MethodCall> sameLine = resolvedByLine.getOrDefault(call.line(), List.of());
         for (MethodCall resolved : sameLine) {
             String rt = returnTypes.get(resolved.callee().className() + "." + resolved.callee().methodName());
@@ -439,13 +451,20 @@ public class CallGraphBuilder {
                     if (methodReturnType != null || hasMethod) {
                         // Accept only if the qualified RT is among known qualifieds
                         if (qualifieds.contains(rt)) {
-                            return rt;
+                            sameLineTypes.add(rt);
                         }
                     }
+                } else if (!rt.contains(".") && qualifieds.size() == 1) {
+                    // A return type resolved before its class was indexed keeps the simple
+                    // name; count it as the one class it names, like the qualified spelling.
+                    sameLineTypes.add(qualifieds.iterator().next());
                 } else {
-                    return rt;
+                    sameLineTypes.add(rt);
                 }
             }
+        }
+        if (sameLineTypes.size() == 1) {
+            return sameLineTypes.iterator().next();
         }
 
         // Strategy 2: unique method name — only one class has this method

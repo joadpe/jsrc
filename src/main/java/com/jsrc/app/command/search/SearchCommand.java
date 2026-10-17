@@ -39,8 +39,9 @@ public class SearchCommand implements Command {
             int inCode = 0;
             int inComments = 0;
             for (var result : results) {
-                String className = (String) result.getOrDefault("className", "");
-                if (!className.isEmpty()) byClass.merge(className, 1, Integer::sum);
+                if (result.get("class") instanceof String className && !className.isEmpty()) {
+                    byClass.merge(className, 1, Integer::sum);
+                }
                 if (Boolean.TRUE.equals(result.get("inComment"))) inComments++;
                 else inCode++;
             }
@@ -52,7 +53,12 @@ public class SearchCommand implements Command {
             compact.put("topClasses", byClass.entrySet().stream()
                     .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
                     .limit(10)
-                    .map(entry -> Map.of("class", entry.getKey(), "count", entry.getValue()))
+                    .map(entry -> {
+                        var top = new LinkedHashMap<String, Object>();
+                        top.put("class", entry.getKey());
+                        top.put("count", entry.getValue());
+                        return top;
+                    })
                     .toList());
             compact.put("matches", results.subList(0, 30));
             compact.put("truncated", true);

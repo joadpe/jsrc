@@ -90,14 +90,20 @@ public class MethodSearchCommand implements Command {
             // Group by class
             var byClass = new LinkedHashMap<String, Integer>();
             for (var r : results) {
-                String cls = (String) r.getOrDefault("className", "");
-                if (!cls.isEmpty()) byClass.merge(cls, 1, Integer::sum);
+                if (r.get("class") instanceof String cls && !cls.isEmpty()) {
+                    byClass.merge(cls, 1, Integer::sum);
+                }
             }
             compact.put("classesWithMethod", byClass.size());
             compact.put("topClasses", byClass.entrySet().stream()
                     .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
                     .limit(10)
-                    .map(e -> Map.of("class", e.getKey(), "overloads", e.getValue()))
+                    .map(e -> {
+                        var top = new LinkedHashMap<String, Object>();
+                        top.put("class", e.getKey());
+                        top.put("overloads", e.getValue());
+                        return top;
+                    })
                     .toList());
             compact.put("matches", results.subList(0, 30));
             compact.put("truncated", true);

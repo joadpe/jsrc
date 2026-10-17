@@ -266,26 +266,26 @@ class CallChainTracerTest {
     @Test
     @DisplayName("Should trace separate chains for overloaded method calls")
     void shouldTraceSeparateChainsForOverloads() throws IOException {
-        // Reproduces the bug: pxAceptarFacturacion calls two overloads of generaDocumentos
+        // Reproduces the bug: onAcceptOrder calls two overloads of generateReports
         // Both chains should appear — the dedup by summary() must not collapse them
-        Path docs = writeFile("GeneracionDocumentos.java", """
-                public class GeneracionDocumentos {
-                    public Object generaDocumentos(Integer id) {
-                        return _generaDocumentos(id);
+        Path docs = writeFile("ReportGenerator.java", """
+                public class ReportGenerator {
+                    public Object generateReports(Integer id) {
+                        return _generateReports(id);
                     }
-                    public Object generaDocumentos(Integer id, Object dir) {
-                        return _generaDocumentos(id, dir);
+                    public Object generateReports(Integer id, Object dir) {
+                        return _generateReports(id, dir);
                     }
-                    private Object _generaDocumentos(Integer id) { return null; }
-                    private Object _generaDocumentos(Integer id, Object dir) { return null; }
+                    private Object _generateReports(Integer id) { return null; }
+                    private Object _generateReports(Integer id, Object dir) { return null; }
                 }
                 """);
         Path caller = writeFile("Caller.java", """
                 public class Caller {
-                    private GeneracionDocumentos docs = new GeneracionDocumentos();
-                    public void pxAceptar() {
-                        Object a = docs.generaDocumentos(1, null);
-                        Object b = docs.generaDocumentos(1);
+                    private ReportGenerator docs = new ReportGenerator();
+                    public void onAccept() {
+                        Object a = docs.generateReports(1, null);
+                        Object b = docs.generateReports(1);
                     }
                 }
                 """);
@@ -293,10 +293,10 @@ class CallChainTracerTest {
         CallGraphBuilder graph = buildGraph(docs, caller);
         CallChainTracer tracer = new CallChainTracer(graph);
 
-        // Trace to _generaDocumentos — should find 2 chains (one per overload)
-        List<CallChain> chains = tracer.traceToRoots("_generaDocumentos");
+        // Trace to _generateReports — should find 2 chains (one per overload)
+        List<CallChain> chains = tracer.traceToRoots("_generateReports");
         assertEquals(2, chains.size(),
-                "Should find 2 separate chains for 2 overloads of _generaDocumentos. Got: "
+                "Should find 2 separate chains for 2 overloads of _generateReports. Got: "
                 + chains.stream().map(CallChain::summary).toList());
 
         // Verify each chain has a distinct summary
@@ -311,38 +311,38 @@ class CallChainTracerTest {
     void shouldTraceSeparateChainsForOverloadsViaIndex() throws Exception {
         // This test covers the REAL user flow: index → save → load → trace
         // Uses local variable + method call to ensure callee class resolution works
-        Path docs = writeFile("GeneracionDocumentos.java", """
-                public class GeneracionDocumentos {
-                    public Object generaDocumentos(Integer id) {
-                        return _generaDocumentos(id);
+        Path docs = writeFile("ReportGenerator.java", """
+                public class ReportGenerator {
+                    public Object generateReports(Integer id) {
+                        return _generateReports(id);
                     }
-                    public Object generaDocumentos(Integer id, Object dir) {
-                        return _generaDocumentos(id, null, dir);
+                    public Object generateReports(Integer id, Object dir) {
+                        return _generateReports(id, null, dir);
                     }
-                    private Object _generaDocumentos(Integer id) {
-                        PaqueteDocumentoFacturaXML p = new PaqueteDocumentoFacturaXML();
+                    private Object _generateReports(Integer id) {
+                        ReportBundleXml p = new ReportBundleXml();
                         return p.run();
                     }
-                    private Object _generaDocumentos(Integer id, Object x, Object dir) {
-                        PaqueteDocumentoFacturaXML p = new PaqueteDocumentoFacturaXML();
+                    private Object _generateReports(Integer id, Object x, Object dir) {
+                        ReportBundleXml p = new ReportBundleXml();
                         return p.run();
                     }
                 }
                 """);
-        Path paquete = writeFile("PaqueteDocumentoFacturaXML.java", """
-                public class PaqueteDocumentoFacturaXML {
-                    public Object run() { return creaDocumento(); }
-                    private Object creaDocumento() { return null; }
+        Path paquete = writeFile("ReportBundleXml.java", """
+                public class ReportBundleXml {
+                    public Object run() { return createReport(); }
+                    private Object createReport() { return null; }
                 }
                 """);
         Path caller = writeFile("GestorProcesos.java", """
                 public class GestorProcesos {
-                    private GeneracionDocumentos docs = new GeneracionDocumentos();
-                    public void pxAceptar(boolean flag) {
+                    private ReportGenerator docs = new ReportGenerator();
+                    public void onAccept(boolean flag) {
                         if (flag) {
-                            docs.generaDocumentos(1, null);
+                            docs.generateReports(1, null);
                         } else {
-                            docs.generaDocumentos(1);
+                            docs.generateReports(1);
                         }
                     }
                 }
@@ -362,7 +362,7 @@ class CallChainTracerTest {
         graph.loadFromIndex(loaded);
 
         CallChainTracer tracer = new CallChainTracer(graph);
-        List<CallChain> chains = tracer.traceToRoots("creaDocumento");
+        List<CallChain> chains = tracer.traceToRoots("createReport");
 
         assertEquals(2, chains.size(),
                 "Should find 2 chains (one per overload path) via loadFromIndex. Got: "

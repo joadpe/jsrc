@@ -184,14 +184,14 @@ public class CallGraphBuilder {
     /**
      * Resolves callee class "?" by looking up the return type of the method
      * that produces the receiver. Runs iteratively to handle chained calls like
-     * {@code fto.getExplotacion().getIdiomaDefecto().getIdioma()}.
+     * {@code fto.getTenant().getDefaultLanguage().getLanguage()}.
      * <p>
      * Also resolves "?field:OwnerType.fieldName" markers from field access chains.
      * <p>
-     * Pass 1: resolves ?.getIdiomaDefecto() → Explotacion.getIdiomaDefecto()
-     * (because getExplotacion() returns Explotacion and is on the same line).
-     * Pass 2: resolves ?.getIdioma() → IdiomaDefecto.getIdioma()
-     * (because getIdiomaDefecto() was resolved in pass 1 and returns IdiomaDefecto).
+     * Pass 1: resolves ?.getDefaultLanguage() → Tenant.getDefaultLanguage()
+     * (because getTenant() returns Tenant and is on the same line).
+     * Pass 2: resolves ?.getLanguage() → DefaultLanguage.getLanguage()
+     * (because getDefaultLanguage() was resolved in pass 1 and returns DefaultLanguage).
      */
     private void resolveUnknownCallees(List<com.jsrc.app.index.IndexEntry> entries) {
         resolveUnknownCallees(semanticMetadata(entries));
@@ -414,7 +414,7 @@ public class CallGraphBuilder {
      * Tries to resolve a "?" callee class using return types of other calls on the same line,
      * or by unique method name match across the codebase.
      * <p>
-     * When the return type is a qualified name (e.g. "com.app.Explotacion"), uses it
+     * When the return type is a qualified name (e.g. "com.app.Tenant"), uses it
      * to disambiguate classes with the same simple name in different packages.
      *
      * @param qualifiedNames map of simple class name → set of qualified names (for disambiguation)
@@ -497,7 +497,7 @@ public class CallGraphBuilder {
 
     /**
      * Resolves a simple return type name to a qualified name using the declaring
-     * class's imports. E.g. "Explotacion" → "com.app.modelos.Explotacion"
+     * class's imports. E.g. "Tenant" → "com.app.modelos.Tenant"
      * if the declaring class imports that package.
      *
      * @param simpleType        simple type name from return type
@@ -512,7 +512,7 @@ public class CallGraphBuilder {
         if (simpleType == null || simpleType.isEmpty()) return simpleType;
         if (simpleType.contains(".")) return simpleType;
 
-        // Check explicit imports: import com.app.Explotacion;
+        // Check explicit imports: import com.app.Tenant;
         for (String imp : imports) {
             if (imp.endsWith("." + simpleType)) {
                 return imp;

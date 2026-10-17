@@ -81,12 +81,12 @@ class ArchitectureConfigTest {
         Files.writeString(tempDir.resolve(".jsrc.yaml"), """
                 architecture:
                   invokers:
-                    - method: ejecutarMetodo
+                    - method: invokeMethod
                       targetArg: 0
-                      resolveClass: adaptadorBean
-                    - method: ejecutarAccion
+                      resolveClass: handlerBean
+                    - method: invokeAction
                       targetArg: 0
-                      resolveClass: adaptadorBean
+                      resolveClass: handlerBean
                 """);
 
         var config = ProjectConfig.load(tempDir).orElseThrow();
@@ -94,9 +94,9 @@ class ArchitectureConfigTest {
         assertEquals(2, config.architecture().invokers().size());
 
         var inv = config.architecture().invokers().getFirst();
-        assertEquals("ejecutarMetodo", inv.method());
+        assertEquals("invokeMethod", inv.method());
         assertEquals(0, inv.targetArg());
-        assertEquals("adaptadorBean", inv.resolveClass());
+        assertEquals("handlerBean", inv.resolveClass());
     }
 
     @Test

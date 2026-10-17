@@ -178,8 +178,8 @@ class TreeSitterParserTest {
     @Test
     @DisplayName("Should find methods whose names are not ASCII")
     void shouldFindNonAsciiMethodName() throws IOException {
-        Path file = writeFile("Cobro.java", """
-                public class Cobro {
+        Path file = writeFile("Tarea.java", """
+                public class Tarea {
                     public void método() {}
                     public void metodo() {}
                 }
@@ -268,10 +268,10 @@ class TreeSitterParserTest {
     @Test
     @DisplayName("Should read Windows-1252 sources with offsets into the parsed text")
     void shouldReadWindows1252Source() throws IOException {
-        Path file = tempDir.resolve("Facturacion.java");
+        Path file = tempDir.resolve("Catalogo.java");
         Files.write(file, """
-                // Facturación, señal, acción, año
-                public class Facturacion {
+                // Catálogo, señal, acción, año
+                public class Catalogo {
                     public static String estado() { return "señal"; }
                 }
                 """.getBytes(java.nio.charset.Charset.forName("windows-1252")));

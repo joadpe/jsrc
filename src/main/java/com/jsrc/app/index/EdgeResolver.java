@@ -196,7 +196,7 @@ public class EdgeResolver {
 
     /**
      * Extracts reflective call edges based on invoker config.
-     * E.g. ejecutarMetodo("calcularImporte", ...) → CallerAdaptadorBean.calcularImporte()
+     * E.g. invokeMethod("computeTotal", ...) → CallerHandlerBean.computeTotal()
      */
     public List<CallEdge> extractReflectiveEdges(Path file, JavaParser jp,
                                                   List<com.jsrc.app.config.ArchitectureConfig.InvokerDef> invokers) {

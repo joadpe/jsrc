@@ -45,10 +45,10 @@ class SourceCompatibilityScannerTest {
 
     @Test
     void acceptsWindows1252SourceAndHashesItsBytes() throws Exception {
-        Path source = root.resolve("Facturacion.java");
+        Path source = root.resolve("Catalogo.java");
         byte[] bytes = """
-                /** Facturación del año. */
-                class Facturacion { String estado = "señal"; }
+                /** Catálogo del año. */
+                class Catalogo { String estado = "señal"; }
                 """.getBytes(Charset.forName("windows-1252"));
         Files.write(source, bytes);
         var config = new ProjectConfig(List.of(), List.of(), "8", ArchitectureConfig.empty());

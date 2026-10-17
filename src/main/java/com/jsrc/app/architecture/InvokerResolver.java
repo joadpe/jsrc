@@ -26,8 +26,8 @@ import com.jsrc.app.util.SourceText;
  * Resolves reflective method invocations where the target method name
  * is passed as a string argument. E.g.:
  * <pre>
- * ejecutarMetodo("calcularImporte", params)
- * → resolves to AdaptadorBean.calcularImporte()
+ * invokeMethod("computeTotal", params)
+ * → resolves to HandlerBean.computeTotal()
  * </pre>
  */
 public class InvokerResolver {
@@ -121,8 +121,8 @@ public class InvokerResolver {
 
     /**
      * Resolves target class name by convention.
-     * E.g. caller "LiquidacionDetalle" + convention "adaptadorBean"
-     * → target "LiquidacionAdaptadorBean"
+     * E.g. caller "PedidoDetalle" + convention "handlerBean"
+     * → target "PedidoHandlerBean"
      */
     private String resolveTargetClass(String callerClass, InvokerDef inv) {
         String resolveClass = inv.resolveClass();

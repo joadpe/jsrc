@@ -23,7 +23,7 @@ import com.jsrc.app.util.TargetResolver.MethodMatch;
  * <ul>
  *   <li>{@code --all} — scan the entire codebase</li>
  *   <li>A class name — {@code OrderService}</li>
- *   <li>A method name — {@code creaDocumento}</li>
+ *   <li>A method name — {@code createReport}</li>
  *   <li>A qualified reference — {@code Service.process(String, int)}</li>
  *   <li>A file path fragment — {@code src/main/Service.java}</li>
  * </ul>
@@ -362,8 +362,8 @@ public class SmellsCommand implements Command {
         System.err.println();
         System.err.println("Examples:");
         System.err.println("  jsrc --smells OrderService");
-        System.err.println("  jsrc --smells creaDocumento");
-        System.err.println("  jsrc --smells GeneracionDocumentos.creaDocumento");
+        System.err.println("  jsrc --smells createReport");
+        System.err.println("  jsrc --smells ReportGenerator.createReport");
         System.err.println("  jsrc --smells --all --json");
     }
 }

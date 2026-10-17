@@ -233,14 +233,14 @@ public class PatternsCommand implements Command {
 
     /**
      * Extracts the suffix from a class name by splitting at uppercase boundaries.
-     * E.g.: "FacturaDetailBean" → "DetailBean", "OrderService" → "Service",
-     * "FacturaDAO" → "DAO", "App" → null (single word).
+     * E.g.: "ProductDetailBean" → "DetailBean", "OrderService" → "Service",
+     * "ProductDAO" → "DAO", "App" → null (single word).
      */
     /**
      * Extracts the suffix from a class name by finding camelCase word boundaries.
      * <p>
-     * Examples: OrderService→Service, FacturaDetailBean→DetailBean,
-     * FacturaDAO→DAO, XMLParser→Parser, OAuth2Handler→Handler
+     * Examples: OrderService→Service, ProductDetailBean→DetailBean,
+     * ProductDAO→DAO, XMLParser→Parser, OAuth2Handler→Handler
      *
      * @return suffix, or null if the name is a single word / trivial
      */
@@ -280,7 +280,7 @@ public class PatternsCommand implements Command {
         if (lastBoundary == 0) return null;
 
         // Try compound suffix: include the word before the last one
-        // "FacturaDetailBean" → boundaries at [7=Detail, 13=Bean] → compound = "DetailBean"
+        // "ProductDetailBean" → boundaries at [7=Detail, 13=Bean] → compound = "DetailBean"
         // Don't compound across digits: "OAuth2Handler" → just "Handler"
         if (boundaries.size() >= 2) {
             int secondLast = boundaries.get(boundaries.size() - 2);

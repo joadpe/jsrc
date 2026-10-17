@@ -22,13 +22,13 @@ class LegacyProjectIndexCliTest {
     @Test
     void indexesWindows1252SourcesUnderDotPrefixedSourceRoots() throws Exception {
         Path sources = Files.createDirectories(projectRoot.resolve("web/src/com/example"));
-        Files.write(sources.resolve("Facturacion.java"), """
+        Files.write(sources.resolve("Catalogo.java"), """
                 package com.example;
-                /** Facturación del año. */
-                public class Facturacion { public String estado() { return "señal"; } }
+                /** Catálogo del año. */
+                public class Catalogo { public String estado() { return "señal"; } }
                 """.getBytes(Charset.forName("windows-1252")));
-        Files.writeString(sources.resolve("Cliente.java"),
-                "package com.example; public class Cliente {}");
+        Files.writeString(sources.resolve("Usuario.java"),
+                "package com.example; public class Usuario {}");
         Files.writeString(projectRoot.resolve(".jsrc.yaml"), "sourceRoots:\n  - ./web/src\n");
 
         ByteArrayOutputStream stderr = new ByteArrayOutputStream();
@@ -57,7 +57,7 @@ class LegacyProjectIndexCliTest {
             System.setOut(originalOut);
         }
         String classes = stdout.toString(StandardCharsets.UTF_8);
-        assertTrue(classes.contains("Facturacion"), classes);
-        assertTrue(classes.contains("Cliente"), classes);
+        assertTrue(classes.contains("Catalogo"), classes);
+        assertTrue(classes.contains("Usuario"), classes);
     }
 }

@@ -33,9 +33,9 @@ class LayerChainDetectionTest {
     void extractSuffix_standardPatterns() {
         assertEquals("Service", PatternsCommand.extractSuffix("OrderService"));
         assertEquals("Controller", PatternsCommand.extractSuffix("OrderController"));
-        assertEquals("DetailBean", PatternsCommand.extractSuffix("FacturaDetailBean"));
-        assertEquals("Detail", PatternsCommand.extractSuffix("FacturaDetail"));
-        assertEquals("DAO", PatternsCommand.extractSuffix("FacturaDAO"));
+        assertEquals("DetailBean", PatternsCommand.extractSuffix("ProductDetailBean"));
+        assertEquals("Detail", PatternsCommand.extractSuffix("ProductDetail"));
+        assertEquals("DAO", PatternsCommand.extractSuffix("ProductDAO"));
         assertNull(PatternsCommand.extractSuffix("App")); // single word
     }
 
@@ -92,14 +92,14 @@ class LayerChainDetectionTest {
     @Test
     void patterns_discoversCustomSuffixes() throws Exception {
         var result = runPatterns(
-                "public class FacturaDetail { public void show() {} }",
-                "public class ClienteDetail { public void show() {} }",
+                "public class ProductDetail { public void show() {} }",
+                "public class UsuarioDetail { public void show() {} }",
                 "public class ProductoDetail { public void show() {} }",
-                "public class FacturaDetailBean { public void save() {} }",
-                "public class ClienteDetailBean { public void save() {} }",
+                "public class ProductDetailBean { public void save() {} }",
+                "public class UsuarioDetailBean { public void save() {} }",
                 "public class ProductoDetailBean { public void save() {} }",
-                "public class FacturaDAO { public void persist() {} }",
-                "public class ClienteDAO { public void persist() {} }",
+                "public class ProductDAO { public void persist() {} }",
+                "public class UsuarioDAO { public void persist() {} }",
                 "public class ProductoDAO { public void persist() {} }");
 
         @SuppressWarnings("unchecked")
@@ -115,14 +115,14 @@ class LayerChainDetectionTest {
     @Test
     void patterns_detectsLayerChain() throws Exception {
         var result = runPatterns(
-                "public class FacturaDetail { public void show() {} }",
-                "public class ClienteDetail { public void show() {} }",
+                "public class ProductDetail { public void show() {} }",
+                "public class UsuarioDetail { public void show() {} }",
                 "public class ProductoDetail { public void show() {} }",
-                "public class FacturaDetailBean { public void save() {} }",
-                "public class ClienteDetailBean { public void save() {} }",
+                "public class ProductDetailBean { public void save() {} }",
+                "public class UsuarioDetailBean { public void save() {} }",
                 "public class ProductoDetailBean { public void save() {} }",
-                "public class FacturaDAO { public void persist() {} }",
-                "public class ClienteDAO { public void persist() {} }",
+                "public class ProductDAO { public void persist() {} }",
+                "public class UsuarioDAO { public void persist() {} }",
                 "public class ProductoDAO { public void persist() {} }");
 
         @SuppressWarnings("unchecked")
@@ -142,10 +142,10 @@ class LayerChainDetectionTest {
     void snippet_worksWithCustomSuffix() throws Exception {
         List<Path> files = new java.util.ArrayList<>();
         for (String src : new String[]{
-                "public class FacturaDetailBean {\n    private final FacturaDAO dao;\n    public FacturaDetailBean(FacturaDAO dao) { this.dao = dao; }\n    public void save() {}\n}",
-                "public class ClienteDetailBean {\n    private final ClienteDAO dao;\n    public ClienteDetailBean(ClienteDAO dao) { this.dao = dao; }\n    public void save() {}\n}",
-                "public class FacturaDAO {\n    public void persist() {}\n}",
-                "public class ClienteDAO {\n    public void persist() {}\n}"
+                "public class ProductDetailBean {\n    private final ProductDAO dao;\n    public ProductDetailBean(ProductDAO dao) { this.dao = dao; }\n    public void save() {}\n}",
+                "public class UsuarioDetailBean {\n    private final UsuarioDAO dao;\n    public UsuarioDetailBean(UsuarioDAO dao) { this.dao = dao; }\n    public void save() {}\n}",
+                "public class ProductDAO {\n    public void persist() {}\n}",
+                "public class UsuarioDAO {\n    public void persist() {}\n}"
         }) {
             String className = src.substring(src.indexOf("class ") + 6).split("[\\s{]")[0];
             Path file = tempDir.resolve(className + ".java");

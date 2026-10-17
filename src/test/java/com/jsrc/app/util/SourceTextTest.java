@@ -27,7 +27,7 @@ class SourceTextTest {
 
     @Test
     void decodesLegacyWindowsSourcesInsteadOfFailing() {
-        String source = "// Facturación del año – “señal” €\nclass A { String s = \"acción\"; }\n";
+        String source = "// Catálogo del año – “señal” €\nclass A { String s = \"acción\"; }\n";
 
         assertEquals(source, SourceText.decode(source.getBytes(WINDOWS_1252)));
     }

@@ -25,28 +25,28 @@ class ReturnTypeResolutionTest {
     @Test
     @DisplayName("Should resolve chained method calls via return types")
     void shouldResolveChainedCalls() throws Exception {
-        writeFile("Facturacion.java", """
-                public class Facturacion {
-                    public Explotacion getExplotacion() { return null; }
+        writeFile("Catalogo.java", """
+                public class Catalogo {
+                    public Tenant getTenant() { return null; }
                     public Integer getId() { return null; }
                 }
                 """);
-        writeFile("Explotacion.java", """
-                public class Explotacion {
-                    public IdiomaDefecto getIdiomaDefecto() { return null; }
+        writeFile("Tenant.java", """
+                public class Tenant {
+                    public DefaultLanguage getDefaultLanguage() { return null; }
                 }
                 """);
-        writeFile("IdiomaDefecto.java", """
-                public class IdiomaDefecto {
-                    public String getIdioma() { return null; }
+        writeFile("DefaultLanguage.java", """
+                public class DefaultLanguage {
+                    public String getLanguage() { return null; }
                     public String getPais() { return null; }
                 }
                 """);
         writeFile("GestorProcesos.java", """
                 public class GestorProcesos {
-                    public void preAcepta(Facturacion fto) {
-                        String idioma = fto.getExplotacion().getIdiomaDefecto().getIdioma();
-                        String pais = fto.getExplotacion().getIdiomaDefecto().getPais();
+                    public void preAccept(Catalogo fto) {
+                        String language = fto.getTenant().getDefaultLanguage().getLanguage();
+                        String pais = fto.getTenant().getDefaultLanguage().getPais();
                     }
                 }
                 """);
@@ -61,9 +61,9 @@ class ReturnTypeResolutionTest {
         var graph = new CallGraphBuilder();
         graph.loadFromIndex(loaded);
 
-        // Get callees of preAcepta
-        var targets = graph.findMethodsByName("preAcepta");
-        assertFalse(targets.isEmpty(), "Should find preAcepta");
+        // Get callees of preAccept
+        var targets = graph.findMethodsByName("preAccept");
+        assertFalse(targets.isEmpty(), "Should find preAccept");
 
         Set<String> calleeDescriptions = targets.stream()
                 .flatMap(t -> graph.getCalleesOf(t).stream())
@@ -75,51 +75,51 @@ class ReturnTypeResolutionTest {
                 "No callees should have '?' class. Got: " + calleeDescriptions);
 
         // Verify specific resolutions
-        assertTrue(calleeDescriptions.contains("Facturacion.getExplotacion"),
-                "Should resolve fto.getExplotacion()");
-        assertTrue(calleeDescriptions.contains("Explotacion.getIdiomaDefecto"),
-                "Should resolve .getIdiomaDefecto() via Explotacion return type");
-        assertTrue(calleeDescriptions.contains("IdiomaDefecto.getIdioma"),
-                "Should resolve .getIdioma() via IdiomaDefecto return type");
-        assertTrue(calleeDescriptions.contains("IdiomaDefecto.getPais"),
-                "Should resolve .getPais() via IdiomaDefecto return type");
+        assertTrue(calleeDescriptions.contains("Catalogo.getTenant"),
+                "Should resolve fto.getTenant()");
+        assertTrue(calleeDescriptions.contains("Tenant.getDefaultLanguage"),
+                "Should resolve .getDefaultLanguage() via Tenant return type");
+        assertTrue(calleeDescriptions.contains("DefaultLanguage.getLanguage"),
+                "Should resolve .getLanguage() via DefaultLanguage return type");
+        assertTrue(calleeDescriptions.contains("DefaultLanguage.getPais"),
+                "Should resolve .getPais() via DefaultLanguage return type");
     }
 
     @Test
     @DisplayName("Should disambiguate return types when same simple name exists in multiple packages")
     void shouldDisambiguateByImports() throws Exception {
-        // Two classes named "Explotacion" in different packages
-        writeFile("ExplotacionModelo.java", """
+        // Two classes named "Tenant" in different packages
+        writeFile("TenantModel.java", """
                 package com.modelos;
-                public class Explotacion {
-                    public Idioma getIdiomaDefecto() { return null; }
+                public class Tenant {
+                    public Language getDefaultLanguage() { return null; }
                 }
                 """);
-        writeFile("ExplotacionDTO.java", """
+        writeFile("TenantDTO.java", """
                 package com.dto;
-                public class Explotacion {
+                public class Tenant {
                     public String getNombre() { return null; }
                 }
                 """);
-        writeFile("Idioma.java", """
+        writeFile("Language.java", """
                 package com.modelos;
-                public class Idioma {
-                    public String getIdioma() { return null; }
+                public class Language {
+                    public String getLanguage() { return null; }
                 }
                 """);
-        // Facturacion imports the modelo Explotacion, not the DTO one
-        writeFile("Facturacion.java", """
+        // Catalogo imports the modelo Tenant, not the DTO one
+        writeFile("Catalogo.java", """
                 package com.negocio;
-                import com.modelos.Explotacion;
-                public class Facturacion {
-                    public Explotacion getExplotacion() { return null; }
+                import com.modelos.Tenant;
+                public class Catalogo {
+                    public Tenant getTenant() { return null; }
                 }
                 """);
         writeFile("Gestor.java", """
                 package com.negocio;
                 public class Gestor {
-                    public void process(Facturacion fto) {
-                        String idioma = fto.getExplotacion().getIdiomaDefecto().getIdioma();
+                    public void process(Catalogo fto) {
+                        String language = fto.getTenant().getDefaultLanguage().getLanguage();
                     }
                 }
                 """);
@@ -140,11 +140,11 @@ class ReturnTypeResolutionTest {
                 .map(c -> c.callee().className() + "." + c.callee().methodName())
                 .collect(Collectors.toSet());
 
-        // Should resolve to Explotacion (modelo), not Explotacion (DTO)
-        assertTrue(calleeDescriptions.contains("com.modelos.Explotacion.getIdiomaDefecto"),
-                "Should resolve getIdiomaDefecto via modelo Explotacion. Got: " + calleeDescriptions);
+        // Should resolve to Tenant (modelo), not Tenant (DTO)
+        assertTrue(calleeDescriptions.contains("com.modelos.Tenant.getDefaultLanguage"),
+                "Should resolve getDefaultLanguage via modelo Tenant. Got: " + calleeDescriptions);
 
-        // Should NOT have ?.getIdiomaDefecto
+        // Should NOT have ?.getDefaultLanguage
         assertFalse(calleeDescriptions.stream().anyMatch(d -> d.startsWith("?.")),
                 "All callees should be resolved. Got: " + calleeDescriptions);
     }

@@ -51,9 +51,9 @@ public record ArchitectureConfig(
     /**
      * Defines a reflective invoker pattern.
      *
-     * @param method         invoker method name (e.g. "ejecutarMetodo")
+     * @param method         invoker method name (e.g. "invokeMethod")
      * @param targetArg      index of argument containing target method name
-     * @param resolveClass   class name convention to resolve target (e.g. "adaptadorBean")
+     * @param resolveClass   class name convention to resolve target (e.g. "handlerBean")
      * @param callerSuffixes suffixes to strip from caller class name (e.g. ["Detalle", "Vista"])
      */
     public record InvokerDef(String method, int targetArg, String resolveClass, List<String> callerSuffixes) {

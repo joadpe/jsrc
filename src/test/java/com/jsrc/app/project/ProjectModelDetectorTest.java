@@ -2031,4 +2031,661 @@ class ProjectModelDetectorTest {
                 declared.testSourceRoots());
         assertEquals(List.of(), model.diagnostics());
     }
+
+    @Test
+    void readsGradleLevelNextToEmptyAndSlashStarSlashBlockComments() throws Exception {
+        assertEquals("17", gradleLevel("sourceCompatibility = /**/ 17\n"));
+        // "/*/" opens a comment: it does not close itself.
+        assertEquals("11", gradleLevel("/*/ sourceCompatibility = 8\n*/\nsourceCompatibility = 11\n"));
+    }
+
+    @Test
+    void readsGradleLevelWhenASlashIsNoCommentMarker() throws Exception {
+        // A division is code, so the block comment after the level is not its other end.
+        assertEquals("11", gradleLevel(
+                "def half = 10 / 2\nsourceCompatibility = 11\n/* note */\n"));
+    }
+
+    @Test
+    void readsGradleLevelBeforeABlockCommentThatNeverCloses() throws Exception {
+        // A /* that nothing closes is code, and the scan must still end.
+        for (String tail : List.of("/* never closed\n", "/*/\n", "/*")) {
+            String build = "sourceCompatibility = 11\n" + tail;
+            assertEquals("11", org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                    java.time.Duration.ofSeconds(10), () -> gradleLevel(build)), build);
+        }
+    }
+
+    @Test
+    void readsGradleLevelBeforeALineCommentWithoutAFinalLineBreak() throws Exception {
+        assertEquals("11", gradleLevel("sourceCompatibility = 11\n// end"));
+        // The comment ends at a bare carriage return too.
+        assertEquals("11", gradleLevel("// header\rsourceCompatibility = 11\r"));
+    }
+
+    @Test
+    void stripsGradleCommentsAfterEmptyStringsAndEscapedBackslashes() throws Exception {
+        for (String quote : List.of("\"", "'")) {
+            // Two empty strings must not turn the lines between them into one string.
+            assertEquals("11", gradleLevel("version = " + quote + quote + "\n"
+                    + "// sourceCompatibility = 6\n"
+                    + "description = " + quote + quote + "\n"
+                    + "sourceCompatibility = 11\n"), quote);
+        }
+        // An empty string closes at once, so the apostrophe in the comment pairs with nothing.
+        assertEquals("11", gradleLevel(
+                "def a = '' // it's sourceCompatibility = 6\nsourceCompatibility = 11\n"));
+        // An escaped backslash right before the closing quote does not escape that quote.
+        assertEquals("11", gradleLevel(
+                "def a = '\\\\' // sourceCompatibility = 6 '\nsourceCompatibility = 11\n"));
+    }
+
+    @Test
+    void stripsGradleCommentsAfterUnclosedTripleQuotesAndLongQuoteRuns() throws Exception {
+        // A triple quote that never closes, as in a slashy string, opens no string.
+        assertEquals("11", gradleLevel(
+                "def r = /\"\"\"/\n// sourceCompatibility = 6\nsourceCompatibility = 11\n"));
+        // A string ends with the last quote of a run, so none is left to pair with the comment's.
+        assertEquals("11", gradleLevel(
+                "val q = \"\"\"\"a\"\"\"\" // \"sourceCompatibility = 6\"\nsourceCompatibility = 11\n"));
+        // A script may end right after a triple-quoted string, or begin with a string.
+        assertEquals("11", gradleLevel("sourceCompatibility = 11\ndef q = \"\"\"text\"\"\""));
+        assertEquals("11", gradleLevel("\"x\"\nsourceCompatibility = 11\n"));
+    }
+
+    @Test
+    void keepsAContinuedGradleStringWholeAndEndsAnUnpairedQuoteWithItsLine() throws Exception {
+        // A backslash before a line break continues the string, so its // is no comment.
+        assertEquals("11", gradleLevel("def s = 'a \\\r\n// b'; sourceCompatibility = 11\r\n"));
+        // An apostrophe that opens no string, as in a slashy string, stops at the end of its line.
+        assertEquals("11", gradleLevel(
+                "def a = /it's/\n// sourceCompatibility = 6 '\nsourceCompatibility = 11\n"));
+        assertEquals("11", gradleLevel(
+                "def a = /it's/\r// sourceCompatibility = 6 '\rsourceCompatibility = 11\r"));
+    }
+
+    @Test
+    void readsGradleModuleBuildAfterAByteOrderMark() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing'");
+        Path billing = Files.createDirectories(projectRoot.resolve("billing"));
+        // The mark must not hide that compileTestJava is not the main compilation.
+        Files.writeString(billing.resolve("build.gradle"), "\uFEFF" + """
+                compileTestJava { sourceCompatibility = JavaVersion.VERSION_1_6 }
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("8", model.module("billing").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void readsAccentedGradleModuleNamesFromAWindows1252Settings() throws Exception {
+        Path module = null;
+        try {
+            module = Files.createDirectories(projectRoot.resolve("caf\u00E9"));
+        } catch (java.nio.file.InvalidPathException exception) {
+            // The file system cannot name it: assumed away below.
+        }
+        org.junit.jupiter.api.Assumptions.assumeTrue(module != null,
+                "the file system cannot name a module with an accent");
+        Files.write(projectRoot.resolve("settings.gradle"),
+                "include 'caf\u00E9'\n".getBytes(WINDOWS_1252));
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals(List.of("caf\u00E9"),
+                model.modules().stream().map(ProjectModule::name).toList());
+        assertEquals(List.of(), model.diagnostics());
+    }
+
+    @Test
+    void readsGradleIncludesWrittenWithDoubleQuotesTabsAndCarriageReturns() throws Exception {
+        assertEquals(List.of("app", "core", "docs"), gradleModulePaths("settings.gradle", """
+                include "app"
+                include "core", "docs"
+                """));
+        assertEquals(List.of("app", "tools"), gradleModulePaths("settings.gradle",
+                "include\t'app'\nif (true) {\n\tinclude 'tools'\n}\n"));
+        // A Windows checkout ends its lines in CR LF.
+        assertEquals(List.of("app", "core"), gradleModulePaths("settings.gradle",
+                "include 'app',\r\n        'core'\r\n"));
+        assertEquals(List.of("app", "core"), gradleModulePaths("settings.gradle.kts",
+                "include(\r\n    \":app\",\r\n    \":core\"\r\n)\r\n"));
+    }
+
+    @Test
+    void readsGradleIncludesOnlyWhereTheyStartAStatement() throws Exception {
+        assertEquals(List.of("a", "y"), gradleModulePaths("settings.gradle", """
+                include 'a'
+                files.include 'b'
+                foo include 'c'
+                include
+                'd'
+                def text = \"\"\"
+                include 'x'
+                \"\"\"
+                include 'y'
+                """));
+        // A call without arguments, or an identifier, may be the last thing in the file.
+        assertEquals(List.of("a"), gradleModulePaths("settings.gradle", "include 'a'\ninclude"));
+        assertEquals(List.of("a"), gradleModulePaths("settings.gradle", "include 'a'\nfoo"));
+    }
+
+    @Test
+    void readsGradleIncludeListsWithNestedCallsAndUnclosedLists() throws Exception {
+        assertEquals(List.of("a", "b", "c"), gradleModulePaths("settings.gradle.kts",
+                "include(\":a\", listOf(\":b\").first(), \":c\")\n"));
+        assertEquals(List.of("a", "b"), gradleModulePaths("settings.gradle.kts",
+                "include(\":a\", settings.include, \":b\")\n"));
+        // A list that is never closed, and has nothing on its first line, adds nothing.
+        assertEquals(List.of("c"), gradleModulePaths("settings.gradle.kts",
+                "include(\n    \":a\",\n    \":b\"\ninclude(\":c\")\n"));
+    }
+
+    @Test
+    void doesNotReadGradleIncludeArgumentsThatAreConcatenatedBlankOrUnclosed() throws Exception {
+        // Without a literal module the build is a single project at the root.
+        List<String> root = List.of("");
+        assertEquals(root, gradleModulePaths("settings.gradle", "include 'a' + 'b'\n"));
+        assertEquals(root, gradleModulePaths("settings.gradle.kts", "include(\":a\" +\n    \":b\")\n"));
+        assertEquals(root, gradleModulePaths("settings.gradle.kts", "include(\":a\"\n    + \":b\")\n"));
+        assertEquals(root, gradleModulePaths("settings.gradle", "include ''\ninclude ' '\ninclude 'a\n"));
+    }
+
+    @Test
+    void readsGradleIncludesWhoseArgumentsAreVariablesTripleQuotedOrHoldDollarSigns() throws Exception {
+        assertEquals(List.of("a", "b", "c$d"), gradleModulePaths("settings.gradle", """
+                include name, 'a'
+                include '''b'''
+                include 'c$d'
+                include "${prefix}-core"
+                include "$other"
+                """));
+        // A dollar sign that starts no template belongs to the path, as in Kotlin.
+        assertEquals(List.of("e$", "f$1"), gradleModulePaths("settings.gradle.kts",
+                "include(\"e$\", \"f$1\")\n"));
+    }
+
+    @Test
+    void doesNotReadAReferenceToTheGradleLevelAsADeclaration() throws Exception {
+        // targetCompatibility = sourceCompatibility reads the level, whatever follows it.
+        assertEquals("11", gradleLevel("""
+                sourceCompatibility = 11
+                targetCompatibility = sourceCompatibility
+                version = '1.0'
+                """));
+        assertEquals("11", gradleLevel("""
+                if (sourceCompatibility == JavaVersion.VERSION_1_8) { println 'old' }
+                sourceCompatibility = 11
+                """));
+        // The method form with a literal sets the level, but its value is not read.
+        assertEquals("unknown", gradleLevel("""
+                sourceCompatibility '1.8'
+                sourceCompatibility = 11
+                """));
+    }
+
+    @Test
+    void prefersGradleSourceCompatibilityOverTheToolchainOfTheSameScope() throws Exception {
+        assertEquals("11", gradleLevel("""
+                java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+                sourceCompatibility = JavaVersion.VERSION_11
+                """));
+    }
+
+    @Test
+    void ignoresGradleLevelsOfACompileTaskConditionWhereverItsStatementStarts() throws Exception {
+        String main = "sourceCompatibility = JavaVersion.VERSION_1_8\n";
+        String test = "if (name == 'compileTestJava') sourceCompatibility = JavaVersion.VERSION_1_6";
+        for (String build : List.of(
+                "tasks.withType(JavaCompile) { " + test + " }\n" + main,
+                "println 'x'; " + test + "\n" + main,
+                "repositories { mavenCentral() } " + test + "\n" + main,
+                "println 'x'\n" + test + "\n" + main,
+                "tasks.withType(JavaCompile) {\n    if (name == 'compileTestJava')\n    {\n"
+                        + "        sourceCompatibility = JavaVersion.VERSION_1_6\n    }\n}\n" + main,
+                "afterEvaluate { eclipse { jdt { sourceCompatibility = JavaVersion.VERSION_1_6 } } }\n"
+                        + main)) {
+            assertEquals("8", gradleLevel(build), build);
+        }
+    }
+
+    @Test
+    void keepsAGradleLevelOpenAcrossBlanksAfterTheEqualsSign() throws Exception {
+        assertEquals("11", gradleLevel("sourceCompatibility = \n    JavaVersion.VERSION_11\n"));
+    }
+
+    @Test
+    void readsGradleLevelsOfBuildsWithUnclosedBlocksAndCalls() throws Exception {
+        // A block or call that is never closed does not hide the level declared before it.
+        assertEquals("8", gradleLevel("""
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                eclipse { def text = 1
+                """));
+        assertEquals("11", gradleLevel("sourceCompatibility = 11\nconfigure(\n"));
+    }
+
+    @Test
+    void doesNotApplyGradleConfigureOfSomeProjectsToTheRoot() throws Exception {
+        // allprojects.findAll { ... } may leave the root out, so it does not set the root level.
+        assertEquals("unknown", gradleLevel("""
+                configure(allprojects.findAll { it.name == 'x' }) {
+                    sourceCompatibility = JavaVersion.VERSION_1_8
+                }
+                """));
+        // The root keeps its own level when only some subprojects are configured.
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing'");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                configure(subprojects.findAll { it.name != 'docs' }) {
+                    sourceCompatibility = JavaVersion.VERSION_11
+                }
+                """);
+        writeGradleModule("billing", "");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("8", model.javaVersion());
+        assertEquals("unknown", model.module("billing").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void appliesGradleProjectBlocksInAnyOrderAndToNestedProjectPaths() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing', 'libs:core'");
+        writeGradleModule("billing", "");
+        writeGradleModule("libs/core", "");
+        // A project block may come before the subprojects block, name a path without the leading
+        // colon, name a nested path, and be split in two.
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                project('billing') { sourceCompatibility = JavaVersion.VERSION_11 }
+                project(':libs:core') { sourceCompatibility = JavaVersion.VERSION_17 }
+                project(':billing') { apply plugin: 'java' }
+                subprojects { apply plugin: 'java' }
+                """);
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("11", model.module("billing").orElseThrow().javaVersion());
+        assertEquals("17", model.module("core").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void appliesGradleConfigureBlocksToProjectsListedOnePerLine() throws Exception {
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing', 'reports'");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                configure([
+                    project(':billing'),
+                    project(':reports'),
+                ]) {
+                    sourceCompatibility = JavaVersion.VERSION_11
+                }
+                """);
+        writeGradleModule("billing", "");
+        writeGradleModule("reports", "");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        assertEquals("11", model.module("billing").orElseThrow().javaVersion());
+        assertEquals("11", model.module("reports").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void ignoresGradleLevelsOfEveryFormOfIdeAndOtherCompileTaskConfiguration() throws Exception {
+        String other = "sourceCompatibility = JavaVersion.VERSION_1_6";
+        for (String configuration : List.of(
+                "eclipse { " + other + " }",
+                "idea { module { " + other + " } }",
+                "idea { " + other + " }",
+                "jdt { " + other + " }",
+                "compileGroovy { " + other + " }",
+                "compileScala { " + other + " }",
+                "compileKotlin { " + other + " }",
+                "compileIntegrationTestJava { " + other + " }",
+                "eclipse." + other,
+                "eclipse.jdt." + other,
+                "idea.project." + other,
+                "jdt." + other,
+                "compileTestJava." + other,
+                "tasks.getByName('compileTestJava') { " + other + " }",
+                "tasks.named('compileTestJava', JavaCompile) { " + other + " }",
+                "tasks.named('compileTestJava').configure { " + other + " }",
+                "tasks.getByName('compileTestJava').configure { " + other + " }",
+                "configure([tasks.compileTestJava, tasks.compileTestGroovy]) { " + other + " }",
+                "configure([compileTestJava, compileTestGroovy,]) { " + other + " }",
+                "configure(compileTestJava) { " + other + " }",
+                "configure(tasks.compileTestJava) { " + other + " }",
+                "if (name == 'compileJava') {\n} else if (name == 'compileTestJava') {\n    " + other
+                        + "\n}",
+                "if ('compileTestJava' == name) " + other,
+                "if (name.equals('compileTestJava')) " + other,
+                "tasks.withType(JavaCompile) { if (it.name == 'compileTestJava') " + other + " }",
+                "tasks.register('x') { " + other + " }",
+                "tasks.create('x') { " + other + " }",
+                "task foo { " + other + " }",
+                "task foo(type: JavaCompile) { " + other + " }",
+                "task(foo) { " + other + " }",
+                "tasks.withType(JavaExec) { javaLauncher = javaToolchains.launcherFor { "
+                        + "languageVersion = JavaLanguageVersion.of(6) } }",
+                "javadoc { javadocTool = javaToolchains.javadocToolFor { "
+                        + "languageVersion = JavaLanguageVersion.of(6) } }")) {
+            String build = configuration + "\nsourceCompatibility = JavaVersion.VERSION_1_8\n";
+            assertEquals("8", gradleLevel(build), build);
+        }
+    }
+
+    @Test
+    void ignoresKotlinGradleLevelsOfEveryFormOfOtherCompileTaskConfiguration() throws Exception {
+        String other = "sourceCompatibility = JavaVersion.VERSION_1_6";
+        for (String configuration : List.of(
+                "tasks.named<JavaCompile>(\"compileTestJava\") { " + other + " }",
+                "when (name) {\n    \"compileTestJava\" -> " + other + "\n}",
+                "val x by tasks.registering { " + other + " }",
+                "val y by tasks.creating { " + other + " }")) {
+            String build = configuration + "\nsourceCompatibility = JavaVersion.VERSION_1_8\n";
+            assertEquals("8", kotlinGradleLevel(build), build);
+        }
+    }
+
+    @Test
+    void readsGradleLevelOfConfigureBlocksThatSelectTasksButNotOfThoseThatMaySelectProjects()
+            throws Exception {
+        // Selecting compile tasks, whichever way, sets the level of this project...
+        for (String selector : List.of(
+                "tasks.withType(JavaCompile)",
+                "tasks.matching { it.name.startsWith('compile') }",
+                "getTasks().withType(JavaCompile)",
+                "\n    tasks.withType(JavaCompile)\n")) {
+            String build = "configure(" + selector + ") { options.release = 11 }\n";
+            assertEquals("11", gradleLevel(build), build);
+        }
+        // ...while a selector that names projects, or no task, may leave this one out.
+        for (String selector : List.of(
+                "subprojects.collectMany { it.tasks.withType(JavaCompile) }",
+                "allprojects.collectMany { it.tasks.withType(JavaCompile) }",
+                "rootProject.tasks.withType(JavaCompile)",
+                "project(':a').tasks.withType(JavaCompile)",
+                "childProjects.values().collectMany { it.tasks.withType(JavaCompile) }",
+                "tasksToConfigure")) {
+            String build = "configure(" + selector + ") { options.release = 11 }\n";
+            assertEquals("unknown", gradleLevel(build), build);
+        }
+        // A configure call without a block configures nothing.
+        assertEquals("11", gradleLevel(
+                "configure(javaProjects)\nsourceCompatibility = 11\ndependencies { }\n"));
+    }
+
+    @Test
+    void appliesGradleConfigureOfSubprojectsToTheRootOnlyWhenTheSelectorMayHoldIt() throws Exception {
+        for (String selector : List.of(
+                "subprojects.findAll { it != rootProject }",
+                "subprojects.findAll { it in allprojects }",
+                "subprojects.findAll { it.name != 'docs' } + javaProjects",
+                "subprojects.plus(javaProjects)")) {
+            String build = "sourceCompatibility = JavaVersion.VERSION_1_8\nconfigure(" + selector
+                    + ") { sourceCompatibility = JavaVersion.VERSION_11 }\n";
+            assertEquals("unknown", gradleLevel(build), build);
+        }
+    }
+
+    @Test
+    void appliesGradleProjectBlocksWrittenWithBlanksAndToTheRootProject() throws Exception {
+        assertEquals("11", gradleLevel(
+                "project(':') { sourceCompatibility = JavaVersion.VERSION_11 }\n"));
+        assertEquals("11", gradleLevel("configure(rootProject) { sourceCompatibility = 11 }\n"));
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include 'billing'");
+        writeGradleModule("billing", "");
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                project (':billing') { sourceCompatibility = JavaVersion.VERSION_11 }
+                """);
+        assertEquals("11", new ProjectModelDetector().detect(projectRoot)
+                .module("billing").orElseThrow().javaVersion());
+        Files.writeString(projectRoot.resolve("build.gradle"), """
+                configure ([project(':billing')]) { sourceCompatibility = JavaVersion.VERSION_17 }
+                """);
+        assertEquals("17", new ProjectModelDetector().detect(projectRoot)
+                .module("billing").orElseThrow().javaVersion());
+    }
+
+    @Test
+    void doesNotTakeAProjectExpressionForAProjectBlock() throws Exception {
+        // project(":app") starts a line but opens no block; the expression goes on below.
+        assertEquals("11", kotlinGradleLevel("""
+                val phoneSigning =
+                  project(":app")
+                    .extensions
+                    .findByName("signing")
+                sourceCompatibility = 11
+                android { namespace = "x" }
+                """));
+    }
+
+    @Test
+    void doesNotReadGradleReferencesOrLookalikesAsDeclarationsOfAModule() throws Exception {
+        // The subprojects block sets 8, and no build file below declares a level of its own.
+        List<String> builds = List.of(
+                "println sourceCompatibility as String",
+                "if (sourceCompatibility in [JavaVersion.VERSION_1_8]) { println 'old' }",
+                "def old = sourceCompatibility instanceof JavaVersion",
+                "def mysourceCompatibility = 7",
+                "foo.xoptions.release = 7",
+                "def xlanguageVersion = 5",
+                "kotlin { compilerOptions { languageVersion.set(KotlinVersion.KOTLIN_2_0) } }",
+                "kotlin { compilerOptions { languageVersion.value(KotlinVersion.KOTLIN_2_0) } }",
+                "kotlin { compilerOptions { languageVersion.convention(KotlinVersion.KOTLIN_2_0) } }",
+                "kotlin { compilerOptions { languageVersion = KotlinVersion.KOTLIN_2_0 } }",
+                "kotlin { compilerOptions { languageVersion = \"1.9\" } }");
+        List<String> modules = new ArrayList<>();
+        for (int index = 0; index < builds.size(); index++) {
+            modules.add("m" + index);
+            Files.writeString(
+                    Files.createDirectories(projectRoot.resolve("m" + index)).resolve("build.gradle"),
+                    builds.get(index) + "\n");
+        }
+        Files.writeString(projectRoot.resolve("settings.gradle"), "include "
+                + String.join(", ", modules.stream().map(module -> "'" + module + "'").toList()));
+        Files.writeString(projectRoot.resolve("build.gradle"),
+                "subprojects { sourceCompatibility = JavaVersion.VERSION_1_8 }\n");
+
+        ProjectModel model = new ProjectModelDetector().detect(projectRoot);
+
+        for (int index = 0; index < builds.size(); index++) {
+            assertEquals("8", model.module(modules.get(index)).orElseThrow().javaVersion(),
+                    builds.get(index));
+        }
+    }
+
+    @Test
+    void readsGradleBuildsWithLongBlankRunsAndUnclosedCallsInLinearTime() throws Exception {
+        // From each of 100 000 blank lines, a \s* at the start of a line would read to the end of
+        // the run.
+        String blank = "\n".repeat(100_000) + "x = 1\n";
+        assertEquals("unknown", org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                java.time.Duration.ofSeconds(10), () -> gradleLevel(blank)));
+        // Every unclosed configure( reads to the end of the script unless the first one is
+        // remembered.
+        String unclosed = "sourceCompatibility = 11\n" + "configure(\n".repeat(100_000);
+        assertEquals("11", org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                java.time.Duration.ofSeconds(10), () -> gradleLevel(unclosed)));
+    }
+
+    @Test
+    void readsGradleBlockHeaderOfManyDottedNamesWithoutOverflowingTheStack() throws Exception {
+        String dotted = "a.".repeat(50_000) + "a {\n    sourceCompatibility = 11\n}\n";
+        assertEquals("11", org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                java.time.Duration.ofSeconds(10), () -> gradleLevel(dotted)));
+    }
+
+    @Test
+    void reportsEveryGradleSourceSetContainerCallThatAddsRemovesOrSelectsSourceSets() throws Exception {
+        for (String build : List.of(
+                "sourceSets.register('extra')",
+                "sourceSets.maybeCreate('extra')",
+                "sourceSets.add(extra)",
+                "sourceSets.addAll([a, b])",
+                "sourceSets.remove(extra)",
+                "sourceSets.removeAll([a])",
+                "sourceSets.removeIf({ it.name == 'x' })",
+                "sourceSets.retainAll([sourceSets.main])",
+                "sourceSets.clear()",
+                "sourceSets.configureEach { java.exclude 'x' }",
+                "sourceSets.each { it.java.exclude 'x' }",
+                "sourceSets.forEach { it.java.exclude 'x' }",
+                "sourceSets.matching { it.name != 'main' }.all { java.exclude 'x' }",
+                "sourceSets.withType(SourceSet) { java.exclude 'x' }",
+                "sourceSets.whenObjectAdded { it.java.exclude 'x' }",
+                "sourceSets.getByName('main') { java.exclude 'x' }",
+                "sourceSets.getByName('intTest') { compileClasspath += x }",
+                "sourceSets.findByName('main').java.exclude 'x'",
+                "sourceSets.getAt('main').java.exclude 'x'",
+                "sourceSets.named('intTest', SourceSet) { compileClasspath += x }",
+                "sourceSets.named(name) { java.exclude 'x' }",
+                "sourceSets.named(name.replace(\"a\", \"b\")) { java.exclude 'x' }",
+                "sourceSets.allTests { compileClasspath += x }",
+                "sourceSets {\n    create('integrationTest')\n}",
+                "sourceSets {\n    all { java.exclude 'x' }\n}",
+                "sourceSets {\n    variant { compileClasspath += configurations.compileOnly }\n}",
+                "sourceSets {\n    intTest\n}")) {
+            assertGradleSourceSetsReported(true, "build.gradle", build + "\n");
+        }
+        // Calls on every source set report only a change of Java sources, not any closure.
+        for (String build : List.of(
+                "sourceSets.configureEach { compileClasspath += configurations.compileOnly }",
+                "sourceSets.all { compileClasspath += configurations.compileOnly }",
+                "sourceSets.each { compileClasspath += configurations.compileOnly }",
+                "sourceSets.forEach { compileClasspath += configurations.compileOnly }",
+                "sourceSets.matching { it.name != 'main' }",
+                "sourceSets.whenObjectAdded { compileClasspath += configurations.compileOnly }",
+                "sourceSets.getByName('main') { compileClasspath += x }",
+                "sourceSets.named(name) { compileClasspath += x }",
+                "sourceSets.addons.output.dir(x)",
+                "def intTest = sourceSets.intTest",
+                "sourceSets {\n    main { output.dir(x) }",
+                "def s = sourceSets")) {
+            assertGradleSourceSetsReported(false, "build.gradle", build);
+        }
+    }
+
+    @Test
+    void reportsKotlinGradleSourceSetCallsInEveryForm() throws Exception {
+        for (String build : List.of(
+                "sourceSets.creating(\"extra\")",
+                "sourceSets.registering(\"extra\")",
+                "sourceSets.getByName<SourceSet>(\"intTest\") { compileClasspath += x }",
+                "sourceSets.getByName<SourceSet>(\"main\") { java.exclude(\"x\") }",
+                "sourceSets.named(\"main\").get().java.exclude(\"x\")",
+                "sourceSets.named(\"main\")?.get()?.java?.exclude(\"x\")",
+                "sourceSets.named(\"main\").configure { java.exclude(\"x\") }",
+                "sourceSets.named(\"main\").configureEach { java.exclude(\"x\") }",
+                "sourceSets.main.get().apply { java.exclude(\"x\") }",
+                "sourceSets.main.get().run { java.exclude(\"x\") }",
+                "sourceSets.main?.apply { java.exclude(\"x\") }",
+                "sourceSets {\n    \"main\" { java.exclude(\"x\") }\n}",
+                "sourceSets {\n    val intTest by creating\n}",
+                "sourceSets {\n    val intTest by registering\n}",
+                "sourceSets {\n    register(\"integrationTest\")\n}",
+                "sourceSets {\n    named(\"main\") { java.exclude(\"x\") }\n}")) {
+            assertGradleSourceSetsReported(true, "build.gradle.kts", build + "\n");
+        }
+    }
+
+    @Test
+    void doesNotReportKotlinGradleBuildThatOnlyReadsACustomSourceSet() throws Exception {
+        for (String build : List.of(
+                "val integration = sourceSets[\"intTest\"]",
+                "val integration = sourceSets.getByName(\"intTest\")",
+                "val integration = sourceSets.named(\"intTest\")",
+                "tasks.register<Test>(\"integrationTest\") {\n"
+                        + "    classpath = sourceSets[\"intTest\"].runtimeClasspath\n}")) {
+            assertGradleSourceSetsReported(false, "build.gradle.kts", build + "\n");
+        }
+    }
+
+    @Test
+    void reportsGradleSourceSetMembersThatChangeWhichFilesAreJava() throws Exception {
+        for (String build : List.of(
+                "sourceSets.main.java.source(other.java)",
+                "sourceSets.main.java.include 'x'",
+                "sourceSets.main.java.includes = ['x']",
+                "sourceSets.main.java.excludes = ['x']",
+                "sourceSets.main.java.setIncludes(['x'])",
+                "sourceSets.main.java.setExcludes(['x'])",
+                "sourceSets.main.java.filter.exclude 'x'",
+                "sourceSets.main.java.getFilter().exclude 'x'",
+                "sourceSets.main.getJava().exclude 'x'",
+                "sourceSets.main.java?.exclude 'x'",
+                "sourceSets?.main?.java?.exclude 'x'",
+                "sourceSets. main.java.exclude 'x'",
+                "sourceSets.main.with { java.exclude 'x' }",
+                "sourceSets.main.all { java.exclude 'x' }",
+                "sourceSets.named('main').configure({ java.exclude 'x' })")) {
+            assertGradleSourceSetsReported(true, "build.gradle", build + "\n");
+        }
+        // A source directory is a static root, whichever way it is added.
+        for (String build : List.of(
+                "sourceSets.main.java.srcDir 'src/other/java'",
+                "sourceSets { main { java { srcDir 'src/other/java' } } }",
+                "sourceSets.main.java.srcDirs = ['src/other/java']")) {
+            assertGradleSourceSetsReported(false, "build.gradle", build + "\n");
+        }
+    }
+
+    @Test
+    void reportsGradleSourceSetEntriesInsideStatementsOnlyWhenTheyChangeJavaSources() throws Exception {
+        for (String statement : List.of(
+                "if (flag) { main { java.exclude 'x' } }",
+                "for (n in names) { main { java.exclude 'x' } }",
+                "while (c) { main { java.exclude 'x' } }",
+                "switch (x) { case 1: main { java.exclude 'x' } }",
+                "def f = { main { java.exclude 'x' } }",
+                "return main { java.exclude 'x' }",
+                "try { main { java.exclude 'x' } } catch (e) { }",
+                "if (flag) {\n    }\n    else {\n        main { java.exclude 'x' }\n    }")) {
+            assertGradleSourceSetsReported(
+                    true, "build.gradle", "sourceSets {\n    " + statement + "\n}\n");
+        }
+        for (String statement : List.of(
+                "if (flag) {\n    }\n    else {\n        main { output.dir(x) }\n    }",
+                "try { main { output.dir(x) } } catch (e) { }")) {
+            assertGradleSourceSetsReported(
+                    false, "build.gradle", "sourceSets {\n    " + statement + "\n}\n");
+        }
+        for (String statement : List.of(
+                "when (x) { 1 -> main { java.exclude(\"x\") } }",
+                "val f = { main { java.exclude(\"x\") } }",
+                "var f = { main { java.exclude(\"x\") } }")) {
+            assertGradleSourceSetsReported(
+                    true, "build.gradle.kts", "sourceSets {\n    " + statement + "\n}\n");
+        }
+    }
+
+    private void assertGradleSourceSetsReported(boolean reported, String file, String build)
+            throws Exception {
+        Path project = Files.createTempDirectory(projectRoot, "sourcesets");
+        Files.writeString(project.resolve(file), build);
+
+        ProjectModel model = new ProjectModelDetector().detect(project);
+
+        assertEquals(reported
+                        ? List.of(new ProjectDiagnostic("BUILD_MODEL_PARTIAL",
+                                "Dynamic Gradle source-set configuration in " + project))
+                        : List.of(),
+                model.diagnostics(), build);
+    }
+
+    @Test
+    void endsAGradleIncludeCommandWhereAnotherOperandFollowsWithoutAComma() throws Exception {
+        // A block comment that spanned lines left two statements on one line.
+        for (String operand : List.of("'a'", "\"a\"")) {
+            assertEquals(List.of("a", "b"), gradleModulePaths("settings.gradle",
+                    "include " + operand + " /* c\n */ include 'b'\n"), operand);
+        }
+        for (String operand : List.of("a", "a1", "a(1)", "a[1]")) {
+            assertEquals(List.of("b"), gradleModulePaths("settings.gradle",
+                    "include " + operand + " /* c\n */ include 'b'\n"), operand);
+        }
+        // What follows an argument is no argument, whatever it is.
+        assertEquals(List.of(""), gradleModulePaths("settings.gradle",
+                "include a /* c\n */ call 'b'\n"));
+    }
 }
